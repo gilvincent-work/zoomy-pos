@@ -1,11 +1,10 @@
-import { File, Paths } from 'expo-file-system/next';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 
 export async function copyToDocumentDir(sourceUri: string, filename: string): Promise<string> {
-  const source = new File(sourceUri);
-  const dest = new File(Paths.document, filename);
-  await source.copy(dest);
-  return dest.uri;
+  const destUri = `${FileSystem.documentDirectory}${filename}`;
+  await FileSystem.copyAsync({ from: sourceUri, to: destUri });
+  return destUri;
 }
 
 export async function saveToGallery(uri: string): Promise<void> {

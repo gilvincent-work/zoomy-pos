@@ -1,0 +1,58 @@
+<h2>Payment Screen — Cash Entry</h2>
+<p class="subtitle">How should staff enter the customer's cash amount?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:220px;display:flex;flex-direction:column;gap:6px">
+      <div style="text-align:center;font-size:13px;font-weight:bold;color:#e94560">Total: ₱255</div>
+      <div style="text-align:center;font-size:11px;color:#aaa">Cash Tendered</div>
+      <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:16px;font-weight:bold;color:#fff">₱300</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱20</div>
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱50</div>
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱100</div>
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱200</div>
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱500</div>
+        <div style="background:#0f3460;border-radius:4px;padding:8px;text-align:center;font-size:12px;font-weight:bold">₱1000</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div style="background:#16213e;border-radius:4px;padding:6px;text-align:center;font-size:10px;color:#aaa">⌫ Clear</div>
+        <div style="background:#e94560;border-radius:4px;padding:6px;text-align:center;font-size:10px;font-weight:bold">Exact ₱255</div>
+      </div>
+      <div style="background:#0d7a3e;border-radius:4px;padding:6px;text-align:center;font-weight:bold;font-size:12px">Change: ₱45 → Confirm</div>
+    </div>
+    <div class="card-body">
+      <h3>A — Denomination Tap Buttons</h3>
+      <p>Staff taps peso bill denominations (₱20–₱1000) to build up the cash amount. Auto-calculates change. "Exact" button for exact cash. Fastest — no typing.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:220px;display:flex;flex-direction:column;gap:6px">
+      <div style="text-align:center;font-size:13px;font-weight:bold;color:#e94560">Total: ₱255</div>
+      <div style="text-align:center;font-size:11px;color:#aaa">Enter Cash Amount</div>
+      <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:16px;font-weight:bold;color:#fff">₱3__</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">1</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">2</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">3</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">4</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">5</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">6</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">7</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">8</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">9</div>
+        <div style="background:#16213e;border-radius:4px;padding:10px;text-align:center;font-size:12px">⌫</div>
+        <div style="background:#0f3460;border-radius:4px;padding:10px;text-align:center;font-size:14px;font-weight:bold">0</div>
+        <div style="background:#e94560;border-radius:4px;padding:10px;text-align:center;font-size:12px;font-weight:bold">OK</div>
+      </div>
+      <div style="background:#0d7a3e;border-radius:4px;padding:6px;text-align:center;font-weight:bold;font-size:12px">Change: ₱45</div>
+    </div>
+    <div class="card-body">
+      <h3>B — Numeric Keypad</h3>
+      <p>Full numeric keypad for typing any cash amount. More flexible for odd amounts, but slower than tapping denominations.</p>
+    </div>
+  </div>
+
+</div>

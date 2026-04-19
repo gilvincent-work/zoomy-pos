@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "ZoomyPOS",
+    "slug": "zoomy-pos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "zoomypos",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": false },
+    "android": { "adaptiveIcon": { "backgroundColor": "#1a1a2e" } },
+    "web": { "bundler": "metro" },
+    "plugins": ["expo-router", "expo-sqlite"]
+  }
+}

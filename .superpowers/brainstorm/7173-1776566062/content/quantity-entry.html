@@ -1,0 +1,107 @@
+<h2>Adding Items — Quantity Entry</h2>
+<p class="subtitle">When staff taps a product tile, how do they set the quantity?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:210px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;flex:1">
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px;position:relative">
+          🍰<br>Cake
+          <span style="position:absolute;top:4px;right:4px;background:#e94560;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold">2</span>
+        </div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🧁<br>Cupcake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍪<br>Cookie</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🥤<br>Drink</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍫<br>Choco</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">+ Add</div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px 8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px">
+          <span>🍰 Cake x2</span><span>₱240</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-weight:bold">
+          <span>Total</span><span style="color:#e94560">₱240</span>
+        </div>
+      </div>
+      <div style="background:#e94560;border-radius:4px;padding:6px;text-align:center;font-weight:bold">Charge ₱240</div>
+    </div>
+    <div class="card-body">
+      <h3>A — Tap to Add, Badge Count</h3>
+      <p>Each tap adds +1. A red badge on the tile shows the count. Long-press the tile to remove. Fast for single or few items — no extra screen.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:210px;display:flex;flex-direction:column;gap:6px;position:relative">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;opacity:0.4">
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍰<br>Cake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🧁<br>Cupcake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍪<br>Cookie</div>
+      </div>
+      <!-- Modal overlay -->
+      <div style="position:absolute;top:40px;left:16px;right:16px;background:#16213e;border-radius:8px;padding:12px;border:1px solid #e94560">
+        <div style="text-align:center;font-size:12px;font-weight:bold;margin-bottom:8px">🍰 Cake — ₱120</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px">
+          <div style="background:#0f3460;border-radius:4px;padding:4px 12px;font-size:16px;font-weight:bold">−</div>
+          <div style="font-size:20px;font-weight:bold">3</div>
+          <div style="background:#0f3460;border-radius:4px;padding:4px 12px;font-size:16px;font-weight:bold">+</div>
+        </div>
+        <div style="text-align:center;color:#aaa;font-size:10px;margin-bottom:8px">Subtotal: ₱360</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="background:#333;border-radius:4px;padding:6px;text-align:center;font-size:10px">Cancel</div>
+          <div style="background:#e94560;border-radius:4px;padding:6px;text-align:center;font-size:10px;font-weight:bold">Add to Order</div>
+        </div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px 8px;margin-top:auto">
+        <div style="display:flex;justify-content:space-between;font-weight:bold">
+          <span>Total</span><span style="color:#e94560">₱0</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Tap Opens Quantity Modal</h3>
+      <p>Tapping a tile opens a popup with +/− buttons and shows the subtotal before adding. Slightly slower but explicit — good when ordering multiple of one item.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:210px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍰<br>Cake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🧁<br>Cupcake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍪<br>Cookie</div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px;flex:1">
+        <div style="font-size:10px;font-weight:bold;margin-bottom:4px;color:#aaa">ORDER</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span>🍰 Cake</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="background:#16213e;padding:1px 7px;border-radius:3px">−</span>
+            <span style="font-weight:bold">2</span>
+            <span style="background:#16213e;padding:1px 7px;border-radius:3px">+</span>
+            <span style="color:#e94560">₱240</span>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span>🥤 Drink</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="background:#16213e;padding:1px 7px;border-radius:3px">−</span>
+            <span style="font-weight:bold">1</span>
+            <span style="background:#16213e;padding:1px 7px;border-radius:3px">+</span>
+            <span style="color:#e94560">₱45</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-weight:bold;padding:0 4px">
+        <span>Total</span><span style="color:#e94560">₱285</span>
+      </div>
+      <div style="background:#e94560;border-radius:4px;padding:6px;text-align:center;font-weight:bold">Charge ₱285</div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tap Adds to Live Cart List</h3>
+      <p>Tapping adds to a cart list below the tiles with inline +/− controls. Order is always visible. Good for multi-item orders.</p>
+    </div>
+  </div>
+
+</div>

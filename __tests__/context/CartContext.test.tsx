@@ -54,4 +54,8 @@ describe('useCart', () => {
     act(() => result.current.addItem(product2));  // 285
     expect(result.current.total).toBe(285);
   });
+
+  it('throws when used outside CartProvider', () => {
+    expect(() => renderHook(() => useCart())).toThrow('useCart must be used within CartProvider');
+  });
 });

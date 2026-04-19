@@ -7,6 +7,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
+import * as FileSystem from 'expo-file-system';
 import { copyToDocumentDir } from '../../utils/photos';
 
 type Step = 'verify' | 'new_pin' | 'settings';
@@ -86,6 +87,9 @@ export default function AdminModal() {
       quality: 0.8,
     });
     if (result.canceled) return;
+    if (qrUri) {
+      await FileSystem.deleteAsync(qrUri, { idempotent: true });
+    }
     const asset = result.assets[0];
     const saved = await copyToDocumentDir(asset.uri, `gcash-qr-${Date.now()}.jpg`);
     await setGcashQrUri(saved);
@@ -93,8 +97,18 @@ export default function AdminModal() {
   }
 
   async function handleRemoveQr() {
-    await removeGcashQrUri();
-    setQrUri(null);
+    Alert.alert('Remove QR?', 'This will remove your GCash QR code.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive', onPress: async () => {
+          if (qrUri) {
+            await FileSystem.deleteAsync(qrUri, { idempotent: true });
+          }
+          await removeGcashQrUri();
+          setQrUri(null);
+        },
+      },
+    ]);
   }
 
   if (step === 'settings') {

@@ -227,6 +227,9 @@ export default function PaymentModal() {
         </ScrollView>
 
         <View style={styles.footer}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => setDigitalStep('qr')}>
+            <Text style={styles.cancelBtnText}>← Back</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.cancelBtn} onPress={handleConfirm}>
             <Text style={styles.cancelBtnText}>Skip</Text>
           </TouchableOpacity>
@@ -353,6 +356,7 @@ const styles = StyleSheet.create({
   proofRetake: { backgroundColor: '#0f3460', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6 },
   proofRetakeText: { color: '#eee', fontSize: 12, fontWeight: 'bold' },
   footer: { flexDirection: 'row', gap: 12, padding: 16, borderTopWidth: 1, borderTopColor: '#0f3460' },
+  backBtn: { backgroundColor: '#16213e', borderRadius: 8, padding: 14, alignItems: 'center', paddingHorizontal: 18 },
   cancelBtn: { flex: 1, backgroundColor: '#16213e', borderRadius: 8, padding: 14, alignItems: 'center' },
   cancelBtnText: { color: '#aaa', fontWeight: 'bold', fontSize: 15 },
   confirmBtn: { flex: 2, backgroundColor: '#e94560', borderRadius: 8, padding: 14, alignItems: 'center' },

@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, Modal, Image,
+  SafeAreaView, Modal, Image, ScrollView, Dimensions,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
@@ -53,6 +53,50 @@ function getMethodDisplayName(method: PaymentMethod): string {
     case 'bank_transfer': return 'Bank Transfer';
     default: return 'Cash';
   }
+}
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [zoomed, setZoomed] = useState(false);
+
+  function handleDoubleTap() {
+    if (zoomed) {
+      scrollRef.current?.scrollResponderZoomTo({ x: 0, y: 0, width: SCREEN_W, height: SCREEN_H, animated: true });
+    } else {
+      scrollRef.current?.scrollResponderZoomTo({ x: SCREEN_W / 4, y: SCREEN_H / 4, width: SCREEN_W / 2, height: SCREEN_H / 2, animated: true });
+    }
+    setZoomed(!zoomed);
+  }
+
+  return (
+    <Modal visible={!!uri} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.photoOverlay}>
+        <TouchableOpacity style={styles.photoCloseBtn} onPress={onClose}>
+          <Text style={styles.photoCloseBtnText}>✕</Text>
+        </TouchableOpacity>
+        <ScrollView
+          ref={scrollRef}
+          maximumZoomScale={4}
+          minimumZoomScale={1}
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.photoScrollContent}
+          centerContent
+          onScrollEndDrag={(e) => {
+            if (e.nativeEvent.zoomScale <= 1) setZoomed(false);
+            else setZoomed(true);
+          }}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={handleDoubleTap}>
+            {uri && <Image source={{ uri }} style={styles.photoFull} resizeMode="contain" />}
+          </TouchableOpacity>
+        </ScrollView>
+        <Text style={styles.photoHint}>{zoomed ? 'Tap to zoom out' : 'Tap to zoom in · Pinch to zoom'}</Text>
+      </View>
+    </Modal>
+  );
 }
 
 export default function TransactionsModal() {
@@ -232,12 +276,7 @@ export default function TransactionsModal() {
         </View>
       </Modal>
 
-      <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
-        <TouchableOpacity style={styles.photoOverlay} onPress={() => setPhotoView(null)} activeOpacity={1}>
-          {photoView && <Image source={{ uri: photoView }} style={styles.photoFull} resizeMode="contain" />}
-          <Text style={styles.photoHint}>Tap to close</Text>
-        </TouchableOpacity>
-      </Modal>
+      <PhotoViewer uri={photoView} onClose={() => setPhotoView(null)} />
     </SafeAreaView>
   );
 }
@@ -311,7 +350,10 @@ const styles = StyleSheet.create({
   refLabel: { color: '#888', fontSize: 10 },
   refValue: { color: '#eee', fontSize: 13, fontWeight: 'bold', marginTop: 2 },
   proofThumb: { width: 60, height: 60, borderRadius: 6, backgroundColor: '#1a1a2e' },
-  photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', alignItems: 'center', justifyContent: 'center' },
-  photoFull: { width: '90%', height: '70%' },
-  photoHint: { color: '#888', fontSize: 12, marginTop: 16 },
+  photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
+  photoCloseBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  photoCloseBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  photoScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
+  photoFull: { width: SCREEN_W, height: SCREEN_H * 0.75 },
+  photoHint: { color: '#888', fontSize: 12, textAlign: 'center', paddingBottom: 40 },
 });

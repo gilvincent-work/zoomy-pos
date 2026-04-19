@@ -10,4 +10,12 @@ describe('sha256', () => {
     );
     expect(result).toBe('mock-hash-value');
   });
+
+  it('passes arbitrary input through to digestStringAsync', async () => {
+    await sha256('hunter2');
+    expect(Crypto.digestStringAsync).toHaveBeenCalledWith(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      'hunter2'
+    );
+  });
 });

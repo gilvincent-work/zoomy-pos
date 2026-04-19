@@ -1,7 +1,10 @@
 import { getAdminHash, setAdminHash } from '../../db/settings';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.resetModules();
+});
 
 describe('getAdminHash', () => {
   it('queries settings for admin_password_hash', async () => {

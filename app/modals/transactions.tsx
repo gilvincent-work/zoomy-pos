@@ -274,9 +274,8 @@ export default function TransactionsModal() {
             )}
           </View>
         </View>
+        <PhotoViewer uri={photoView} onClose={() => setPhotoView(null)} />
       </Modal>
-
-      <PhotoViewer uri={photoView} onClose={() => setPhotoView(null)} />
     </SafeAreaView>
   );
 }

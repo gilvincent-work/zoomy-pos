@@ -31,7 +31,7 @@ export default function POSScreen() {
           <Text style={styles.headerIcon}>🧾</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'change_pin' } })}
+          onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
           style={styles.headerBtn}
         >
           <Text style={styles.headerIcon}>⚙️</Text>

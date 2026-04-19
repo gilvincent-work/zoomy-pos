@@ -88,7 +88,7 @@ export default function AdminModal() {
     });
     if (result.canceled) return;
     if (qrUri) {
-      await FileSystem.deleteAsync(qrUri, { idempotent: true });
+      await FileSystem.deleteAsync(qrUri).catch(() => {});
     }
     const asset = result.assets[0];
     const saved = await copyToDocumentDir(asset.uri, `gcash-qr-${Date.now()}.jpg`);
@@ -102,7 +102,7 @@ export default function AdminModal() {
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
           if (qrUri) {
-            await FileSystem.deleteAsync(qrUri, { idempotent: true });
+            await FileSystem.deleteAsync(qrUri).catch(() => {});
           }
           await removeGcashQrUri();
           setQrUri(null);

@@ -7,7 +7,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system/next';
 import { copyToDocumentDir } from '../../utils/photos';
 
 type Step = 'verify' | 'new_pin' | 'settings';
@@ -88,7 +88,7 @@ export default function AdminModal() {
     });
     if (result.canceled) return;
     if (qrUri) {
-      await FileSystem.deleteAsync(qrUri, { idempotent: true });
+      new File(qrUri).delete();
     }
     const asset = result.assets[0];
     const saved = await copyToDocumentDir(asset.uri, `gcash-qr-${Date.now()}.jpg`);
@@ -102,7 +102,7 @@ export default function AdminModal() {
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
           if (qrUri) {
-            await FileSystem.deleteAsync(qrUri, { idempotent: true });
+            new File(qrUri).delete();
           }
           await removeGcashQrUri();
           setQrUri(null);

@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   headerIcon: { fontSize: 22 },
   grid: { padding: 12 },
   row: { gap: 8, marginBottom: 8 },
-  tileWrapper: { flex: 1 },
+  tileWrapper: { flex: 1, maxWidth: '33.33%' },
   empty: { color: '#666', textAlign: 'center', marginTop: 60, fontSize: 14 },
   footer: {
     flexDirection: 'row',

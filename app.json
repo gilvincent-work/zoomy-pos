@@ -11,7 +11,11 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.anonymous.zoomy-pos"
+      "bundleIdentifier": "com.anonymous.zoomy-pos",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ZoomyPOS needs camera access to take receipt photos as proof of payment.",
+        "NSPhotoLibraryUsageDescription": "ZoomyPOS needs photo library access to upload your GCash QR code and save receipt photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +27,20 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "ZoomyPOS needs camera access to take receipt photos as proof of payment.",
+          "photosPermission": "ZoomyPOS needs photo library access to upload your GCash QR code and save receipt photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "ZoomyPOS needs photo library access to save receipt photos."
+        }
+      ]
     ]
   }
 }

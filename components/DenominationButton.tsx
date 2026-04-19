@@ -15,9 +15,9 @@ const styles = StyleSheet.create({
   btn: {
     backgroundColor: '#0f3460',
     borderRadius: 6,
-    paddingVertical: 12,
+    paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  text: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  text: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 });

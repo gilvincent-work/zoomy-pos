@@ -26,7 +26,7 @@ export function ProductTile({ id, name, emoji, badgeCount, onPress, onLongPress,
         </View>
       )}
       <Text style={styles.emoji}>{emoji}</Text>
-      <Text style={styles.name} numberOfLines={1}>{name}</Text>
+      <Text style={styles.name} numberOfLines={3}>{name}</Text>
       {badgeCount > 0 && onMinus && (
         <TouchableOpacity
           testID="minus-btn"

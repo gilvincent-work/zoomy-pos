@@ -1,0 +1,73 @@
+<h2>Mobile POS — Overall Screen Layout</h2>
+<p class="subtitle">How should the main selling screen be structured on a phone?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:200px;display:flex;flex-direction:column;gap:6px">
+      <div style="background:#e94560;border-radius:4px;padding:6px 8px;text-align:center;font-weight:bold;font-size:13px">ZoomyTreats POS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;flex:1">
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍰<br>Cake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🧁<br>Cupcake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍪<br>Cookie</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🥤<br>Drink</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍫<br>Choco</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">+ Add</div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px 8px;display:flex;justify-content:space-between">
+        <span>Total: ₱0</span>
+        <span style="background:#e94560;padding:2px 8px;border-radius:3px">Pay</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Full-Screen Tile Grid</h3>
+      <p>Product tiles dominate. Running total pinned at bottom. Tap a tile to add to cart. Best for fast, tap-heavy ordering.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:200px;display:flex;flex-direction:column;gap:6px">
+      <div style="background:#e94560;border-radius:4px;padding:6px 8px;text-align:center;font-weight:bold;font-size:13px">ZoomyTreats POS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:1">
+        <div style="background:#16213e;border-radius:4px;padding:10px;text-align:center;font-size:10px">🍰<br>Cake<br><span style="color:#e94560">₱120</span></div>
+        <div style="background:#16213e;border-radius:4px;padding:10px;text-align:center;font-size:10px">🧁<br>Cupcake<br><span style="color:#e94560">₱60</span></div>
+        <div style="background:#16213e;border-radius:4px;padding:10px;text-align:center;font-size:10px">🍪<br>Cookie<br><span style="color:#e94560">₱35</span></div>
+        <div style="background:#16213e;border-radius:4px;padding:10px;text-align:center;font-size:10px">🥤<br>Drink<br><span style="color:#e94560">₱45</span></div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px 8px;display:flex;justify-content:space-between">
+        <span>Cart (2) · ₱180</span>
+        <span style="background:#e94560;padding:2px 8px;border-radius:3px">Checkout</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 2-Column Tiles + Price Visible</h3>
+      <p>Bigger tiles, price shown on each. Cart summary always visible. Good if products have different prices that staff need to see at a glance.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;border-radius:8px;padding:12px;font-size:11px;color:#eee;min-height:200px;display:flex;flex-direction:column;gap:6px">
+      <div style="background:#e94560;border-radius:4px;padding:6px 8px;text-align:center;font-weight:bold;font-size:13px">ZoomyTreats POS</div>
+      <div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px">
+        <div style="background:#e94560;border-radius:4px;padding:4px 10px;white-space:nowrap;font-size:10px">All</div>
+        <div style="background:#16213e;border-radius:4px;padding:4px 10px;white-space:nowrap;font-size:10px">Cakes</div>
+        <div style="background:#16213e;border-radius:4px;padding:4px 10px;white-space:nowrap;font-size:10px">Drinks</div>
+        <div style="background:#16213e;border-radius:4px;padding:4px 10px;white-space:nowrap;font-size:10px">Snacks</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;flex:1">
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍰<br>Cake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🧁<br>Cupcake</div>
+        <div style="background:#16213e;border-radius:4px;padding:8px;text-align:center;font-size:10px">🍪<br>Cookie</div>
+      </div>
+      <div style="background:#0f3460;border-radius:4px;padding:6px 8px;display:flex;justify-content:space-between">
+        <span>Total: ₱0</span>
+        <span style="background:#e94560;padding:2px 8px;border-radius:3px">Pay</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tiles + Category Filter Bar</h3>
+      <p>Horizontal scrollable category tabs above the grid. Scales well if ZoomyTreats grows to many products across different types.</p>
+    </div>
+  </div>
+
+</div>

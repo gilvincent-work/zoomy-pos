@@ -1,0 +1,92 @@
+<h2>App Architecture — Single Screen + Modals</h2>
+<p class="subtitle">React Native Expo · SQLite offline · Mobile-first</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Screen & Modal Map</div>
+    <div class="mockup-body" style="font-size:12px;color:#eee;display:flex;flex-direction:column;gap:10px">
+
+      <!-- Root -->
+      <div style="background:#e94560;border-radius:6px;padding:10px;text-align:center;font-weight:bold">
+        POSScreen (always visible)
+        <div style="font-size:10px;font-weight:normal;margin-top:4px;opacity:0.9">3-col tile grid · cart badge · total bar · Charge button</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+        <div style="background:#0f3460;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:10px;font-weight:bold;margin-bottom:4px">💳 PaymentModal</div>
+          <div style="font-size:9px;color:#aaa">Denomination buttons<br>Change calc<br>Confirm sale</div>
+        </div>
+        <div style="background:#0f3460;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:10px;font-weight:bold;margin-bottom:4px">📦 ProductsModal</div>
+          <div style="font-size:9px;color:#aaa">List products<br>Create / edit<br>Toggle active</div>
+        </div>
+        <div style="background:#0f3460;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:10px;font-weight:bold;margin-bottom:4px">🧾 TransactionsModal</div>
+          <div style="font-size:9px;color:#aaa">Transaction list<br>Timestamps<br>Void completed</div>
+        </div>
+        <div style="background:#0f3460;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:10px;font-weight:bold;margin-bottom:4px">🔐 AdminModal</div>
+          <div style="font-size:9px;color:#aaa">Password gate<br>Void items<br>Used by others</div>
+        </div>
+      </div>
+
+      <div style="background:#16213e;border-radius:6px;padding:8px;font-size:10px;color:#aaa;text-align:center">
+        All modals open from POS screen header icons → close → return to POS
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>SQLite Data Model</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:#eee">
+    <div style="background:#16213e;border-radius:6px;padding:10px">
+      <div style="color:#e94560;font-weight:bold;margin-bottom:6px">products</div>
+      <div style="color:#aaa;line-height:1.8">
+        id · name · price · emoji<br>
+        is_active · created_at
+      </div>
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:10px">
+      <div style="color:#e94560;font-weight:bold;margin-bottom:6px">transactions</div>
+      <div style="color:#aaa;line-height:1.8">
+        id · total · cash_tendered<br>
+        change · status · created_at
+      </div>
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:10px">
+      <div style="color:#e94560;font-weight:bold;margin-bottom:6px">transaction_items</div>
+      <div style="color:#aaa;line-height:1.8">
+        id · transaction_id<br>
+        product_id · product_name<br>
+        price · quantity
+      </div>
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:10px">
+      <div style="color:#e94560;font-weight:bold;margin-bottom:6px">settings</div>
+      <div style="color:#aaa;line-height:1.8">
+        key · value<br>
+        <span style="font-size:10px">(admin_password_hash)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Flows</h3>
+  <div style="font-size:11px;color:#eee;display:flex;flex-direction:column;gap:6px">
+    <div style="background:#16213e;border-radius:6px;padding:8px">
+      <span style="color:#e94560;font-weight:bold">Sale flow:</span> Tap tile (+1 badge) → tap Charge → PaymentModal → tap denominations → change shown → Confirm → saved to SQLite → cart clears
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:8px">
+      <span style="color:#e94560;font-weight:bold">Void during order:</span> Long-press tile → removes item (no password needed, order not yet paid)
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:8px">
+      <span style="color:#e94560;font-weight:bold">Void completed sale:</span> TransactionsModal → tap transaction → Void → AdminModal password prompt → confirmed → status = 'voided'
+    </div>
+    <div style="background:#16213e;border-radius:6px;padding:8px">
+      <span style="color:#e94560;font-weight:bold">Product creation:</span> ProductsModal → + New → name, price, emoji → Save → appears in tile grid
+    </div>
+  </div>
+</div>

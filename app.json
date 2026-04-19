@@ -6,10 +6,24 @@
     "orientation": "portrait",
     "scheme": "zoomypos",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": false },
-    "android": { "adaptiveIcon": { "backgroundColor": "#1a1a2e" } },
-    "web": { "bundler": "metro" },
-    "plugins": ["expo-router", "expo-sqlite"]
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.anonymous.zoomy-pos"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite"
+    ]
   }
 }

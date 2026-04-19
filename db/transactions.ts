@@ -62,16 +62,26 @@ export async function voidTransaction(id: number): Promise<void> {
 export async function getAllTransactions(): Promise<Transaction[]> {
   const db = await getDatabase();
 
-  const rows = await db.getAllAsync<TransactionItem & {
+  type Row = {
     t_id: number;
     t_total: number;
     t_cash: number;
     t_change: number;
     t_status: string;
     t_created: string;
-  }>(
-    `SELECT t.*, ti.product_name, ti.id AS ti_id, ti.transaction_id,
-            ti.product_id, ti.price, ti.quantity
+    ti_id: number | null;
+    transaction_id: number | null;
+    product_id: number | null;
+    product_name: string | null;
+    price: number | null;
+    quantity: number | null;
+  };
+
+  const rows = await db.getAllAsync<Row>(
+    `SELECT t.id AS t_id, t.total AS t_total, t.cash_tendered AS t_cash,
+            t.change AS t_change, t.status AS t_status, t.created_at AS t_created,
+            ti.id AS ti_id, ti.transaction_id, ti.product_id, ti.product_name,
+            ti.price, ti.quantity
      FROM transactions t
      LEFT JOIN transaction_items ti ON ti.transaction_id = t.id
      ORDER BY t.created_at DESC`,
@@ -94,11 +104,11 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     if (row.ti_id) {
       map.get(row.t_id)!.items.push({
         id: row.ti_id,
-        transaction_id: row.transaction_id,
+        transaction_id: row.transaction_id!,
         product_id: row.product_id,
-        product_name: row.product_name,
-        price: row.price,
-        quantity: row.quantity,
+        product_name: row.product_name!,
+        price: row.price!,
+        quantity: row.quantity!,
       });
     }
   }

@@ -62,8 +62,36 @@ describe('getAllTransactions', () => {
     mockDb.getAllAsync.mockResolvedValueOnce([]);
     await getAllTransactions();
     expect(mockDb.getAllAsync).toHaveBeenCalledWith(
-      expect.stringContaining('SELECT t.*, ti.product_name'),
+      expect.stringContaining('FROM transactions t'),
       undefined
     );
+  });
+
+  it('groups transaction items under their parent transaction', async () => {
+    mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        t_id: 1, t_total: 285, t_cash: 300, t_change: 15,
+        t_status: 'completed', t_created: '2026-04-19T10:00:00.000Z',
+        ti_id: 1, transaction_id: 1, product_id: 1,
+        product_name: 'Cake', price: 120, quantity: 2,
+      },
+      {
+        t_id: 1, t_total: 285, t_cash: 300, t_change: 15,
+        t_status: 'completed', t_created: '2026-04-19T10:00:00.000Z',
+        ti_id: 2, transaction_id: 1, product_id: 2,
+        product_name: 'Drink', price: 45, quantity: 1,
+      },
+    ]);
+
+    const result = await getAllTransactions();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 1,
+      total: 285,
+      status: 'completed',
+    });
+    expect(result[0].items).toHaveLength(2);
+    expect(result[0].items[0].product_name).toBe('Cake');
+    expect(result[0].items[1].product_name).toBe('Drink');
   });
 });

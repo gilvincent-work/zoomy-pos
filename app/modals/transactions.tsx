@@ -5,9 +5,10 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
-import { getAllTransactions, Transaction } from '../../db/transactions';
+import { getAllTransactions, Transaction, PaymentMethod } from '../../db/transactions';
 
 type DateFilter = 'today' | 'week' | 'month' | 'all';
+type MethodFilter = 'all' | PaymentMethod;
 
 function getFilterStart(filter: DateFilter): Date | null {
   const now = new Date();
@@ -32,27 +33,49 @@ function getFilterStart(filter: DateFilter): Date | null {
   }
 }
 
-const FILTERS: { key: DateFilter; label: string }[] = [
+const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This Week' },
-  { key: 'month', label: 'This Month' },
+  { key: 'week', label: 'Week' },
+  { key: 'month', label: 'Month' },
   { key: 'all', label: 'All' },
 ];
+
+const METHOD_FILTERS: { key: MethodFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'cash', label: '💵 Cash' },
+  { key: 'gcash', label: '📱 GCash' },
+  { key: 'bank_transfer', label: '🏦 Bank' },
+];
+
+function getMethodDisplayName(method: PaymentMethod): string {
+  switch (method) {
+    case 'gcash': return 'GCash';
+    case 'bank_transfer': return 'Bank Transfer';
+    default: return 'Cash';
+  }
+}
 
 export default function TransactionsModal() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
-  const [filter, setFilter] = useState<DateFilter>('today');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+  const [methodFilter, setMethodFilter] = useState<MethodFilter>('all');
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
   );
 
   const filtered = useMemo(() => {
-    const start = getFilterStart(filter);
-    if (!start) return transactions;
-    return transactions.filter((t) => new Date(t.created_at) >= start);
-  }, [transactions, filter]);
+    let result = transactions;
+    const start = getFilterStart(dateFilter);
+    if (start) {
+      result = result.filter((t) => new Date(t.created_at) >= start);
+    }
+    if (methodFilter !== 'all') {
+      result = result.filter((t) => t.payment_method === methodFilter);
+    }
+    return result;
+  }, [transactions, dateFilter, methodFilter]);
 
   const filteredTotal = useMemo(
     () => filtered.filter((t) => t.status === 'completed').reduce((sum, t) => sum + t.total, 0),
@@ -71,13 +94,27 @@ export default function TransactionsModal() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.filterRow}>
-        {FILTERS.map((f) => (
+        {DATE_FILTERS.map((f) => (
           <TouchableOpacity
             key={f.key}
-            style={[styles.filterBtn, filter === f.key && styles.filterBtnActive]}
-            onPress={() => setFilter(f.key)}
+            style={[styles.filterBtn, dateFilter === f.key && styles.filterBtnActive]}
+            onPress={() => setDateFilter(f.key)}
           >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>
+            <Text style={[styles.filterText, dateFilter === f.key && styles.filterTextActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.methodRow}>
+        {METHOD_FILTERS.map((f) => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.methodBtn, methodFilter === f.key && styles.methodBtnActive]}
+            onPress={() => setMethodFilter(f.key)}
+          >
+            <Text style={[styles.methodText, methodFilter === f.key && styles.methodTextActive]}>
               {f.label}
             </Text>
           </TouchableOpacity>
@@ -112,9 +149,16 @@ export default function TransactionsModal() {
             {selected && (
               <>
                 <Text style={styles.sheetTitle}>Transaction #{selected.id}</Text>
-                <Text style={styles.sheetTime}>
-                  {new Date(selected.created_at).toLocaleString()}
-                </Text>
+                <View style={styles.sheetMeta}>
+                  <Text style={styles.sheetTime}>
+                    {new Date(selected.created_at).toLocaleString()}
+                  </Text>
+                  <View style={styles.sheetMethodBadge}>
+                    <Text style={styles.sheetMethodText}>
+                      {getMethodDisplayName(selected.payment_method)}
+                    </Text>
+                  </View>
+                </View>
 
                 {selected.items.map((item) => (
                   <View key={item.id} style={styles.itemRow}>
@@ -132,13 +176,23 @@ export default function TransactionsModal() {
                   <Text style={styles.summaryLabel}>Total</Text>
                   <Text style={styles.summaryValue}>₱{selected.total.toFixed(2)}</Text>
                 </View>
+                {selected.payment_method === 'cash' && (
+                  <>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Cash</Text>
+                      <Text style={styles.summaryValue}>₱{selected.cash_tendered.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Change</Text>
+                      <Text style={styles.summaryValue}>₱{selected.change.toFixed(2)}</Text>
+                    </View>
+                  </>
+                )}
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Cash</Text>
-                  <Text style={styles.summaryValue}>₱{selected.cash_tendered.toFixed(2)}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Change</Text>
-                  <Text style={styles.summaryValue}>₱{selected.change.toFixed(2)}</Text>
+                  <Text style={styles.summaryLabel}>Payment</Text>
+                  <Text style={styles.summaryValue}>
+                    {getMethodDisplayName(selected.payment_method)}
+                  </Text>
                 </View>
 
                 <View style={styles.sheetBtns}>
@@ -172,6 +226,16 @@ const styles = StyleSheet.create({
   filterBtnActive: { backgroundColor: '#e94560' },
   filterText: { color: '#888', fontSize: 12, fontWeight: 'bold' },
   filterTextActive: { color: '#fff' },
+  methodRow: {
+    flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4,
+  },
+  methodBtn: {
+    flex: 1, paddingVertical: 6, borderRadius: 6,
+    backgroundColor: '#16213e', alignItems: 'center',
+  },
+  methodBtnActive: { backgroundColor: '#0f3460', borderWidth: 1, borderColor: '#e94560' },
+  methodText: { color: '#888', fontSize: 11, fontWeight: 'bold' },
+  methodTextActive: { color: '#eee' },
   summaryBar: {
     flexDirection: 'row', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 8,
@@ -186,7 +250,12 @@ const styles = StyleSheet.create({
     padding: 20, paddingBottom: 36,
   },
   sheetTitle: { color: '#eee', fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
-  sheetTime: { color: '#aaa', fontSize: 12, marginBottom: 14 },
+  sheetMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  sheetTime: { color: '#aaa', fontSize: 12 },
+  sheetMethodBadge: {
+    backgroundColor: '#0f3460', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2,
+  },
+  sheetMethodText: { color: '#eee', fontSize: 10, fontWeight: 'bold' },
   itemRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     marginBottom: 6,

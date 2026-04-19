@@ -9,6 +9,9 @@ export function TransactionRow({ transaction, onPress }: Props) {
   const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isVoided = transaction.status === 'voided';
+  const methodLabel = transaction.payment_method === 'gcash' ? 'GCash'
+    : transaction.payment_method === 'bank_transfer' ? 'Bank'
+    : 'Cash';
 
   return (
     <TouchableOpacity
@@ -16,8 +19,13 @@ export function TransactionRow({ transaction, onPress }: Props) {
       onPress={() => onPress(transaction)}
       activeOpacity={0.7}
     >
-      <View>
-        <Text style={styles.time}>{dateStr} {time}</Text>
+      <View style={{ flex: 1 }}>
+        <View style={styles.topRow}>
+          <Text style={styles.time}>{dateStr} {time}</Text>
+          <View style={styles.methodBadge}>
+            <Text style={styles.methodText}>{methodLabel}</Text>
+          </View>
+        </View>
         <Text style={styles.items}>
           {transaction.items.map((i) => `${i.product_name} x${i.quantity}`).join(', ')}
         </Text>
@@ -43,7 +51,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   voided: { opacity: 0.5 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   time: { color: '#aaa', fontSize: 11 },
+  methodBadge: {
+    backgroundColor: '#0f3460', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1,
+  },
+  methodText: { color: '#aaa', fontSize: 9, fontWeight: 'bold' },
   items: { color: '#eee', fontSize: 12, marginTop: 2 },
   right: { alignItems: 'flex-end' },
   total: { color: '#e94560', fontSize: 16, fontWeight: 'bold' },

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, Modal,
+  SafeAreaView, Modal, Image,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
@@ -60,6 +60,7 @@ export default function TransactionsModal() {
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('all');
+  const [photoView, setPhotoView] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
@@ -195,6 +196,26 @@ export default function TransactionsModal() {
                   </Text>
                 </View>
 
+                {selected.payment_method !== 'cash' && (selected.ref_number || selected.proof_photo_uri) && (
+                  <>
+                    <View style={styles.divider} />
+                    <Text style={styles.proofLabel}>PAYMENT PROOF</Text>
+                    <View style={styles.proofRow}>
+                      {selected.ref_number && (
+                        <View style={styles.refBox}>
+                          <Text style={styles.refLabel}>REF #</Text>
+                          <Text style={styles.refValue}>{selected.ref_number}</Text>
+                        </View>
+                      )}
+                      {selected.proof_photo_uri && (
+                        <TouchableOpacity onPress={() => setPhotoView(selected.proof_photo_uri)}>
+                          <Image source={{ uri: selected.proof_photo_uri }} style={styles.proofThumb} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </>
+                )}
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>
@@ -209,6 +230,13 @@ export default function TransactionsModal() {
             )}
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
+        <TouchableOpacity style={styles.photoOverlay} onPress={() => setPhotoView(null)} activeOpacity={1}>
+          {photoView && <Image source={{ uri: photoView }} style={styles.photoFull} resizeMode="contain" />}
+          <Text style={styles.photoHint}>Tap to close</Text>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -277,4 +305,13 @@ const styles = StyleSheet.create({
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: 'bold' },
+  proofLabel: { color: '#aaa', fontSize: 10, fontWeight: 'bold', marginBottom: 8 },
+  proofRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  refBox: { backgroundColor: '#1a1a2e', borderRadius: 6, padding: 8, flex: 1 },
+  refLabel: { color: '#888', fontSize: 10 },
+  refValue: { color: '#eee', fontSize: 13, fontWeight: 'bold', marginTop: 2 },
+  proofThumb: { width: 60, height: 60, borderRadius: 6, backgroundColor: '#1a1a2e' },
+  photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', alignItems: 'center', justifyContent: 'center' },
+  photoFull: { width: '90%', height: '70%' },
+  photoHint: { color: '#888', fontSize: 12, marginTop: 16 },
 });

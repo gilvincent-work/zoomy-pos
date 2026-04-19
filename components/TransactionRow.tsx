@@ -6,6 +6,7 @@ type Props = { transaction: Transaction; onPress: (t: Transaction) => void };
 
 export function TransactionRow({ transaction, onPress }: Props) {
   const date = new Date(transaction.created_at);
+  const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isVoided = transaction.status === 'voided';
 
@@ -16,7 +17,7 @@ export function TransactionRow({ transaction, onPress }: Props) {
       activeOpacity={0.7}
     >
       <View>
-        <Text style={styles.time}>{time}</Text>
+        <Text style={styles.time}>{dateStr} {time}</Text>
         <Text style={styles.items}>
           {transaction.items.map((i) => `${i.product_name} x${i.quantity}`).join(', ')}
         </Text>

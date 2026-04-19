@@ -56,10 +56,14 @@ export default function PaymentModal() {
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
     if (result.canceled) return;
-    const asset = result.assets[0];
-    const saved = await copyToDocumentDir(asset.uri, `receipt-${Date.now()}.jpg`);
-    await saveToGallery(asset.uri);
-    setProofPhotoUri(saved);
+    try {
+      const asset = result.assets[0];
+      const saved = await copyToDocumentDir(asset.uri, `receipt-${Date.now()}.jpg`);
+      await saveToGallery(asset.uri);
+      setProofPhotoUri(saved);
+    } catch {
+      Alert.alert('Error', 'Failed to save photo. Please try again.');
+    }
   }
 
   async function handleConfirm() {

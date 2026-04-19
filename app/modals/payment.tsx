@@ -5,23 +5,34 @@ import {
 import { router } from 'expo-router';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart, CartItem } from '../../context/CartContext';
-import { insertTransaction } from '../../db/transactions';
+import { insertTransaction, PaymentMethod } from '../../db/transactions';
 
 const DENOMINATIONS = [1, 5, 10, 20, 50, 100, 200, 500, 1000];
+
+const PAYMENT_METHODS: { key: PaymentMethod; label: string; icon: string }[] = [
+  { key: 'cash', label: 'Cash', icon: '💵' },
+  { key: 'gcash', label: 'GCash', icon: '📱' },
+  { key: 'bank_transfer', label: 'Bank', icon: '🏦' },
+];
 
 export default function PaymentModal() {
   const { items, total, clearCart, addItem, decrementItem } = useCart();
   const [tendered, setTendered] = useState(0);
+  const [method, setMethod] = useState<PaymentMethod>('cash');
 
+  const isCash = method === 'cash';
   const change = tendered - total;
-  const canConfirm = tendered >= total && items.length > 0;
+  const canConfirm = isCash
+    ? tendered >= total && items.length > 0
+    : items.length > 0;
 
   async function handleConfirm() {
     try {
       await insertTransaction({
         total,
-        cashTendered: tendered,
-        change,
+        cashTendered: isCash ? tendered : total,
+        change: isCash ? change : 0,
+        paymentMethod: method,
         items: items.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -67,36 +78,68 @@ export default function PaymentModal() {
           <Text style={styles.totalAmount}>₱{total.toFixed(2)}</Text>
         </View>
 
-        <Text style={styles.sectionLabel}>CASH TENDERED</Text>
-        <View style={styles.tenderedBox}>
-          <Text style={styles.tenderedAmount}>₱{tendered.toFixed(2)}</Text>
-        </View>
-
-        <View style={styles.denomGrid}>
-          {DENOMINATIONS.map((d) => (
-            <View key={d} style={styles.denomCell}>
-              <DenominationButton amount={d} onPress={(v) => setTendered((t) => t + v)} />
-            </View>
+        <Text style={styles.sectionLabel}>PAYMENT METHOD</Text>
+        <View style={styles.methodRow}>
+          {PAYMENT_METHODS.map((m) => (
+            <TouchableOpacity
+              key={m.key}
+              style={[styles.methodBtn, method === m.key && styles.methodBtnActive]}
+              onPress={() => { setMethod(m.key); if (m.key !== 'cash') setTendered(0); }}
+            >
+              <Text style={styles.methodIcon}>{m.icon}</Text>
+              <Text style={[styles.methodLabel, method === m.key && styles.methodLabelActive]}>
+                {m.label}
+              </Text>
+            </TouchableOpacity>
           ))}
         </View>
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.clearBtn} onPress={() => setTendered(0)}>
-            <Text style={styles.clearBtnText}>Clear</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.exactBtn}
-            onPress={() => setTendered(total)}
-          >
-            <Text style={styles.exactBtnText}>Exact</Text>
-          </TouchableOpacity>
-        </View>
+        {isCash && (
+          <>
+            <Text style={styles.sectionLabel}>CASH TENDERED</Text>
+            <View style={styles.tenderedBox}>
+              <Text style={styles.tenderedAmount}>₱{tendered.toFixed(2)}</Text>
+            </View>
 
-        {tendered > 0 && (
-          <View style={styles.changeBox}>
-            <Text style={styles.changeLabel}>CHANGE</Text>
-            <Text style={[styles.changeAmount, change < 0 && styles.changeNegative]}>
-              ₱{Math.abs(change).toFixed(2)}
+            <View style={styles.denomGrid}>
+              {DENOMINATIONS.map((d) => (
+                <View key={d} style={styles.denomCell}>
+                  <DenominationButton amount={d} onPress={(v) => setTendered((t) => t + v)} />
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.clearBtn} onPress={() => setTendered(0)}>
+                <Text style={styles.clearBtnText}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.exactBtn}
+                onPress={() => setTendered(total)}
+              >
+                <Text style={styles.exactBtnText}>Exact</Text>
+              </TouchableOpacity>
+            </View>
+
+            {tendered > 0 && (
+              <View style={styles.changeBox}>
+                <Text style={styles.changeLabel}>CHANGE</Text>
+                <Text style={[styles.changeAmount, change < 0 && styles.changeNegative]}>
+                  ₱{Math.abs(change).toFixed(2)}
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+
+        {!isCash && (
+          <View style={styles.digitalBox}>
+            <Text style={styles.digitalIcon}>
+              {PAYMENT_METHODS.find((m) => m.key === method)?.icon}
+            </Text>
+            <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
+            <Text style={styles.digitalHint}>
+              Collect via {method === 'gcash' ? 'GCash' : 'Bank Transfer'} before confirming
             </Text>
           </View>
         )}
@@ -136,6 +179,15 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { color: '#aaa', fontSize: 14, fontWeight: 'bold' },
   totalAmount: { color: '#e94560', fontSize: 24, fontWeight: 'bold' },
+  methodRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  methodBtn: {
+    flex: 1, backgroundColor: '#16213e', borderRadius: 8,
+    paddingVertical: 12, alignItems: 'center', borderWidth: 2, borderColor: 'transparent',
+  },
+  methodBtnActive: { borderColor: '#e94560', backgroundColor: '#1a1a2e' },
+  methodIcon: { fontSize: 24, marginBottom: 4 },
+  methodLabel: { color: '#888', fontSize: 12, fontWeight: 'bold' },
+  methodLabelActive: { color: '#e94560' },
   tenderedBox: {
     backgroundColor: '#16213e',
     borderRadius: 8,
@@ -164,6 +216,13 @@ const styles = StyleSheet.create({
   changeLabel: { color: '#fff', fontWeight: 'bold' },
   changeAmount: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
   changeNegative: { color: '#ffaaaa' },
+  digitalBox: {
+    backgroundColor: '#16213e', borderRadius: 8, padding: 24,
+    alignItems: 'center', marginTop: 8,
+  },
+  digitalIcon: { fontSize: 36, marginBottom: 8 },
+  digitalAmount: { color: '#fff', fontSize: 28, fontWeight: 'bold', marginBottom: 4 },
+  digitalHint: { color: '#aaa', fontSize: 12, textAlign: 'center' },
   footer: {
     flexDirection: 'row', gap: 12, padding: 16,
     borderTopWidth: 1, borderTopColor: '#0f3460',

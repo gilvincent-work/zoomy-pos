@@ -17,6 +17,8 @@ export type Transaction = {
   cash_tendered: number;
   change: number;
   payment_method: PaymentMethod;
+  ref_number: string | null;
+  proof_photo_uri: string | null;
   status: 'completed' | 'voided';
   created_at: string;
   items: TransactionItem[];
@@ -34,13 +36,15 @@ export async function insertTransaction(data: {
   cashTendered: number;
   change: number;
   paymentMethod: PaymentMethod;
+  refNumber?: string;
+  proofPhotoUri?: string;
   items: InsertItem[];
 }): Promise<number> {
   const db = await getDatabase();
 
   const result = await db.runAsync(
-    'INSERT INTO transactions (total, cash_tendered, change, payment_method, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [data.total, data.cashTendered, data.change, data.paymentMethod, 'completed', new Date().toISOString()]
+    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, 'completed', new Date().toISOString()]
   );
 
   const transactionId = result.lastInsertRowId;
@@ -72,6 +76,8 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     t_cash: number;
     t_change: number;
     t_payment: string;
+    t_ref: string | null;
+    t_proof: string | null;
     t_status: string;
     t_created: string;
     ti_id: number | null;
@@ -85,6 +91,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
   const rows = await db.getAllAsync<Row>(
     `SELECT t.id AS t_id, t.total AS t_total, t.cash_tendered AS t_cash,
             t.change AS t_change, t.payment_method AS t_payment,
+            t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
             t.status AS t_status, t.created_at AS t_created,
             ti.id AS ti_id, ti.transaction_id, ti.product_id, ti.product_name,
             ti.price, ti.quantity
@@ -103,6 +110,8 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         cash_tendered: row.t_cash,
         change: row.t_change,
         payment_method: (row.t_payment || 'cash') as PaymentMethod,
+        ref_number: row.t_ref ?? null,
+        proof_photo_uri: row.t_proof ?? null,
         status: row.t_status as 'completed' | 'voided',
         created_at: row.t_created,
         items: [],

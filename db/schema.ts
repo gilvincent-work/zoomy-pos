@@ -47,6 +47,14 @@ export async function initSchema(): Promise<void> {
   ).catch(() => {});
 
   await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN ref_number TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN proof_photo_uri TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]
   );

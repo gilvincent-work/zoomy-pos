@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput,
-  StyleSheet, SafeAreaView, Alert,
+  StyleSheet, SafeAreaView, Alert, Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -14,7 +14,11 @@ export default function BundleModal() {
   const [products, setProducts] = useState<Product[]>([]);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [price, setPrice] = useState('');
-  const { setBundle } = useCart();
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [bundleName, setBundleName] = useState('');
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [savedBundleName, setSavedBundleName] = useState('');
+  const { addBundle } = useCart();
 
   useFocusEffect(
     useCallback(() => {
@@ -48,28 +52,27 @@ export default function BundleModal() {
 
   function handleAddToCart() {
     if (!canConfirm) return;
-    setBundle(buildBundleItems(), parsedPrice);
+    addBundle({ presetId: null, name: 'Bundle', price: parsedPrice, items: buildBundleItems() });
     router.dismiss();
   }
 
   function handleSave() {
     if (!canConfirm) return;
-    Alert.prompt(
-      'Save Bundle Preset',
-      'Give this bundle a name so you can quickly apply it later.',
-      async (name) => {
-        if (!name?.trim()) return;
-        try {
-          await saveBundlePreset(name.trim(), buildBundleItems(), parsedPrice);
-          Alert.alert('Saved!', `"${name.trim()}" is now available as a preset on the POS screen.`);
-        } catch {
-          Alert.alert('Error', 'Could not save the bundle preset.');
-        }
-      },
-      'plain-text',
-      '',
-      'default'
-    );
+    setBundleName('');
+    setSaveModalVisible(true);
+  }
+
+  async function handleSaveConfirm() {
+    if (!bundleName.trim()) return;
+    const name = bundleName.trim();
+    try {
+      await saveBundlePreset(name, buildBundleItems(), parsedPrice);
+      setSaveModalVisible(false);
+      setSavedBundleName(name);
+      setSuccessModalVisible(true);
+    } catch {
+      Alert.alert('Error', 'Could not save the bundle preset.');
+    }
   }
 
   return (
@@ -137,6 +140,72 @@ export default function BundleModal() {
           <Text style={styles.confirmBtnText}>Add to Cart</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={successModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setSuccessModalVisible(false); router.dismiss(); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.successIcon}>
+              <Text style={styles.successIconText}>✓</Text>
+            </View>
+            <Text style={styles.successTitle}>Bundle Saved!</Text>
+            <Text style={styles.successSubtitle}>
+              "{savedBundleName}" is now available as a preset on the POS screen.
+            </Text>
+            <TouchableOpacity
+              style={styles.successBtn}
+              onPress={() => { setSuccessModalVisible(false); router.dismiss(); }}
+            >
+              <Text style={styles.successBtnText}>Go to POS</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={saveModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSaveModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Save Bundle Preset</Text>
+            <Text style={styles.modalSubtitle}>
+              Give this bundle a name so you can quickly apply it later.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={bundleName}
+              onChangeText={setBundleName}
+              placeholder="Bundle name"
+              placeholderTextColor={C.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleSaveConfirm}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setSaveModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalOkBtn, !bundleName.trim() && styles.modalOkBtnDisabled]}
+                onPress={handleSaveConfirm}
+                disabled={!bundleName.trim()}
+              >
+                <Text style={styles.modalOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -237,4 +306,99 @@ const styles = StyleSheet.create({
   },
   confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   confirmBtnText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
+
+  successIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: C.pink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    alignSelf: 'center',
+  },
+  successIconText: { color: '#fff', fontSize: 28, fontWeight: '800' },
+  successTitle: {
+    color: C.textPrimary,
+    fontSize: F.xl,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  successSubtitle: {
+    color: C.textSecondary,
+    fontSize: F.sm,
+    textAlign: 'center',
+    marginBottom: 22,
+    lineHeight: 18,
+  },
+  successBtn: {
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  successBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  modalSheet: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+    padding: 24,
+    width: '100%',
+  },
+  modalTitle: {
+    color: C.textPrimary,
+    fontSize: F.lg,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    color: C.textSecondary,
+    fontSize: F.sm,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  modalInput: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    color: C.textPrimary,
+    fontSize: F.md,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  modalCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  modalOkBtn: {
+    flex: 1,
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  modalOkBtnDisabled: { backgroundColor: C.elevated, borderColor: C.border, borderWidth: 1 },
+  modalOkText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

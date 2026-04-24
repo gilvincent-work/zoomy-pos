@@ -44,3 +44,8 @@ export async function updateProduct(
     [fields.name, fields.price, fields.emoji, fields.is_active, id]
   );
 }
+
+export async function deleteProduct(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
+}

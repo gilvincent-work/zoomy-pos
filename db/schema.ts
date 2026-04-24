@@ -71,6 +71,10 @@ export async function initSchema(): Promise<void> {
   ).catch(() => {});
 
   await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`
+  ).catch(() => {});
+
+  await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]
   );

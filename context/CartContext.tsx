@@ -10,10 +10,17 @@ export type CartItem = {
   quantity: number;
 };
 
+export type CartBundle = {
+  cartId: string;
+  presetId: number | null;
+  name: string;
+  price: number;
+  items: BundleItemInput[];
+};
+
 type CartState = {
   items: CartItem[];
-  bundlePrice: number | null;
-  bundleItems: BundleItemInput[] | null;
+  bundles: CartBundle[];
 };
 
 type CartAction =
@@ -21,7 +28,8 @@ type CartAction =
   | { type: 'REMOVE_ITEM'; productId: number }
   | { type: 'DECREMENT_ITEM'; productId: number }
   | { type: 'CLEAR_CART' }
-  | { type: 'SET_BUNDLE'; bundleItems: BundleItemInput[]; price: number };
+  | { type: 'ADD_BUNDLE'; bundle: CartBundle }
+  | { type: 'REMOVE_BUNDLE'; cartId: string };
 
 function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
@@ -29,16 +37,14 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       const existing = state.items.find((i) => i.productId === action.product.id);
       if (existing) {
         return {
-          bundlePrice: null,
-          bundleItems: null,
+          ...state,
           items: state.items.map((i) =>
             i.productId === action.product.id ? { ...i, quantity: i.quantity + 1 } : i
           ),
         };
       }
       return {
-        bundlePrice: null,
-        bundleItems: null,
+        ...state,
         items: [
           ...state.items,
           {
@@ -66,14 +72,11 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       };
     }
     case 'CLEAR_CART':
-      return { items: [], bundlePrice: null, bundleItems: null };
-    case 'SET_BUNDLE':
-      return {
-        bundlePrice: action.price,
-        bundleItems: action.bundleItems,
-        // Single opaque item — productId 0 won't match any product tile
-        items: [{ productId: 0, productName: 'Bundle', price: action.price, quantity: 1 }],
-      };
+      return { items: [], bundles: [] };
+    case 'ADD_BUNDLE':
+      return { ...state, bundles: [...state.bundles, action.bundle] };
+    case 'REMOVE_BUNDLE':
+      return { ...state, bundles: state.bundles.filter((b) => b.cartId !== action.cartId) };
     default:
       return state;
   }
@@ -81,41 +84,41 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 
 type CartContextValue = {
   items: CartItem[];
+  bundles: CartBundle[];
   total: number;
-  bundlePrice: number | null;
-  bundleItems: BundleItemInput[] | null;
   addItem: (product: { id: number; name: string; price: number }) => void;
   removeItem: (productId: number) => void;
   decrementItem: (productId: number) => void;
   clearCart: () => void;
-  setBundle: (bundleItems: BundleItemInput[], price: number) => void;
+  addBundle: (bundle: Omit<CartBundle, 'cartId'>) => void;
+  removeBundle: (cartId: string) => void;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(cartReducer, {
-    items: [],
-    bundlePrice: null,
-    bundleItems: null,
-  });
+  const [state, dispatch] = useReducer(cartReducer, { items: [], bundles: [] });
 
-  const total = state.bundlePrice !== null
-    ? state.bundlePrice
-    : state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const total =
+    state.bundles.reduce((sum, b) => sum + b.price, 0) +
+    state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   return (
     <CartContext.Provider
       value={{
         items: state.items,
+        bundles: state.bundles,
         total,
-        bundlePrice: state.bundlePrice,
-        bundleItems: state.bundleItems,
         addItem: (product) => dispatch({ type: 'ADD_ITEM', product }),
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         decrementItem: (productId) => dispatch({ type: 'DECREMENT_ITEM', productId }),
         clearCart: () => dispatch({ type: 'CLEAR_CART' }),
-        setBundle: (bundleItems, price) => dispatch({ type: 'SET_BUNDLE', bundleItems, price }),
+        addBundle: (bundle) =>
+          dispatch({
+            type: 'ADD_BUNDLE',
+            bundle: { ...bundle, cartId: `${Date.now()}-${Math.random()}` },
+          }),
+        removeBundle: (cartId) => dispatch({ type: 'REMOVE_BUNDLE', cartId }),
       }}
     >
       {children}

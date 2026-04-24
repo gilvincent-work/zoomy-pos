@@ -1,30 +1,49 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getAllProducts, createProduct, updateProduct, Product } from '../../db/products';
+import { getAllProducts, createProduct, updateProduct, deleteProduct, Product } from '../../db/products';
+import {
+  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
+} from '../../db/saved-bundles';
 import { C, F, R } from '../../constants/theme';
 
-type FormState = { name: string; price: string; emoji: string };
-const EMPTY_FORM: FormState = { name: '', price: '', emoji: '🍬' };
+type ProductForm = { name: string; price: string; emoji: string };
+type BundleForm = { name: string; price: string };
+type FormMode = 'product' | 'bundle';
+
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '', emoji: '🍬' };
+const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [bundles, setBundles] = useState<SavedBundle[]>([]);
+  const [productForm, setProductForm] = useState<ProductForm>(EMPTY_PRODUCT);
+  const [bundleForm, setBundleForm] = useState<BundleForm>(EMPTY_BUNDLE);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [formMode, setFormMode] = useState<FormMode>('product');
   const [showForm, setShowForm] = useState(false);
 
   useFocusEffect(
-    useCallback(() => { getAllProducts().then(setProducts); }, [])
+    useCallback(() => {
+      refreshAll();
+    }, [])
   );
 
-  async function handleSave() {
-    const name = form.name.trim();
-    const price = parseFloat(form.price);
-    const emoji = form.emoji.trim() || '🍬';
+  async function refreshAll() {
+    const [p, b] = await Promise.all([getAllProducts(), getAllSavedBundles()]);
+    setProducts(p);
+    setBundles(b);
+  }
 
+  // ─── Product actions ──────────────────────────────────────────────────────
+
+  async function handleSaveProduct() {
+    const name = productForm.name.trim();
+    const price = parseFloat(productForm.price);
+    const emoji = productForm.emoji.trim() || '🍬';
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
     if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
 
@@ -34,65 +53,128 @@ export default function ProductsModal() {
     } else {
       await createProduct({ name, price, emoji });
     }
-
-    const updated = await getAllProducts();
-    setProducts(updated);
-    setForm(EMPTY_FORM);
-    setEditingId(null);
-    setShowForm(false);
+    await refreshAll();
+    cancelForm();
   }
 
-  async function handleToggle(product: Product) {
+  async function handleToggleProduct(product: Product) {
     await updateProduct(product.id, {
-      name: product.name,
-      price: product.price,
-      emoji: product.emoji,
+      name: product.name, price: product.price, emoji: product.emoji,
       is_active: product.is_active === 1 ? 0 : 1,
     });
-    const updated = await getAllProducts();
-    setProducts(updated);
+    setProducts(await getAllProducts());
   }
 
-  function startEdit(product: Product) {
-    setForm({ name: product.name, price: String(product.price), emoji: product.emoji });
+  function startEditProduct(product: Product) {
+    setProductForm({ name: product.name, price: String(product.price), emoji: product.emoji });
     setEditingId(product.id);
+    setFormMode('product');
     setShowForm(true);
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        {showForm ? (
+  function confirmDeleteProduct(id: number, name: string) {
+    Alert.alert('Delete Product', `Remove "${name}" permanently?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteProduct(id); await refreshAll(); } },
+    ]);
+  }
+
+  // ─── Bundle actions ───────────────────────────────────────────────────────
+
+  async function handleSaveBundle() {
+    const name = bundleForm.name.trim();
+    const price = parseFloat(bundleForm.price);
+    if (!name) { Alert.alert('Required', 'Bundle name is required.'); return; }
+    if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
+
+    if (editingId !== null) {
+      const existing = bundles.find((b) => b.id === editingId)!;
+      await updateSavedBundle(editingId, { name, price, items: existing.items });
+    }
+    await refreshAll();
+    cancelForm();
+  }
+
+  async function handleToggleBundle(bundle: SavedBundle) {
+    await toggleSavedBundle(bundle.id, bundle.is_active === 1 ? 0 : 1);
+    setBundles(await getAllSavedBundles());
+  }
+
+  function startEditBundle(bundle: SavedBundle) {
+    setBundleForm({ name: bundle.name, price: String(bundle.price) });
+    setEditingId(bundle.id);
+    setFormMode('bundle');
+    setShowForm(true);
+  }
+
+  function confirmDeleteBundle(id: number, name: string) {
+    Alert.alert('Delete Bundle', `Remove "${name}" preset permanently?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteSavedBundle(id); await refreshAll(); } },
+    ]);
+  }
+
+  // ─── Shared ───────────────────────────────────────────────────────────────
+
+  function cancelForm() {
+    setShowForm(false);
+    setProductForm(EMPTY_PRODUCT);
+    setBundleForm(EMPTY_BUNDLE);
+    setEditingId(null);
+  }
+
+  function handleSave() {
+    if (formMode === 'product') return handleSaveProduct();
+    return handleSaveBundle();
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  if (showForm) {
+    const isBundle = formMode === 'bundle';
+    return (
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={styles.form}>
-            <Text style={styles.formTitle}>{editingId ? 'Edit Product' : 'New Product'}</Text>
+            <Text style={styles.formTitle}>
+              {isBundle ? 'Edit Bundle Preset' : (editingId ? 'Edit Product' : 'New Product')}
+            </Text>
+
+            {!isBundle && (
+              <TextInput
+                style={styles.input}
+                placeholder="Emoji"
+                placeholderTextColor={C.textMuted}
+                value={productForm.emoji}
+                onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: v }))}
+                maxLength={2}
+              />
+            )}
             <TextInput
               style={styles.input}
-              placeholder="Emoji"
+              placeholder={isBundle ? 'Bundle name' : 'Product name'}
               placeholderTextColor={C.textMuted}
-              value={form.emoji}
-              onChangeText={(v) => setForm((f) => ({ ...f, emoji: v }))}
-              maxLength={2}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Product name"
-              placeholderTextColor={C.textMuted}
-              value={form.name}
-              onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
+              value={isBundle ? bundleForm.name : productForm.name}
+              onChangeText={(v) =>
+                isBundle
+                  ? setBundleForm((f) => ({ ...f, name: v }))
+                  : setProductForm((f) => ({ ...f, name: v }))
+              }
             />
             <TextInput
               style={styles.input}
               placeholder="Price (e.g. 120)"
               placeholderTextColor={C.textMuted}
-              value={form.price}
-              onChangeText={(v) => setForm((f) => ({ ...f, price: v }))}
+              value={isBundle ? bundleForm.price : productForm.price}
+              onChangeText={(v) =>
+                isBundle
+                  ? setBundleForm((f) => ({ ...f, price: v }))
+                  : setProductForm((f) => ({ ...f, price: v }))
+              }
               keyboardType="decimal-pad"
             />
             <View style={styles.formBtns}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => { setShowForm(false); setForm(EMPTY_FORM); setEditingId(null); }}
-              >
+              <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
@@ -100,64 +182,149 @@ export default function ProductsModal() {
               </TouchableOpacity>
             </View>
           </View>
-        ) : (
-          <>
-            <TouchableOpacity style={styles.addBtn} onPress={() => setShowForm(true)}>
-              <Text style={styles.addBtnText}>+ New Product</Text>
-            </TouchableOpacity>
-            <FlatList
-              data={products}
-              keyExtractor={(p) => String(p.id)}
-              contentContainerStyle={styles.list}
-              renderItem={({ item }) => (
-                <View style={styles.productRow}>
-                  <TouchableOpacity style={styles.productInfo} onPress={() => startEdit(item)}>
-                    <Text style={styles.productEmoji}>{item.emoji}</Text>
-                    <View>
-                      <Text style={styles.productName}>{item.name}</Text>
-                      <Text style={styles.productPrice}>₱{item.price.toFixed(2)}</Text>
-                    </View>
-                  </TouchableOpacity>
-                  <Switch
-                    value={item.is_active === 1}
-                    onValueChange={() => handleToggle(item)}
-                    trackColor={{ false: C.borderDark, true: C.pink }}
-                    thumbColor="#fff"
-                  />
-                </View>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.empty}>No products yet. Tap "+ New Product" above.</Text>
-              }
-            />
-          </>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() => { setFormMode('product'); setShowForm(true); }}
+        >
+          <Text style={styles.addBtnText}>+ New Product</Text>
+        </TouchableOpacity>
+
+        {/* Products section */}
+        <Text style={styles.sectionLabel}>Products</Text>
+        {products.length === 0 && (
+          <Text style={styles.emptyHint}>No products yet.</Text>
         )}
-      </KeyboardAvoidingView>
+        {products.map((item) => (
+          <View key={item.id} style={styles.itemRow}>
+            <View style={styles.itemInfo}>
+              <Text style={styles.itemEmoji}>{item.emoji}</Text>
+              <View>
+                <Text style={styles.itemName}>{item.name}</Text>
+                <Text style={styles.itemSub}>₱{item.price.toFixed(2)}</Text>
+              </View>
+            </View>
+            <View style={styles.itemActions}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => startEditProduct(item)}>
+                <Text style={styles.actionIcon}>✏️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnDanger]}
+                onPress={() => confirmDeleteProduct(item.id, item.name)}
+              >
+                <Text style={styles.actionIcon}>🗑</Text>
+              </TouchableOpacity>
+              <Switch
+                value={item.is_active === 1}
+                onValueChange={() => handleToggleProduct(item)}
+                trackColor={{ false: C.borderDark, true: C.pink }}
+                thumbColor="#fff"
+              />
+            </View>
+          </View>
+        ))}
+
+        {/* Bundle Presets section */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Bundle Presets</Text>
+        {bundles.length === 0 && (
+          <Text style={styles.emptyHint}>No bundle presets yet. Create one from the POS screen.</Text>
+        )}
+        {bundles.map((bundle) => (
+          <View key={bundle.id} style={styles.itemRow}>
+            <View style={styles.itemInfo}>
+              <Text style={styles.itemEmoji}>📦</Text>
+              <View>
+                <Text style={styles.itemName}>{bundle.name}</Text>
+                <Text style={styles.itemSub}>
+                  ₱{bundle.price.toFixed(2)} · {bundle.items.length} item{bundle.items.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.itemActions}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => startEditBundle(bundle)}>
+                <Text style={styles.actionIcon}>✏️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnDanger]}
+                onPress={() => confirmDeleteBundle(bundle.id, bundle.name)}
+              >
+                <Text style={styles.actionIcon}>🗑</Text>
+              </TouchableOpacity>
+              <Switch
+                value={bundle.is_active === 1}
+                onValueChange={() => handleToggleBundle(bundle)}
+                trackColor={{ false: C.borderDark, true: C.pink }}
+                thumbColor="#fff"
+              />
+            </View>
+          </View>
+        ))}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  list: { padding: 16 },
+  scrollContent: { padding: 16, paddingBottom: 32 },
 
   addBtn: {
-    margin: 16, backgroundColor: C.pink, borderRadius: R.sm,
-    padding: 15, alignItems: 'center',
+    backgroundColor: C.pink, borderRadius: R.sm,
+    padding: 15, alignItems: 'center', marginBottom: 20,
   },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 
-  productRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface, borderRadius: R.md,
-    padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: C.borderDark,
+  sectionLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
-  productInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  productEmoji: { fontSize: 30 },
-  productName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  productPrice: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
-  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
+  emptyHint: {
+    color: C.textMuted,
+    fontSize: F.sm,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+  },
+  itemInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  itemEmoji: { fontSize: 28 },
+  itemName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  itemSub: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
+
+  itemActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionBtn: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    padding: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnDanger: { borderColor: C.borderDark },
+  actionIcon: { fontSize: 14 },
 
   form: { padding: 20, gap: 12 },
   formTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 6 },
@@ -168,13 +335,9 @@ const styles = StyleSheet.create({
   formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: {
     flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
-    padding: 14, alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
+    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border,
   },
   cancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
-  saveBtn: {
-    flex: 2, backgroundColor: C.pink, borderRadius: R.sm,
-    padding: 14, alignItems: 'center',
-  },
+  saveBtn: { flex: 2, backgroundColor: C.pink, borderRadius: R.sm, padding: 14, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

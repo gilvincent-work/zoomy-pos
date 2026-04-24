@@ -4,21 +4,22 @@ import {
   StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getAllProducts, createProduct, updateProduct, deleteProduct, Product } from '../../db/products';
+import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, ProductVariant, getAllVariantsByProductId } from '../../db/products';
 import {
   getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
 } from '../../db/saved-bundles';
 import { C, F, R } from '../../constants/theme';
 
-type ProductForm = { name: string; price: string; emoji: string };
+type VariantFormRow = { id?: number; name: string; price: string };
+type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[] };
 type BundleForm = { name: string; price: string };
 type FormMode = 'product' | 'bundle';
 
-const EMPTY_PRODUCT: ProductForm = { name: '', price: '', emoji: '🍬' };
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, variants: [] };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<(Product & { variant_count: number })[]>([]);
   const [bundles, setBundles] = useState<SavedBundle[]>([]);
   const [productForm, setProductForm] = useState<ProductForm>(EMPTY_PRODUCT);
   const [bundleForm, setBundleForm] = useState<BundleForm>(EMPTY_BUNDLE);
@@ -42,31 +43,93 @@ export default function ProductsModal() {
 
   async function handleSaveProduct() {
     const name = productForm.name.trim();
-    const price = parseFloat(productForm.price);
-    const emoji = productForm.emoji.trim() || '🍬';
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
-    if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
 
-    if (editingId !== null) {
-      const existing = products.find((p) => p.id === editingId)!;
-      await updateProduct(editingId, { name, price, emoji, is_active: existing.is_active });
+    if (productForm.hasVariants) {
+      const validVariants = productForm.variants.filter((v) => v.name.trim());
+      if (validVariants.length === 0) {
+        Alert.alert('Required', 'Add at least one variant.');
+        return;
+      }
+      for (const v of validVariants) {
+        const p = parseFloat(v.price);
+        if (isNaN(p) || p <= 0) {
+          Alert.alert('Invalid price', `Enter a valid price for "${v.name}".`);
+          return;
+        }
+      }
+      const parsedVariants = validVariants.map((v) => ({
+        id: v.id,
+        name: v.name.trim(),
+        price: parseFloat(v.price),
+      }));
+
+      if (editingId !== null) {
+        const existing = products.find((p) => p.id === editingId)!;
+        await updateProduct(editingId, {
+          name,
+          price: null,
+          has_variants: true,
+          is_active: existing.is_active,
+          variants: parsedVariants,
+        });
+      } else {
+        await createProduct({
+          name,
+          price: null,
+          has_variants: true,
+          variants: parsedVariants,
+        });
+      }
     } else {
-      await createProduct({ name, price, emoji });
+      const price = parseFloat(productForm.price);
+      if (isNaN(price) || price <= 0) {
+        Alert.alert('Invalid price', 'Enter a valid price.'); return;
+      }
+
+      if (editingId !== null) {
+        const existing = products.find((p) => p.id === editingId)!;
+        await updateProduct(editingId, {
+          name,
+          price,
+          has_variants: false,
+          is_active: existing.is_active,
+        });
+      } else {
+        await createProduct({ name, price, has_variants: false });
+      }
     }
+
     await refreshAll();
     cancelForm();
   }
 
   async function handleToggleProduct(product: Product) {
     await updateProduct(product.id, {
-      name: product.name, price: product.price, emoji: product.emoji,
+      name: product.name,
+      price: product.price,
+      has_variants: product.has_variants === 1,
       is_active: product.is_active === 1 ? 0 : 1,
     });
     setProducts(await getAllProducts());
   }
 
-  function startEditProduct(product: Product) {
-    setProductForm({ name: product.name, price: String(product.price), emoji: product.emoji });
+  async function startEditProduct(product: Product) {
+    let variants: VariantFormRow[] = [];
+    if (product.has_variants) {
+      const dbVariants = await getAllVariantsByProductId(product.id);
+      variants = dbVariants.map((v) => ({
+        id: v.id,
+        name: v.name,
+        price: String(v.price),
+      }));
+    }
+    setProductForm({
+      name: product.name,
+      price: product.price != null ? String(product.price) : '',
+      hasVariants: product.has_variants === 1,
+      variants,
+    });
     setEditingId(product.id);
     setFormMode('product');
     setShowForm(true);
@@ -140,16 +203,6 @@ export default function ProductsModal() {
               {isBundle ? 'Edit Bundle Preset' : (editingId ? 'Edit Product' : 'New Product')}
             </Text>
 
-            {!isBundle && (
-              <TextInput
-                style={styles.input}
-                placeholder="Emoji"
-                placeholderTextColor={C.textMuted}
-                value={productForm.emoji}
-                onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: v }))}
-                maxLength={2}
-              />
-            )}
             <TextInput
               style={styles.input}
               placeholder={isBundle ? 'Bundle name' : 'Product name'}
@@ -161,18 +214,97 @@ export default function ProductsModal() {
                   : setProductForm((f) => ({ ...f, name: v }))
               }
             />
-            <TextInput
-              style={styles.input}
-              placeholder="Price (e.g. 120)"
-              placeholderTextColor={C.textMuted}
-              value={isBundle ? bundleForm.price : productForm.price}
-              onChangeText={(v) =>
-                isBundle
-                  ? setBundleForm((f) => ({ ...f, price: v }))
-                  : setProductForm((f) => ({ ...f, price: v }))
-              }
-              keyboardType="decimal-pad"
-            />
+
+            {!isBundle && (
+              <View style={styles.toggleRow}>
+                <Text style={styles.toggleLabel}>Has variants?</Text>
+                <Switch
+                  value={productForm.hasVariants}
+                  onValueChange={(v) => setProductForm((f) => ({
+                    ...f,
+                    hasVariants: v,
+                    price: v ? '' : f.price,
+                    variants: v && f.variants.length === 0 ? [{ name: '', price: '' }] : f.variants,
+                  }))}
+                  trackColor={{ false: C.borderDark, true: C.pink }}
+                  thumbColor="#fff"
+                />
+              </View>
+            )}
+
+            {(!isBundle && productForm.hasVariants) ? (
+              <View style={styles.variantSection}>
+                <Text style={styles.variantLabel}>VARIANTS</Text>
+                {productForm.variants.map((v, i) => (
+                  <View key={i} style={styles.variantRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 2 }]}
+                      placeholder="Variant name"
+                      placeholderTextColor={C.textMuted}
+                      value={v.name}
+                      onChangeText={(text) =>
+                        setProductForm((f) => ({
+                          ...f,
+                          variants: f.variants.map((vr, vi) =>
+                            vi === i ? { ...vr, name: text } : vr
+                          ),
+                        }))
+                      }
+                    />
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      placeholder="Price"
+                      placeholderTextColor={C.textMuted}
+                      value={v.price}
+                      onChangeText={(text) =>
+                        setProductForm((f) => ({
+                          ...f,
+                          variants: f.variants.map((vr, vi) =>
+                            vi === i ? { ...vr, price: text } : vr
+                          ),
+                        }))
+                      }
+                      keyboardType="decimal-pad"
+                    />
+                    <TouchableOpacity
+                      style={styles.variantDeleteBtn}
+                      onPress={() =>
+                        setProductForm((f) => ({
+                          ...f,
+                          variants: f.variants.filter((_, vi) => vi !== i),
+                        }))
+                      }
+                    >
+                      <Text style={styles.variantDeleteText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TouchableOpacity
+                  style={styles.addVariantBtn}
+                  onPress={() =>
+                    setProductForm((f) => ({
+                      ...f,
+                      variants: [...f.variants, { name: '', price: '' }],
+                    }))
+                  }
+                >
+                  <Text style={styles.addVariantText}>+ Add Variant</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TextInput
+                style={styles.input}
+                placeholder="Price (e.g. 120)"
+                placeholderTextColor={C.textMuted}
+                value={isBundle ? bundleForm.price : productForm.price}
+                onChangeText={(v) =>
+                  isBundle
+                    ? setBundleForm((f) => ({ ...f, price: v }))
+                    : setProductForm((f) => ({ ...f, price: v }))
+                }
+                keyboardType="decimal-pad"
+              />
+            )}
             <View style={styles.formBtns}>
               <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
                 <Text style={styles.cancelText}>Cancel</Text>
@@ -205,10 +337,13 @@ export default function ProductsModal() {
         {products.map((item) => (
           <View key={item.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Text style={styles.itemEmoji}>{item.emoji}</Text>
               <View>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemSub}>₱{item.price.toFixed(2)}</Text>
+                <Text style={styles.itemSub}>
+                  {item.has_variants
+                    ? `${item.variant_count} variant${item.variant_count !== 1 ? 's' : ''}`
+                    : `₱${(item.price ?? 0).toFixed(2)}`}
+                </Text>
               </View>
             </View>
             <View style={styles.itemActions}>
@@ -325,6 +460,56 @@ const styles = StyleSheet.create({
   },
   actionBtnDanger: { borderColor: C.borderDark },
   actionIcon: { fontSize: 14 },
+
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: R.sm,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  toggleLabel: {
+    color: C.textPrimary,
+    fontSize: F.md,
+    fontWeight: '600',
+  },
+  variantSection: { gap: 8 },
+  variantLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  variantRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  variantDeleteBtn: {
+    padding: 10,
+  },
+  variantDeleteText: {
+    color: C.pink,
+    fontSize: F.lg,
+    fontWeight: '700',
+  },
+  addVariantBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: C.pink,
+    borderRadius: R.sm,
+    padding: 12,
+    alignItems: 'center',
+  },
+  addVariantText: {
+    color: C.pink,
+    fontWeight: '700',
+    fontSize: F.md,
+  },
 
   form: { padding: 20, gap: 12 },
   formTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 6 },

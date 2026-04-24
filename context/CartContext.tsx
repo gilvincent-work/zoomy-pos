@@ -1,4 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
+import type { BundleItemInput } from '../db/saved-bundles';
+
+export type { BundleItemInput };
 
 export type CartItem = {
   productId: number;
@@ -9,19 +12,26 @@ export type CartItem = {
   variantName?: string;
 };
 
-type CartState = {
-  items: CartItem[];
-  bundlePrice: number | null;
+export type CartBundle = {
+  cartId: string;
+  presetId: number | null;
+  name: string;
+  price: number;
+  items: BundleItemInput[];
 };
 
-type BundleItemInput = { id: number; name: string; quantity: number };
+type CartState = {
+  items: CartItem[];
+  bundles: CartBundle[];
+};
 
 type CartAction =
   | { type: 'ADD_ITEM'; product: { id: number; name: string; price: number; variantId?: number; variantName?: string } }
   | { type: 'REMOVE_ITEM'; productId: number }
   | { type: 'DECREMENT_ITEM'; productId: number; variantId?: number }
   | { type: 'CLEAR_CART' }
-  | { type: 'SET_BUNDLE'; bundleItems: BundleItemInput[]; price: number };
+  | { type: 'ADD_BUNDLE'; bundle: CartBundle }
+  | { type: 'REMOVE_BUNDLE'; cartId: string };
 
 function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
@@ -32,14 +42,14 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       );
       if (matchIndex >= 0) {
         return {
-          bundlePrice: null,
+          ...state,
           items: state.items.map((i, idx) =>
             idx === matchIndex ? { ...i, quantity: i.quantity + 1 } : i
           ),
         };
       }
       return {
-        bundlePrice: null,
+        ...state,
         items: [
           ...state.items,
           {
@@ -81,17 +91,11 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       };
     }
     case 'CLEAR_CART':
-      return { items: [], bundlePrice: null };
-    case 'SET_BUNDLE':
-      return {
-        bundlePrice: action.price,
-        items: action.bundleItems.map((i) => ({
-          productId: i.id,
-          productName: i.name,
-          price: 0,
-          quantity: i.quantity,
-        })),
-      };
+      return { items: [], bundles: [] };
+    case 'ADD_BUNDLE':
+      return { ...state, bundles: [...state.bundles, action.bundle] };
+    case 'REMOVE_BUNDLE':
+      return { ...state, bundles: state.bundles.filter((b) => b.cartId !== action.cartId) };
     default:
       return state;
   }
@@ -99,35 +103,41 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 
 type CartContextValue = {
   items: CartItem[];
+  bundles: CartBundle[];
   total: number;
-  bundlePrice: number | null;
   addItem: (product: { id: number; name: string; price: number; variantId?: number; variantName?: string }) => void;
   removeItem: (productId: number) => void;
   decrementItem: (productId: number, variantId?: number) => void;
   clearCart: () => void;
-  setBundle: (bundleItems: BundleItemInput[], price: number) => void;
+  addBundle: (bundle: Omit<CartBundle, 'cartId'>) => void;
+  removeBundle: (cartId: string) => void;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(cartReducer, { items: [], bundlePrice: null });
+  const [state, dispatch] = useReducer(cartReducer, { items: [], bundles: [] });
 
-  const total = state.bundlePrice !== null
-    ? state.bundlePrice
-    : state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const total =
+    state.bundles.reduce((sum, b) => sum + b.price, 0) +
+    state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   return (
     <CartContext.Provider
       value={{
         items: state.items,
+        bundles: state.bundles,
         total,
-        bundlePrice: state.bundlePrice,
         addItem: (product) => dispatch({ type: 'ADD_ITEM', product }),
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         decrementItem: (productId, variantId) => dispatch({ type: 'DECREMENT_ITEM', productId, variantId }),
         clearCart: () => dispatch({ type: 'CLEAR_CART' }),
-        setBundle: (bundleItems, price) => dispatch({ type: 'SET_BUNDLE', bundleItems, price }),
+        addBundle: (bundle) =>
+          dispatch({
+            type: 'ADD_BUNDLE',
+            bundle: { ...bundle, cartId: `${Date.now()}-${Math.random()}` },
+          }),
+        removeBundle: (cartId) => dispatch({ type: 'REMOVE_BUNDLE', cartId }),
       }}
     >
       {children}

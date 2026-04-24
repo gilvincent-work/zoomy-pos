@@ -23,6 +23,7 @@ const PAYMENT_METHODS: { key: PaymentMethod; label: string; icon: string }[] = [
 type DigitalStep = 'qr' | 'proof';
 
 type ConfirmedSummary = {
+  bundles: { name: string; price: number; items: { name: string; quantity: number }[] }[];
   items: { name: string; quantity: number; price: number }[];
   total: number;
   method: PaymentMethod;
@@ -33,7 +34,7 @@ type ConfirmedSummary = {
 };
 
 export default function PaymentModal() {
-  const { items, total, bundlePrice, clearCart, addItem, decrementItem } = useCart();
+  const { items, bundles, total, clearCart, removeBundle, addItem, decrementItem } = useCart();
   const [tendered, setTendered] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [digitalStep, setDigitalStep] = useState<DigitalStep>('qr');
@@ -47,7 +48,8 @@ export default function PaymentModal() {
   const isCash = method === 'cash';
   const isDigital = !isCash;
   const change = tendered - total;
-  const canConfirmCash = tendered >= total && items.length > 0;
+  const hasCartContent = items.length > 0 || bundles.length > 0;
+  const canConfirmCash = tendered >= total && hasCartContent;
 
   useEffect(() => {
     getGcashQrUri().then(setQrUri);
@@ -81,14 +83,32 @@ export default function PaymentModal() {
 
   async function handleConfirm() {
     try {
+      const isBundle = bundles.length > 0;
+
+      const bundleInsertItems = bundles.flatMap((b) =>
+        b.items.map((i) => ({ productId: i.id, productName: i.name, price: 0, quantity: i.quantity }))
+      );
+      const individualInsertItems = items.map((i) => ({
+        productId: i.productId,
+        productName: i.productName,
+        price: i.price,
+        quantity: i.quantity,
+      }));
+      const itemsForInsert = [...bundleInsertItems, ...individualInsertItems];
+
       const snapshot: ConfirmedSummary = {
+        bundles: bundles.map((b) => ({
+          name: b.name,
+          price: b.price,
+          items: b.items.map((i) => ({ name: i.name, quantity: i.quantity })),
+        })),
         items: items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.price })),
         total,
         method,
         change: isCash ? change : 0,
         customerHandle: customerHandle.trim(),
         refNumber: refNumber.trim(),
-        isBundle: bundlePrice !== null,
+        isBundle,
       };
       await insertTransaction({
         total,
@@ -98,13 +118,8 @@ export default function PaymentModal() {
         refNumber: refNumber.trim() || undefined,
         proofPhotoUri: proofPhotoUri || undefined,
         customerHandle: customerHandle.trim() || undefined,
-        isBundle: bundlePrice !== null,
-        items: items.map((i) => ({
-          productId: i.productId,
-          productName: i.productName,
-          price: i.price,
-          quantity: i.quantity,
-        })),
+        isBundle,
+        items: itemsForInsert,
       });
       clearCart();
       setConfirmed(snapshot);
@@ -118,6 +133,7 @@ export default function PaymentModal() {
     const methodLabel = confirmed.method === 'gcash' ? 'GCash'
       : confirmed.method === 'bank_transfer' ? 'Bank Transfer'
       : 'Cash';
+    const isMixed = confirmed.bundles.length > 0 && confirmed.items.length > 0;
     return (
       <Modal visible animationType="fade" transparent onRequestClose={() => router.dismiss()}>
         <View style={styles.confirmOverlay}>
@@ -130,12 +146,36 @@ export default function PaymentModal() {
 
             <View style={styles.confirmDivider} />
 
+            {/* Bundle sections */}
+            {confirmed.bundles.map((bundle, bi) => (
+              <View key={bi} style={{ width: '100%' }}>
+                {bi > 0 && <View style={[styles.confirmDivider, { marginVertical: 8 }]} />}
+                <View style={styles.confirmBundleHeader}>
+                  <Text style={styles.bundleTag}>Bundle</Text>
+                  <Text style={styles.confirmItemPrice}>₱{bundle.price.toFixed(2)}</Text>
+                </View>
+                {bundle.items.map((item, ii) => (
+                  <View key={ii} style={styles.confirmRow}>
+                    <Text style={styles.confirmItemName}>{item.name} ×{item.quantity}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+
+            {/* Mixed divider */}
+            {isMixed && (
+              <View style={styles.confirmMixedDivider}>
+                <View style={styles.confirmMixedLine} />
+                <Text style={styles.confirmMixedLabel}>+ Individual</Text>
+                <View style={styles.confirmMixedLine} />
+              </View>
+            )}
+
+            {/* Individual items */}
             {confirmed.items.map((item, i) => (
               <View key={i} style={styles.confirmRow}>
                 <Text style={styles.confirmItemName}>{item.name} ×{item.quantity}</Text>
-                {!confirmed.isBundle && (
-                  <Text style={styles.confirmItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
-                )}
+                <Text style={styles.confirmItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
               </View>
             ))}
 
@@ -174,13 +214,50 @@ export default function PaymentModal() {
   }
 
   function renderOrderSummary() {
-    const isBundle = bundlePrice !== null;
+    const isMixed = bundles.length > 0 && items.length > 0;
+
     return (
       <>
         <View style={styles.summaryHeader}>
           <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>ORDER SUMMARY</Text>
-          {isBundle && <Text style={styles.bundleTag}>Bundle</Text>}
         </View>
+
+        {/* Each bundle as its own section with trash */}
+        {bundles.map((bundle, idx) => (
+          <View key={bundle.cartId}>
+            {idx > 0 && <View style={[styles.divider, { marginVertical: 6 }]} />}
+            <View style={styles.bundleSectionRow}>
+              <Text style={styles.bundleTag}>Bundle</Text>
+              <View style={styles.bundleSectionRight}>
+                <Text style={styles.bundleSectionPrice}>₱{bundle.price.toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={styles.trashBtn}
+                  onPress={() => removeBundle(bundle.cartId)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.trashIcon}>🗑</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {bundle.items.map((item) => (
+              <View key={item.id} style={styles.itemRow}>
+                <Text style={styles.itemName}>{item.name}</Text>
+                <Text style={styles.bundleQty}>×{item.quantity}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+
+        {/* Divider between bundles and individual items */}
+        {isMixed && (
+          <View style={styles.mixedDivider}>
+            <View style={styles.mixedDividerLine} />
+            <Text style={styles.mixedDividerLabel}>+ Individual</Text>
+            <View style={styles.mixedDividerLine} />
+          </View>
+        )}
+
+        {/* Individual items */}
         {items.map((item) => (
           <View key={item.productId} style={styles.itemRow}>
             <Text style={styles.itemName}>{item.productName}</Text>
@@ -192,12 +269,11 @@ export default function PaymentModal() {
               <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
                 <Text style={styles.qtyBtnText}>+</Text>
               </TouchableOpacity>
-              {!isBundle && (
-                <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
-              )}
+              <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
             </View>
           </View>
         ))}
+
         <View style={styles.divider} />
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>TOTAL</Text>
@@ -282,8 +358,8 @@ export default function PaymentModal() {
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.confirmBtn, items.length === 0 && styles.confirmBtnDisabled]}
-            disabled={items.length === 0}
+            style={[styles.confirmBtn, !hasCartContent && styles.confirmBtnDisabled]}
+            disabled={!hasCartContent}
             onPress={() => setDigitalStep('proof')}
           >
             <Text style={styles.confirmBtnText}>Customer Paid ✓</Text>
@@ -494,6 +570,54 @@ const styles = StyleSheet.create({
   qtyBtnText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
   qtyText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
   itemTotal: { color: C.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },
+  bundleQty: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
+
+  bundleSectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  bundleSectionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bundleSectionPrice: {
+    color: C.textSecondary,
+    fontSize: F.md,
+    fontWeight: '700',
+  },
+  trashBtn: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    padding: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trashIcon: { fontSize: 14 },
+
+  mixedDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    gap: 8,
+  },
+  mixedDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: C.borderDark,
+  },
+  mixedDividerLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
 
   divider: { height: 1, backgroundColor: C.border, marginVertical: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -724,6 +848,28 @@ const styles = StyleSheet.create({
   confirmTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
   confirmSub: { color: C.textSecondary, fontSize: F.sm, marginBottom: 18, textAlign: 'center' },
   confirmDivider: { height: 1, backgroundColor: C.borderDark, width: '100%', marginVertical: 12 },
+  confirmBundleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 6,
+  },
+  confirmMixedDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 10,
+    gap: 8,
+  },
+  confirmMixedLine: { flex: 1, height: 1, backgroundColor: C.borderDark },
+  confirmMixedLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
   confirmRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -130,3 +130,8 @@ export async function updateProduct(
     await db.runAsync('DELETE FROM product_variants WHERE product_id = ?', [id]);
   }
 }
+
+export async function deleteProduct(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
+}

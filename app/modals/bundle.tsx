@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput,
-  StyleSheet, SafeAreaView,
+  StyleSheet, SafeAreaView, Alert, Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getActiveProducts, Product } from '../../db/products';
+import { saveBundlePreset } from '../../db/saved-bundles';
 import { useCart } from '../../context/CartContext';
 import { C, F, R } from '../../constants/theme';
 
@@ -13,7 +14,11 @@ export default function BundleModal() {
   const [products, setProducts] = useState<Product[]>([]);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [price, setPrice] = useState('');
-  const { setBundle } = useCart();
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [bundleName, setBundleName] = useState('');
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [savedBundleName, setSavedBundleName] = useState('');
+  const { addBundle } = useCart();
 
   useFocusEffect(
     useCallback(() => {
@@ -39,14 +44,36 @@ export default function BundleModal() {
       return { ...prev, [id]: cur - 1 };
     });
 
-  const handleConfirm = () => {
-    if (!canConfirm) return;
-    const bundleItems = products
+  function buildBundleItems() {
+    return products
       .filter((p) => (quantities[p.id] ?? 0) > 0)
       .map((p) => ({ id: p.id, name: p.name, quantity: quantities[p.id] }));
-    setBundle(bundleItems, parsedPrice);
-    router.replace('/modals/payment');
-  };
+  }
+
+  function handleAddToCart() {
+    if (!canConfirm) return;
+    addBundle({ presetId: null, name: 'Bundle', price: parsedPrice, items: buildBundleItems() });
+    router.dismiss();
+  }
+
+  function handleSave() {
+    if (!canConfirm) return;
+    setBundleName('');
+    setSaveModalVisible(true);
+  }
+
+  async function handleSaveConfirm() {
+    if (!bundleName.trim()) return;
+    const name = bundleName.trim();
+    try {
+      await saveBundlePreset(name, buildBundleItems(), parsedPrice);
+      setSaveModalVisible(false);
+      setSavedBundleName(name);
+      setSuccessModalVisible(true);
+    } catch {
+      Alert.alert('Error', 'Could not save the bundle preset.');
+    }
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -99,13 +126,86 @@ export default function BundleModal() {
 
       <View style={styles.footer}>
         <TouchableOpacity
+          style={[styles.saveBtn, !canConfirm && styles.saveBtnDisabled]}
+          disabled={!canConfirm}
+          onPress={handleSave}
+        >
+          <Text style={styles.saveBtnText}>Save</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
           disabled={!canConfirm}
-          onPress={handleConfirm}
+          onPress={handleAddToCart}
         >
-          <Text style={styles.confirmBtnText}>Add Bundle to Cart</Text>
+          <Text style={styles.confirmBtnText}>Add to Cart</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={successModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setSuccessModalVisible(false); router.dismiss(); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.successIcon}>
+              <Text style={styles.successIconText}>✓</Text>
+            </View>
+            <Text style={styles.successTitle}>Bundle Saved!</Text>
+            <Text style={styles.successSubtitle}>
+              "{savedBundleName}" is now available as a preset on the POS screen.
+            </Text>
+            <TouchableOpacity
+              style={styles.successBtn}
+              onPress={() => { setSuccessModalVisible(false); router.dismiss(); }}
+            >
+              <Text style={styles.successBtnText}>Go to POS</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={saveModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSaveModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Save Bundle Preset</Text>
+            <Text style={styles.modalSubtitle}>
+              Give this bundle a name so you can quickly apply it later.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={bundleName}
+              onChangeText={setBundleName}
+              placeholder="Bundle name"
+              placeholderTextColor={C.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleSaveConfirm}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setSaveModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalOkBtn, !bundleName.trim() && styles.modalOkBtnDisabled]}
+                onPress={handleSaveConfirm}
+                disabled={!bundleName.trim()}
+              >
+                <Text style={styles.modalOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -162,12 +262,7 @@ const styles = StyleSheet.create({
   },
   qtyActive: { color: C.pink },
 
-  empty: {
-    color: C.textMuted,
-    textAlign: 'center',
-    marginTop: 40,
-    fontSize: F.md,
-  },
+  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
 
   priceSection: { marginTop: 8 },
   priceBox: {
@@ -180,26 +275,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  currencySign: {
-    color: C.textSecondary,
-    fontSize: F.xxl,
-    fontWeight: '700',
-    marginRight: 8,
-  },
-  priceInput: {
-    flex: 1,
-    color: C.textPrimary,
-    fontSize: F.xxl,
-    fontWeight: '800',
-  },
+  currencySign: { color: C.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
+  priceInput: { flex: 1, color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
 
   footer: {
+    flexDirection: 'row',
+    gap: 10,
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
   },
+  saveBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    paddingVertical: 16,
+    borderRadius: R.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  saveBtnDisabled: { opacity: 0.4 },
+  saveBtnText: { color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
   confirmBtn: {
+    flex: 2,
     backgroundColor: C.pink,
     paddingVertical: 16,
     borderRadius: R.sm,
@@ -207,4 +306,99 @@ const styles = StyleSheet.create({
   },
   confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   confirmBtnText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
+
+  successIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: C.pink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    alignSelf: 'center',
+  },
+  successIconText: { color: '#fff', fontSize: 28, fontWeight: '800' },
+  successTitle: {
+    color: C.textPrimary,
+    fontSize: F.xl,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  successSubtitle: {
+    color: C.textSecondary,
+    fontSize: F.sm,
+    textAlign: 'center',
+    marginBottom: 22,
+    lineHeight: 18,
+  },
+  successBtn: {
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  successBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  modalSheet: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+    padding: 24,
+    width: '100%',
+  },
+  modalTitle: {
+    color: C.textPrimary,
+    fontSize: F.lg,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    color: C.textSecondary,
+    fontSize: F.sm,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  modalInput: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    color: C.textPrimary,
+    fontSize: F.md,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  modalCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  modalOkBtn: {
+    flex: 1,
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  modalOkBtnDisabled: { backgroundColor: C.elevated, borderColor: C.border, borderWidth: 1 },
+  modalOkText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

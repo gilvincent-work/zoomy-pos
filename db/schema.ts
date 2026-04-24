@@ -84,6 +84,28 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE products ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0`
   ).catch(() => {});
 
+  // Migrate products table to allow nullable price (needed for variant products)
+  const cols = await db.getAllAsync<{ name: string; notnull: number }>(
+    `PRAGMA table_info(products)`
+  );
+  const priceCol = cols.find((c) => c.name === 'price');
+  if (priceCol && priceCol.notnull === 1) {
+    await db.execAsync(`
+      CREATE TABLE products_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price REAL,
+        emoji TEXT NOT NULL DEFAULT '🍬',
+        has_variants INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO products_new SELECT id, name, price, emoji, has_variants, is_active, created_at FROM products;
+      DROP TABLE products;
+      ALTER TABLE products_new RENAME TO products;
+    `);
+  }
+
   await db.runAsync(
     `ALTER TABLE transaction_items ADD COLUMN variant_id INTEGER`
   ).catch(() => {});

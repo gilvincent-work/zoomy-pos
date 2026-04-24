@@ -7,5 +7,6 @@ module.exports = {
   moduleNameMapper: {
     '^expo-sqlite$': '<rootDir>/__mocks__/expo-sqlite.ts',
     '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.ts',
+    '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system/legacy.ts',
   },
 };

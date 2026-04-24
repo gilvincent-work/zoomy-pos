@@ -39,6 +39,16 @@ export async function initSchema(): Promise<void> {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS product_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      price REAL NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
   `);
 
   // Add payment_method column to existing databases
@@ -60,6 +70,18 @@ export async function initSchema(): Promise<void> {
 
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN is_bundle INTEGER NOT NULL DEFAULT 0`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transaction_items ADD COLUMN variant_id INTEGER`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transaction_items ADD COLUMN variant_name TEXT`
   ).catch(() => {});
 
   await db.runAsync(

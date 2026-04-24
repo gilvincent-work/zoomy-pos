@@ -1,18 +1,22 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView,
+  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCart } from '../context/CartContext';
-import { getActiveProducts, Product } from '../db/products';
+import { getActiveProducts, getVariantsByProductId, Product, ProductVariant } from '../db/products';
+import { VariantPickerModal } from '../components/VariantPickerModal';
 import { getSavedBundles, deleteSavedBundle, SavedBundle } from '../db/saved-bundles';
 import { C, F, R } from '../constants/theme';
 
 export default function POSScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [savedBundles, setSavedBundles] = useState<SavedBundle[]>([]);
-  const { items, bundles, total, addItem, decrementItem, addBundle, removeBundle, clearCart } = useCart();
+  const { items, bundles, total, addItem, removeItem, decrementItem, addBundle, removeBundle, clearCart } = useCart();
+
+  const [variantPickerProduct, setVariantPickerProduct] = useState<Product | null>(null);
+  const [variantPickerVariants, setVariantPickerVariants] = useState<ProductVariant[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -22,7 +26,18 @@ export default function POSScreen() {
   );
 
   const getBadge = (productId: number) =>
-    items.find((i) => i.productId === productId)?.quantity ?? 0;
+    items
+      .filter((i) => i.productId === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+  const variantInitialQuantities: Record<number, number> = {};
+  if (variantPickerProduct) {
+    for (const item of items) {
+      if (item.productId === variantPickerProduct.id && item.variantId) {
+        variantInitialQuantities[item.variantId] = item.quantity;
+      }
+    }
+  }
 
   const presetCount = (presetId: number) => bundles.filter((b) => b.presetId === presetId).length;
 
@@ -32,6 +47,35 @@ export default function POSScreen() {
   };
 
   const cartCount = bundles.length + items.reduce((s, i) => s + i.quantity, 0);
+
+  async function handleProductPress(product: Product) {
+    if (product.has_variants) {
+      const variants = await getVariantsByProductId(product.id);
+      setVariantPickerVariants(variants);
+      setVariantPickerProduct(product);
+    } else {
+      addItem({ id: product.id, name: product.name, price: product.price! });
+    }
+  }
+
+  function handleVariantsDone(selections: { variantId: number; variantName: string; price: number; quantity: number }[]) {
+    if (variantPickerProduct) {
+      removeItem(variantPickerProduct.id);
+      for (const s of selections) {
+        for (let i = 0; i < s.quantity; i++) {
+          addItem({
+            id: variantPickerProduct.id,
+            name: variantPickerProduct.name,
+            price: s.price,
+            variantId: s.variantId,
+            variantName: s.variantName,
+          });
+        }
+      }
+    }
+    setVariantPickerProduct(null);
+    setVariantPickerVariants([]);
+  }
 
   function handleSavedBundleTap(bundle: SavedBundle) {
     addBundle({ presetId: bundle.id, name: bundle.name, price: bundle.price, items: bundle.items });
@@ -186,11 +230,18 @@ export default function POSScreen() {
           return (
             <View style={[styles.productRow, qty > 0 && styles.productRowActive]}>
               <Text style={styles.productEmoji}>{item.emoji}</Text>
-              <Text style={styles.productName}>{item.name}</Text>
+              <View style={styles.productInfo}>
+                <Text style={styles.productName}>{item.name}</Text>
+                {item.has_variants ? (
+                  <Text style={styles.productVariantHint}>has variants</Text>
+                ) : (
+                  <Text style={styles.productPrice}>₱{(item.price ?? 0).toFixed(2)}</Text>
+                )}
+              </View>
               <View style={styles.productStepper}>
                 <TouchableOpacity
                   style={[styles.stepBtn, qty === 0 && styles.stepBtnDim]}
-                  onPress={() => decrementItem(item.id)}
+                  onPress={() => { if (item.has_variants) { handleProductPress(item); } else { decrementItem(item.id); } }}
                   disabled={qty === 0}
                 >
                   <Text style={[styles.stepIcon, qty === 0 && styles.stepIconDim]}>−</Text>
@@ -198,7 +249,7 @@ export default function POSScreen() {
                 <Text style={[styles.stepQty, qty > 0 && styles.stepQtyActive]}>{qty}</Text>
                 <TouchableOpacity
                   style={styles.stepBtn}
-                  onPress={() => addItem({ id: item.id, name: item.name, price: item.price })}
+                  onPress={() => handleProductPress(item)}
                 >
                   <Text style={styles.stepIcon}>+</Text>
                 </TouchableOpacity>
@@ -231,6 +282,18 @@ export default function POSScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <VariantPickerModal
+        visible={!!variantPickerProduct}
+        productName={variantPickerProduct?.name ?? ''}
+        variants={variantPickerVariants}
+        initialQuantities={variantInitialQuantities}
+        onDone={handleVariantsDone}
+        onClose={() => {
+          setVariantPickerProduct(null);
+          setVariantPickerVariants([]);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -455,7 +518,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.pinkSubtle,
   },
   productEmoji: { fontSize: 22, marginRight: 12 },
-  productName: { flex: 1, color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+  productInfo: { flex: 1 },
+  productName: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+  productPrice: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600', marginTop: 2 },
+  productVariantHint: { color: C.textMuted, fontSize: F.xs, fontWeight: '600', fontStyle: 'italic', marginTop: 2 },
   productStepper: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   stepBtn: {
     width: 34,

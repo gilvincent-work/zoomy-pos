@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
-import * as FileSystem from 'expo-file-system/legacy';
 import { copyToDocumentDir } from '../../utils/photos';
 import { C, F, R } from '../../constants/theme';
 
@@ -88,7 +88,8 @@ export default function AdminModal() {
       quality: 0.8,
     });
     if (result.canceled) return;
-    if (qrUri) {
+    if (qrUri && Platform.OS !== 'web') {
+      const FileSystem = await import('expo-file-system/legacy');
       await FileSystem.deleteAsync(qrUri).catch(() => {});
     }
     const asset = result.assets[0];
@@ -102,7 +103,8 @@ export default function AdminModal() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
-          if (qrUri) {
+          if (qrUri && Platform.OS !== 'web') {
+            const FileSystem = await import('expo-file-system/legacy');
             await FileSystem.deleteAsync(qrUri).catch(() => {});
           }
           await removeGcashQrUri();

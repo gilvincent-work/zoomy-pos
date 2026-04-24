@@ -43,7 +43,15 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "ZoomyPOS",
+      "shortName": "ZoomyPOS",
+      "description": "Point of sale for Zoomy",
+      "themeColor": "#1a1a2e",
+      "backgroundColor": "#1a1a2e",
+      "display": "standalone",
+      "orientation": "portrait"
     },
     "plugins": [
       "expo-router",

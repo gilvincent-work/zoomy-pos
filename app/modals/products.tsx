@@ -8,6 +8,7 @@ import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, P
 import {
   getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
 } from '../../db/saved-bundles';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 type VariantFormRow = { id?: number; name: string; price: string };
@@ -275,7 +276,7 @@ export default function ProductsModal() {
                         }))
                       }
                     >
-                      <Text style={styles.variantDeleteText}>✕</Text>
+                      <Ionicons name="close" size={F.lg} color={C.pink} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -348,13 +349,13 @@ export default function ProductsModal() {
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditProduct(item)}>
-                <Text style={styles.actionIcon}>✏️</Text>
+                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteProduct(item.id, item.name)}
               >
-                <Text style={styles.actionIcon}>🗑</Text>
+                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={item.is_active === 1}
@@ -374,7 +375,7 @@ export default function ProductsModal() {
         {bundles.map((bundle) => (
           <View key={bundle.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Text style={styles.itemEmoji}>📦</Text>
+              <Ionicons name="cube-outline" size={28} color={C.textSecondary} style={{ marginRight: 12 }} />
               <View>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
@@ -384,13 +385,13 @@ export default function ProductsModal() {
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditBundle(bundle)}>
-                <Text style={styles.actionIcon}>✏️</Text>
+                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteBundle(bundle.id, bundle.name)}
               >
-                <Text style={styles.actionIcon}>🗑</Text>
+                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={bundle.is_active === 1}
@@ -444,7 +445,7 @@ const styles = StyleSheet.create({
     borderColor: C.borderDark,
   },
   itemInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  itemEmoji: { fontSize: 28 },
+  itemEmoji: {},
   itemName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
   itemSub: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
 
@@ -459,7 +460,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionBtnDanger: { borderColor: C.borderDark },
-  actionIcon: { fontSize: 14 },
+  actionIcon: {},
 
   toggleRow: {
     flexDirection: 'row',

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert,
+  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -107,6 +107,11 @@ export default function POSScreen() {
 
   const hasBundlesInCart = bundles.length > 0;
 
+  const presetRows: typeof savedBundles[] = [];
+  for (let i = 0; i < savedBundles.length; i += 3) {
+    presetRows.push(savedBundles.slice(i, i + 3));
+  }
+
   const listHeader = savedBundles.length > 0 ? (
     <View style={styles.presetsSection}>
       <View style={styles.presetsHeader}>
@@ -120,48 +125,52 @@ export default function POSScreen() {
           </TouchableOpacity>
         )}
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.presetsRow}
-      >
-        {savedBundles.map((b) => {
-          const count = presetCount(b.id);
-          const isActive = count > 0;
-          return (
-            <View key={b.id} style={styles.presetChipWrapper}>
-              <TouchableOpacity
-                style={[styles.presetChip, isActive && styles.presetChipActive]}
-                onPress={() => handleSavedBundleTap(b)}
-                onLongPress={() => handleSavedBundleLongPress(b)}
-                activeOpacity={0.7}
-              >
-                {isActive && (
-                  <View style={styles.presetBadge}>
-                    <Text style={styles.presetBadgeText}>{count}</Text>
-                  </View>
-                )}
-                <Text style={[styles.presetChipName, isActive && styles.presetChipNameActive]}>
-                  {b.name}
-                </Text>
-                <Text style={[styles.presetChipPrice, isActive && styles.presetChipPriceActive]}>
-                  ₱{b.price.toFixed(2)}
-                </Text>
-              </TouchableOpacity>
-              {isActive && (
+      {presetRows.map((row, rowIdx) => (
+        <View key={rowIdx} style={styles.presetsGridRow}>
+          {row.map((b) => {
+            const count = presetCount(b.id);
+            const isActive = count > 0;
+            return (
+              <View key={b.id} style={styles.presetTileWrapper}>
                 <TouchableOpacity
-                  style={styles.presetMinusBtn}
-                  onPress={() => removeOnePreset(b.id)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={[styles.presetTile, isActive && styles.presetTileActive]}
+                  onPress={() => handleSavedBundleTap(b)}
+                  onLongPress={() => handleSavedBundleLongPress(b)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.presetMinusBtnText}>−</Text>
+                  {isActive && (
+                    <View style={styles.presetBadge}>
+                      <Text style={styles.presetBadgeText}>{count}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.presetTileName} numberOfLines={3}>
+                    {b.name}
+                  </Text>
+                  <Text style={[styles.presetTilePrice, isActive && styles.presetTilePriceActive]}>
+                    ₱{b.price.toFixed(2)}
+                  </Text>
+                  {isActive && (
+                    <TouchableOpacity
+                      style={styles.presetMinusBtn}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        removeOnePreset(b.id);
+                      }}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.presetMinusBtnText}>−</Text>
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+              </View>
+            );
+          })}
+          {row.length < 3 && Array.from({ length: 3 - row.length }).map((_, i) => (
+            <View key={`spacer-${i}`} style={styles.presetTileWrapper} />
+          ))}
+        </View>
+      ))}
     </View>
   ) : null;
 
@@ -334,7 +343,7 @@ const styles = StyleSheet.create({
   },
   headerIcon: { },
 
-  presetsSection: { marginBottom: 4 },
+  presetsSection: { marginBottom: 12 },
   presetsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -354,56 +363,61 @@ const styles = StyleSheet.create({
     fontSize: F.xs,
     fontWeight: '700',
   },
-  presetsRow: { gap: 8, paddingBottom: 12 },
-  presetChipWrapper: { position: 'relative' },
-  presetChip: {
-    backgroundColor: C.pinkSubtle,
-    borderWidth: 1.5,
-    borderColor: C.pinkDim,
+  presetsGridRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  presetTileWrapper: { flex: 1, maxWidth: '33.33%' },
+  presetTile: {
+    backgroundColor: C.surface,
     borderRadius: R.md,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    padding: 10,
     alignItems: 'center',
-    gap: 2,
+    justifyContent: 'center',
+    aspectRatio: 0.9,
+    borderWidth: 1.5,
+    borderColor: C.red,
   },
-  presetChipActive: {
-    borderColor: C.pink,
+  presetTileActive: {
+    borderColor: C.red,
     borderWidth: 2,
-    backgroundColor: C.pinkSubtle,
+    backgroundColor: C.redSubtle,
   },
   presetBadge: {
     position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: C.pink,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    top: 7,
+    right: 7,
+    backgroundColor: C.red,
+    borderRadius: 13,
+    minWidth: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 5,
-    borderWidth: 2,
-    borderColor: C.bg,
   },
-  presetBadgeText: { color: '#fff', fontSize: F.xs, fontWeight: '800' },
-  presetChipName: { color: C.pink, fontSize: F.sm, fontWeight: '800' },
-  presetChipNameActive: { color: C.pink },
-  presetChipPrice: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
-  presetChipPriceActive: { color: C.pink, opacity: 0.8 },
+  presetBadgeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
+  presetTileName: {
+    color: C.textPrimary,
+    fontSize: F.sm,
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  presetTilePrice: {
+    color: C.red,
+    fontSize: F.sm,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  presetTilePriceActive: { color: C.red, opacity: 0.8 },
   presetMinusBtn: {
     position: 'absolute',
-    bottom: -10,
-    alignSelf: 'center',
-    left: '50%',
-    transform: [{ translateX: -12 }],
+    bottom: 7,
+    right: 7,
+    backgroundColor: C.red,
+    borderRadius: 10,
     width: 24,
     height: 24,
-    borderRadius: 12,
-    backgroundColor: C.red,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: C.bg,
   },
   presetMinusBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
 

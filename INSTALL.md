@@ -6,7 +6,7 @@ ZoomyPOS works like a regular app on your phone — no App Store needed. Just fo
 
 ---
 
-## On Android
+## On Google Chrome
 
 1. Open **Google Chrome** on your phone
 2. Go to: **zoomy-pos.vercel.app**
@@ -18,9 +18,7 @@ ZoomyPOS works like a regular app on your phone — no App Store needed. Just fo
 
 ---
 
-## On iPhone
-
-> You must use **Safari** — it won't work with Chrome or other browsers on iPhone.
+## On Safari
 
 1. Open **Safari** on your iPhone
 2. Go to: **zoomy-pos.vercel.app**

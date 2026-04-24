@@ -2,6 +2,29 @@
 
 ---
 
+## Admin Settings
+
+Tap the **⚙️ gear icon** in the top-right corner.
+
+You'll be asked for your PIN first (default is **0000**).
+
+Inside settings you can:
+- **Change your PIN**
+- **Upload your GCash QR code** — this is the QR that gets shown to customers during GCash payments
+
+---
+
+## Managing Products
+
+Tap the **📦 box icon** in the top-right corner to manage your products.
+
+- **Add a product** — tap the **+** button, fill in the name, price, and emoji
+- **Edit a product** — tap on any product to update it
+- **Deactivate a product** — toggle it off so it doesn't show on the POS screen (your history is kept)
+- **Variants / Flavors** — if a product comes in different flavors or sizes, you can add variants under it. The customer will be asked to pick one when ordering.
+
+---
+
 ## The Main Screen
 
 When you open the app, you'll see the **POS screen** — this is where you take orders.
@@ -58,17 +81,6 @@ If you sell the same bundle often, save it so you don't have to rebuild it every
 
 ---
 
-## Managing Products
-
-Tap the **📦 box icon** in the top-right corner to manage your products.
-
-- **Add a product** — tap the **+** button, fill in the name, price, and emoji
-- **Edit a product** — tap on any product to update it
-- **Deactivate a product** — toggle it off so it doesn't show on the POS screen (your history is kept)
-- **Variants / Flavors** — if a product comes in different flavors or sizes, you can add variants under it. The customer will be asked to pick one when ordering.
-
----
-
 ## Transaction History
 
 Tap the **🧾 receipt icon** in the top-right corner to see all sales.
@@ -77,18 +89,6 @@ Tap the **🧾 receipt icon** in the top-right corner to see all sales.
 - Use the **filter buttons** at the top to view Today, This Week, or All Time
 - Tap **Export** to download a ZIP file with a CSV of all transactions and any attached receipt photos
 - To **void a transaction**, open it and tap Void (requires admin PIN)
-
----
-
-## Admin Settings
-
-Tap the **⚙️ gear icon** in the top-right corner.
-
-You'll be asked for your PIN first (default is **0000**).
-
-Inside settings you can:
-- **Change your PIN**
-- **Upload your GCash QR code** — this is the QR that gets shown to customers during GCash payments
 
 ---
 

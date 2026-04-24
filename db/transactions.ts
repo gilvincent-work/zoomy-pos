@@ -110,8 +110,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
             ti.price, ti.quantity, ti.variant_id, ti.variant_name
      FROM transactions t
      LEFT JOIN transaction_items ti ON ti.transaction_id = t.id
-     ORDER BY t.created_at DESC`,
-    undefined
+     ORDER BY t.created_at DESC`
   );
 
   const map = new Map<number, Transaction>();

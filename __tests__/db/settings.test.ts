@@ -45,14 +45,17 @@ describe('getGcashQrUri', () => {
     expect(result).toBe('file:///mock/documents/qr.jpg');
   });
 
-  it('migrates legacy absolute path to filename', async () => {
+  it('resolves legacy absolute path to filename-based URI', async () => {
     mockDb.getFirstAsync.mockResolvedValueOnce({ value: '/old/path/to/qr.jpg' });
     const result = await getGcashQrUri();
-    expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-      ['gcash_qr_uri', 'qr.jpg']
-    );
     expect(result).toBe('file:///mock/documents/qr.jpg');
+  });
+
+  it('returns data URI directly', async () => {
+    const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZJ';
+    mockDb.getFirstAsync.mockResolvedValueOnce({ value: dataUri });
+    const result = await getGcashQrUri();
+    expect(result).toBe(dataUri);
   });
 
   it('returns null when file does not exist', async () => {
@@ -70,11 +73,12 @@ describe('getGcashQrUri', () => {
 });
 
 describe('setGcashQrUri', () => {
-  it('stores only the filename', async () => {
-    await setGcashQrUri('file:///documents/gcash-qr-123.jpg');
+  it('stores the value as-is', async () => {
+    const dataUri = 'data:image/jpeg;base64,/9j/4AAQ';
+    await setGcashQrUri(dataUri);
     expect(mockDb.runAsync).toHaveBeenCalledWith(
       'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-      ['gcash_qr_uri', 'gcash-qr-123.jpg']
+      ['gcash_qr_uri', dataUri]
     );
   });
 });

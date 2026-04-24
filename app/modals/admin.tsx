@@ -8,7 +8,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
-import { copyToDocumentDir } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
@@ -87,16 +86,17 @@ export default function AdminModal() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
+      base64: true,
     });
     if (result.canceled) return;
-    if (qrUri && Platform.OS !== 'web') {
+    if (qrUri && !qrUri.startsWith('data:') && Platform.OS !== 'web') {
       const FileSystem = await import('expo-file-system/legacy');
       await FileSystem.deleteAsync(qrUri).catch(() => {});
     }
     const asset = result.assets[0];
-    const saved = await copyToDocumentDir(asset.uri, `gcash-qr-${Date.now()}.jpg`);
-    await setGcashQrUri(saved);
-    setQrUri(saved);
+    const dataUri = `data:image/jpeg;base64,${asset.base64}`;
+    await setGcashQrUri(dataUri);
+    setQrUri(dataUri);
   }
 
   async function handleRemoveQr() {
@@ -104,7 +104,7 @@ export default function AdminModal() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
-          if (qrUri && Platform.OS !== 'web') {
+          if (qrUri && !qrUri.startsWith('data:') && Platform.OS !== 'web') {
             const FileSystem = await import('expo-file-system/legacy');
             await FileSystem.deleteAsync(qrUri).catch(() => {});
           }

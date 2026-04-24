@@ -4,9 +4,10 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { ProductTile } from '../components/ProductTile';
+import { VariantPickerModal } from '../components/VariantPickerModal';
 import { useCart } from '../context/CartContext';
 import { getActiveProducts, getVariantsByProductId, Product, ProductVariant } from '../db/products';
-import { VariantPickerModal } from '../components/VariantPickerModal';
 import { getSavedBundles, deleteSavedBundle, SavedBundle } from '../db/saved-bundles';
 import { C, F, R } from '../constants/theme';
 
@@ -223,40 +224,24 @@ export default function POSScreen() {
       <FlatList
         data={products}
         keyExtractor={(p) => String(p.id)}
-        contentContainerStyle={styles.productList}
+        numColumns={3}
+        contentContainerStyle={styles.grid}
+        columnWrapperStyle={styles.gridRow}
         ListFooterComponent={listFooter}
-        renderItem={({ item }) => {
-          const qty = getBadge(item.id);
-          return (
-            <View style={[styles.productRow, qty > 0 && styles.productRowActive]}>
-              <Text style={styles.productEmoji}>{item.emoji}</Text>
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                {item.has_variants ? (
-                  <Text style={styles.productVariantHint}>has variants</Text>
-                ) : (
-                  <Text style={styles.productPrice}>₱{(item.price ?? 0).toFixed(2)}</Text>
-                )}
-              </View>
-              <View style={styles.productStepper}>
-                <TouchableOpacity
-                  style={[styles.stepBtn, qty === 0 && styles.stepBtnDim]}
-                  onPress={() => { if (item.has_variants) { handleProductPress(item); } else { decrementItem(item.id); } }}
-                  disabled={qty === 0}
-                >
-                  <Text style={[styles.stepIcon, qty === 0 && styles.stepIconDim]}>−</Text>
-                </TouchableOpacity>
-                <Text style={[styles.stepQty, qty > 0 && styles.stepQtyActive]}>{qty}</Text>
-                <TouchableOpacity
-                  style={styles.stepBtn}
-                  onPress={() => handleProductPress(item)}
-                >
-                  <Text style={styles.stepIcon}>+</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          );
-        }}
+        renderItem={({ item }) => (
+          <View style={styles.tileWrapper}>
+            <ProductTile
+              id={item.id}
+              name={item.name}
+              price={item.price}
+              hasVariants={item.has_variants === 1}
+              badgeCount={getBadge(item.id)}
+              onPress={() => handleProductPress(item)}
+              onLongPress={() => removeItem(item.id)}
+              onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
+            />
+          </View>
+        )}
         ListEmptyComponent={
           <Text style={styles.empty}>No products yet.{'\n'}Tap 📦 to add some.</Text>
         }
@@ -501,49 +486,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  productList: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
-  productRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    backgroundColor: C.surface,
-    borderRadius: R.sm,
-    marginBottom: 6,
-    borderWidth: 1.5,
-    borderColor: C.borderDark,
-  },
-  productRowActive: {
-    borderColor: C.pink,
-    backgroundColor: C.pinkSubtle,
-  },
-  productEmoji: { fontSize: 22, marginRight: 12 },
-  productInfo: { flex: 1 },
-  productName: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
-  productPrice: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600', marginTop: 2 },
-  productVariantHint: { color: C.textMuted, fontSize: F.xs, fontWeight: '600', fontStyle: 'italic', marginTop: 2 },
-  productStepper: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  stepBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: R.sm,
-    backgroundColor: C.elevated,
-    borderWidth: 1,
-    borderColor: C.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepBtnDim: { borderColor: C.borderDark },
-  stepIcon: { color: C.textPrimary, fontSize: F.lg, fontWeight: '700', lineHeight: 20 },
-  stepIconDim: { color: C.textMuted },
-  stepQty: {
-    width: 34,
-    textAlign: 'center',
-    color: C.textSecondary,
-    fontSize: F.md,
-    fontWeight: '700',
-  },
-  stepQtyActive: { color: C.pink },
+  grid: { padding: 12, paddingBottom: 4 },
+  gridRow: { gap: 8, marginBottom: 8 },
+  tileWrapper: { flex: 1, maxWidth: '33.33%' },
 
   empty: {
     color: C.textMuted,

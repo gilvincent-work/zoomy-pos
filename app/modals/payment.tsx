@@ -24,7 +24,7 @@ type DigitalStep = 'qr' | 'proof';
 
 type ConfirmedSummary = {
   bundles: { name: string; price: number; items: { name: string; quantity: number }[] }[];
-  items: { name: string; quantity: number; price: number }[];
+  items: { name: string; quantity: number; price: number; variantName?: string; productName: string }[];
   total: number;
   method: PaymentMethod;
   change: number;
@@ -93,6 +93,8 @@ export default function PaymentModal() {
         productName: i.productName,
         price: i.price,
         quantity: i.quantity,
+        variantId: i.variantId,
+        variantName: i.variantName,
       }));
       const itemsForInsert = [...bundleInsertItems, ...individualInsertItems];
 
@@ -102,7 +104,13 @@ export default function PaymentModal() {
           price: b.price,
           items: b.items.map((i) => ({ name: i.name, quantity: i.quantity })),
         })),
-        items: items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.price })),
+        items: items.map((i) => ({
+          name: i.variantName ? i.productName : i.productName,
+          productName: i.productName,
+          quantity: i.quantity,
+          price: i.price,
+          variantName: i.variantName,
+        })),
         total,
         method,
         change: isCash ? change : 0,
@@ -174,8 +182,14 @@ export default function PaymentModal() {
             {/* Individual items */}
             {confirmed.items.map((item, i) => (
               <View key={i} style={styles.confirmRow}>
-                <Text style={styles.confirmItemName}>{item.name} ×{item.quantity}</Text>
-                <Text style={styles.confirmItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+                <Text style={styles.confirmItemName}>
+                  {item.variantName
+                    ? `${item.productName} — ${item.variantName} ×${item.quantity}`
+                    : `${item.name} ×${item.quantity}`}
+                </Text>
+                {!confirmed.isBundle && (
+                  <Text style={styles.confirmItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+                )}
               </View>
             ))}
 
@@ -257,22 +271,59 @@ export default function PaymentModal() {
           </View>
         )}
 
-        {/* Individual items */}
-        {items.map((item) => (
-          <View key={item.productId} style={styles.itemRow}>
-            <Text style={styles.itemName}>{item.productName}</Text>
-            <View style={styles.qtyControls}>
-              <TouchableOpacity style={styles.qtyBtn} onPress={() => decrementItem(item.productId)}>
-                <Text style={styles.qtyBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.qtyText}>{item.quantity}</Text>
-              <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
-                <Text style={styles.qtyBtnText}>+</Text>
-              </TouchableOpacity>
-              <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
-            </View>
-          </View>
-        ))}
+        {/* Individual items — grouped by product */}
+        {(() => {
+          const groups: { productId: number; productName: string; items: typeof items }[] = [];
+          for (const item of items) {
+            const existing = groups.find((g) => g.productId === item.productId);
+            if (existing) {
+              existing.items.push(item);
+            } else {
+              groups.push({ productId: item.productId, productName: item.productName, items: [item] });
+            }
+          }
+          return groups.map((group) => {
+            const hasVariants = group.items.some((i) => i.variantId);
+            if (hasVariants) {
+              return (
+                <View key={group.productId}>
+                  <Text style={styles.groupName}>{group.productName}</Text>
+                  {group.items.map((item) => (
+                    <View key={`${item.productId}-${item.variantId}`} style={styles.variantItemRow}>
+                      <Text style={styles.variantItemName}>{item.variantName}</Text>
+                      <View style={styles.qtyControls}>
+                        <TouchableOpacity style={styles.qtyBtn} onPress={() => decrementItem(item.productId, item.variantId)}>
+                          <Text style={styles.qtyBtnText}>−</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.qtyText}>{item.quantity}</Text>
+                        <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price, variantId: item.variantId, variantName: item.variantName })}>
+                          <Text style={styles.qtyBtnText}>+</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              );
+            }
+            const item = group.items[0];
+            return (
+              <View key={item.productId} style={styles.itemRow}>
+                <Text style={styles.itemName}>{item.productName}</Text>
+                <View style={styles.qtyControls}>
+                  <TouchableOpacity style={styles.qtyBtn} onPress={() => decrementItem(item.productId)}>
+                    <Text style={styles.qtyBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.qtyText}>{item.quantity}</Text>
+                  <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
+                    <Text style={styles.qtyBtnText}>+</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+                </View>
+              </View>
+            );
+          });
+        })()}
 
         <View style={styles.divider} />
         <View style={styles.totalRow}>
@@ -545,6 +596,29 @@ const styles = StyleSheet.create({
     borderRadius: R.sm,
     borderWidth: 1,
     borderColor: C.pinkDim,
+  },
+
+  groupName: {
+    color: C.pink,
+    fontSize: F.md,
+    fontWeight: '700',
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
+  variantItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingLeft: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.borderDark,
+  },
+  variantItemName: {
+    color: C.textPrimary,
+    fontSize: F.md,
+    flex: 1,
+    fontWeight: '500',
   },
 
   itemRow: {

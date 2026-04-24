@@ -30,6 +30,7 @@ type CartAction =
   | { type: 'REMOVE_ITEM'; productId: number }
   | { type: 'DECREMENT_ITEM'; productId: number; variantId?: number }
   | { type: 'CLEAR_CART' }
+  | { type: 'CLEAR_BUNDLES' }
   | { type: 'ADD_BUNDLE'; bundle: CartBundle }
   | { type: 'REMOVE_BUNDLE'; cartId: string };
 
@@ -92,6 +93,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     }
     case 'CLEAR_CART':
       return { items: [], bundles: [] };
+    case 'CLEAR_BUNDLES':
+      return { ...state, bundles: [] };
     case 'ADD_BUNDLE':
       return { ...state, bundles: [...state.bundles, action.bundle] };
     case 'REMOVE_BUNDLE':
@@ -109,6 +112,7 @@ type CartContextValue = {
   removeItem: (productId: number) => void;
   decrementItem: (productId: number, variantId?: number) => void;
   clearCart: () => void;
+  clearBundles: () => void;
   addBundle: (bundle: Omit<CartBundle, 'cartId'>) => void;
   removeBundle: (cartId: string) => void;
 };
@@ -132,6 +136,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         decrementItem: (productId, variantId) => dispatch({ type: 'DECREMENT_ITEM', productId, variantId }),
         clearCart: () => dispatch({ type: 'CLEAR_CART' }),
+        clearBundles: () => dispatch({ type: 'CLEAR_BUNDLES' }),
         addBundle: (bundle) =>
           dispatch({
             type: 'ADD_BUNDLE',

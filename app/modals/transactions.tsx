@@ -6,7 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { getAllTransactions, Transaction, PaymentMethod } from '../../db/transactions';
-import { exportTransactionsCsv } from '../../utils/export-csv';
+import { exportTransactionsZip } from '../../utils/export-csv';
 import { C, F, R } from '../../constants/theme';
 
 type DateFilter = 'today' | 'week' | 'month' | 'all';
@@ -136,7 +136,7 @@ export default function TransactionsModal() {
     }
     try {
       const label = dateFilter === 'all' ? 'all' : dateFilter;
-      await exportTransactionsCsv(filtered, label);
+      await exportTransactionsZip(filtered, label);
     } catch {
       Alert.alert('Export failed', 'Could not export transactions. Please try again.');
     }
@@ -187,7 +187,7 @@ export default function TransactionsModal() {
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
         <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-          <Text style={styles.exportBtnText}>⬆ Export CSV</Text>
+          <Text style={styles.exportBtnText}>⬆ Export</Text>
         </TouchableOpacity>
       </View>
 
@@ -223,6 +223,11 @@ export default function TransactionsModal() {
                       {getMethodDisplayName(selected.payment_method)}
                     </Text>
                   </View>
+                  {selected.is_bundle && (
+                    <View style={styles.sheetBundleBadge}>
+                      <Text style={styles.sheetBundleText}>Bundle</Text>
+                    </View>
+                  )}
                 </View>
 
                 {selected.items.map((item) => (
@@ -230,9 +235,11 @@ export default function TransactionsModal() {
                     <Text style={styles.itemName}>
                       {item.product_name} × {item.quantity}
                     </Text>
-                    <Text style={styles.itemPrice}>
-                      ₱{(item.price * item.quantity).toFixed(2)}
-                    </Text>
+                    {!selected.is_bundle && (
+                      <Text style={styles.itemPrice}>
+                        ₱{(item.price * item.quantity).toFixed(2)}
+                      </Text>
+                    )}
                   </View>
                 ))}
 
@@ -377,6 +384,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   sheetMethodText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  sheetBundleBadge: {
+    backgroundColor: C.pinkSubtle, borderRadius: R.sm,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: C.pinkDim,
+  },
+  sheetBundleText: { color: C.pink, fontSize: F.xs, fontWeight: '700' },
 
   itemRow: {
     flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8,

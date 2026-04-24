@@ -28,6 +28,7 @@ export default function RootLayout() {
         <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
         <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />
         <Stack.Screen name="modals/admin" options={{ presentation: 'modal', title: '' }} />
+        <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Bundle' }} />
       </Stack>
     </CartProvider>
   );

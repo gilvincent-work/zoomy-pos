@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import JSZip from 'jszip';
 import type { Transaction } from '../db/transactions';
 
 function csvCell(value: string | number | null | undefined): string {
@@ -23,31 +24,70 @@ function formatItems(transaction: Transaction): string {
     .join(', ');
 }
 
-function formatPaymentMethod(method: string, refNumber: string | null): string {
+function formatPaymentMethod(method: string, refNumber: string | null, isBundle: boolean): string {
   const label = method === 'gcash' ? 'GCash' : method === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
-  return refNumber ? `${label} (${refNumber})` : label;
+  const withRef = refNumber ? `${label} (${refNumber})` : label;
+  return isBundle ? `${withRef} · Bundle` : withRef;
 }
 
-export async function exportTransactionsCsv(transactions: Transaction[], label: string): Promise<void> {
-  const header = ['#', 'Time', 'Qty. & Items', 'Total Sales', 'Payment Method', 'Furbaby/IG Handle', 'Status'];
+function proofFileName(transactionId: number): string {
+  return `proof_txn_${transactionId}.jpg`;
+}
 
-  const rows = transactions.map((t, index) => [
-    csvCell(index + 1),
-    csvCell(formatTime(t.created_at)),
-    csvCell(formatItems(t)),
-    csvCell(`₱${t.total.toFixed(2)}`),
-    csvCell(formatPaymentMethod(t.payment_method, t.ref_number)),
-    csvCell(t.customer_handle),
-    csvCell(t.status === 'voided' ? 'VOIDED' : ''),
-  ]);
+export async function exportTransactionsZip(transactions: Transaction[], label: string): Promise<void> {
+  const zip = new JSZip();
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const folderName = `zoomy-sales-${label}-${dateStr}`;
+
+  const header = ['#', 'Time', 'Qty. & Items', 'Total Sales', 'Payment Method', 'Furbaby/IG Handle', 'Proof Photo', 'Status'];
+
+  const rows = await Promise.all(
+    transactions.map(async (t, index) => {
+      let photoFilename = '';
+
+      if (t.proof_photo_uri) {
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(t.proof_photo_uri);
+          if (fileInfo.exists) {
+            photoFilename = proofFileName(t.id);
+            const base64 = await FileSystem.readAsStringAsync(t.proof_photo_uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            zip.file(photoFilename, base64, { base64: true });
+          }
+        } catch {
+          // photo missing or unreadable — skip silently
+        }
+      }
+
+      return [
+        csvCell(index + 1),
+        csvCell(formatTime(t.created_at)),
+        csvCell(formatItems(t)),
+        csvCell(`₱${t.total.toFixed(2)}`),
+        csvCell(formatPaymentMethod(t.payment_method, t.ref_number, t.is_bundle)),
+        csvCell(t.customer_handle),
+        csvCell(photoFilename),
+        csvCell(t.status === 'voided' ? 'VOIDED' : ''),
+      ];
+    })
+  );
 
   const csv = [header.map(csvCell), ...rows]
     .map((row) => row.join(','))
     .join('\n');
 
-  const filename = `zoomy-sales-${label}-${new Date().toISOString().slice(0, 10)}.csv`;
-  const path = `${FileSystem.cacheDirectory}${filename}`;
+  zip.file('transactions.csv', csv);
 
-  await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
-  await Sharing.shareAsync(path, { mimeType: 'text/csv', dialogTitle: 'Export Transactions', UTI: 'public.comma-separated-values-text' });
+  const zipBase64 = await zip.generateAsync({ type: 'base64' });
+  const zipPath = `${FileSystem.cacheDirectory}${folderName}.zip`;
+  await FileSystem.writeAsStringAsync(zipPath, zipBase64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  await Sharing.shareAsync(zipPath, {
+    mimeType: 'application/zip',
+    dialogTitle: 'Export Transactions',
+    UTI: 'public.zip-archive',
+  });
 }

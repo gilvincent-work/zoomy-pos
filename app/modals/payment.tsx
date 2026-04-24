@@ -22,8 +22,18 @@ const PAYMENT_METHODS: { key: PaymentMethod; label: string; icon: string }[] = [
 
 type DigitalStep = 'qr' | 'proof';
 
+type ConfirmedSummary = {
+  items: { name: string; quantity: number; price: number }[];
+  total: number;
+  method: PaymentMethod;
+  change: number;
+  customerHandle: string;
+  refNumber: string;
+  isBundle: boolean;
+};
+
 export default function PaymentModal() {
-  const { items, total, clearCart, addItem, decrementItem } = useCart();
+  const { items, total, bundlePrice, clearCart, addItem, decrementItem } = useCart();
   const [tendered, setTendered] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [digitalStep, setDigitalStep] = useState<DigitalStep>('qr');
@@ -32,6 +42,7 @@ export default function PaymentModal() {
   const [refNumber, setRefNumber] = useState('');
   const [proofPhotoUri, setProofPhotoUri] = useState<string | null>(null);
   const [customerHandle, setCustomerHandle] = useState('');
+  const [confirmed, setConfirmed] = useState<ConfirmedSummary | null>(null);
 
   const isCash = method === 'cash';
   const isDigital = !isCash;
@@ -70,6 +81,15 @@ export default function PaymentModal() {
 
   async function handleConfirm() {
     try {
+      const snapshot: ConfirmedSummary = {
+        items: items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.price })),
+        total,
+        method,
+        change: isCash ? change : 0,
+        customerHandle: customerHandle.trim(),
+        refNumber: refNumber.trim(),
+        isBundle: bundlePrice !== null,
+      };
       await insertTransaction({
         total,
         cashTendered: isCash ? tendered : total,
@@ -78,6 +98,7 @@ export default function PaymentModal() {
         refNumber: refNumber.trim() || undefined,
         proofPhotoUri: proofPhotoUri || undefined,
         customerHandle: customerHandle.trim() || undefined,
+        isBundle: bundlePrice !== null,
         items: items.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -86,16 +107,80 @@ export default function PaymentModal() {
         })),
       });
       clearCart();
-      router.dismiss();
+      setConfirmed(snapshot);
     } catch {
       Alert.alert('Error', 'Failed to save transaction. Please try again.');
     }
   }
 
+  function renderConfirmationModal() {
+    if (!confirmed) return null;
+    const methodLabel = confirmed.method === 'gcash' ? 'GCash'
+      : confirmed.method === 'bank_transfer' ? 'Bank Transfer'
+      : 'Cash';
+    return (
+      <Modal visible animationType="fade" transparent onRequestClose={() => router.dismiss()}>
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmSheet}>
+            <View style={styles.confirmCheck}>
+              <Text style={styles.confirmCheckText}>✓</Text>
+            </View>
+            <Text style={styles.confirmTitle}>Sale Recorded!</Text>
+            <Text style={styles.confirmSub}>Transaction has been saved successfully.</Text>
+
+            <View style={styles.confirmDivider} />
+
+            {confirmed.items.map((item, i) => (
+              <View key={i} style={styles.confirmRow}>
+                <Text style={styles.confirmItemName}>{item.name} ×{item.quantity}</Text>
+                {!confirmed.isBundle && (
+                  <Text style={styles.confirmItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+                )}
+              </View>
+            ))}
+
+            <View style={styles.confirmDivider} />
+
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmMeta}>Total</Text>
+              <Text style={styles.confirmTotal}>₱{confirmed.total.toFixed(2)}</Text>
+            </View>
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmMeta}>Payment</Text>
+              <Text style={styles.confirmMetaValue}>
+                {methodLabel}{confirmed.refNumber ? ` · ${confirmed.refNumber}` : ''}
+              </Text>
+            </View>
+            {confirmed.method === 'cash' && confirmed.change >= 0 && (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmMeta}>Change</Text>
+                <Text style={styles.confirmMetaValue}>₱{confirmed.change.toFixed(2)}</Text>
+              </View>
+            )}
+            {confirmed.customerHandle ? (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmMeta}>Furbaby / IG</Text>
+                <Text style={[styles.confirmMetaValue, { color: C.pink }]}>{confirmed.customerHandle}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity style={styles.confirmDoneBtn} onPress={() => router.dismiss()}>
+              <Text style={styles.confirmDoneBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   function renderOrderSummary() {
+    const isBundle = bundlePrice !== null;
     return (
       <>
-        <Text style={styles.sectionLabel}>ORDER SUMMARY</Text>
+        <View style={styles.summaryHeader}>
+          <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>ORDER SUMMARY</Text>
+          {isBundle && <Text style={styles.bundleTag}>Bundle</Text>}
+        </View>
         {items.map((item) => (
           <View key={item.productId} style={styles.itemRow}>
             <Text style={styles.itemName}>{item.productName}</Text>
@@ -107,7 +192,9 @@ export default function PaymentModal() {
               <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
                 <Text style={styles.qtyBtnText}>+</Text>
               </TouchableOpacity>
-              <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+              {!isBundle && (
+                <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
+              )}
             </View>
           </View>
         ))}
@@ -210,6 +297,7 @@ export default function PaymentModal() {
             <Text style={styles.qrFullHint}>Tap anywhere to close</Text>
           </TouchableOpacity>
         </Modal>
+        {renderConfirmationModal()}
       </SafeAreaView>
     );
   }
@@ -270,6 +358,7 @@ export default function PaymentModal() {
             <Text style={styles.confirmBtnText}>Confirm Sale</Text>
           </TouchableOpacity>
         </View>
+        {renderConfirmationModal()}
       </SafeAreaView>
     );
   }
@@ -277,7 +366,7 @@ export default function PaymentModal() {
   // Cash flow
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll} scrollEnabled={false}>
+      <ScrollView contentContainerStyle={styles.scroll}>
         {renderOrderSummary()}
         {renderMethodSelector()}
 
@@ -337,6 +426,7 @@ export default function PaymentModal() {
           <Text style={styles.confirmBtnText}>Confirm Sale</Text>
         </TouchableOpacity>
       </View>
+      {renderConfirmationModal()}
     </SafeAreaView>
   );
 }
@@ -359,6 +449,27 @@ const styles = StyleSheet.create({
   },
   sectionLabelHandle: { marginTop: 8 },
   optionalTag: { color: C.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
+
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  bundleTag: {
+    color: C.pink,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    backgroundColor: C.pinkSubtle,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.pinkDim,
+  },
 
   itemRow: {
     flexDirection: 'row',
@@ -583,4 +694,54 @@ const styles = StyleSheet.create({
   },
   confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: F.lg },
+
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confirmSheet: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+    padding: 28,
+    width: '100%',
+    alignItems: 'center',
+  },
+  confirmCheck: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: C.pink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  confirmCheckText: { color: '#fff', fontSize: 30, fontWeight: '800' },
+  confirmTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
+  confirmSub: { color: C.textSecondary, fontSize: F.sm, marginBottom: 18, textAlign: 'center' },
+  confirmDivider: { height: 1, backgroundColor: C.borderDark, width: '100%', marginVertical: 12 },
+  confirmRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 6,
+  },
+  confirmItemName: { color: C.textPrimary, fontSize: F.md, flex: 1 },
+  confirmItemPrice: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+  confirmMeta: { color: C.textSecondary, fontSize: F.md },
+  confirmMetaValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 12 },
+  confirmTotal: { color: C.pink, fontSize: F.xl, fontWeight: '800' },
+  confirmDoneBtn: {
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    paddingVertical: 14,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  confirmDoneBtnText: { color: '#fff', fontWeight: '800', fontSize: F.lg },
 });

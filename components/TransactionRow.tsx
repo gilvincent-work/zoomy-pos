@@ -15,6 +15,7 @@ export function TransactionRow({ transaction, onPress }: Props) {
     : 'Cash';
   const hasProof = !!transaction.ref_number || !!transaction.proof_photo_uri;
   const isDigital = transaction.payment_method !== 'cash';
+  const isBundle = transaction.is_bundle;
 
   return (
     <TouchableOpacity
@@ -28,6 +29,11 @@ export function TransactionRow({ transaction, onPress }: Props) {
           <View style={styles.methodBadge}>
             <Text style={styles.methodText}>{methodLabel}</Text>
           </View>
+          {isBundle && (
+            <View style={styles.bundleBadge}>
+              <Text style={styles.bundleBadgeText}>Bundle</Text>
+            </View>
+          )}
           {isDigital && (
             <View style={[styles.proofBadge, hasProof ? styles.proofBadgeGreen : styles.proofBadgeRed]}>
               <Text style={styles.proofBadgeText}>{hasProof ? '✓ Proof' : 'No Proof'}</Text>
@@ -77,6 +83,11 @@ const styles = StyleSheet.create({
   total: { color: C.pink, fontSize: F.xl, fontWeight: '800' },
   voidedText: { textDecorationLine: 'line-through', color: C.textMuted },
   voidedLabel: { color: C.red, fontSize: F.xs, marginTop: 3, fontWeight: '700' },
+  bundleBadge: {
+    borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: C.pinkSubtle, borderWidth: 1, borderColor: C.pinkDim,
+  },
+  bundleBadgeText: { color: C.pink, fontSize: F.xs, fontWeight: '700' },
   proofBadge: { borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 },
   proofBadgeGreen: { backgroundColor: C.greenSubtle },
   proofBadgeRed: { backgroundColor: C.redSubtle },

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView,
+  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -78,13 +78,34 @@ export default function POSScreen() {
           )}
           <Text style={styles.total}>₱{total.toFixed(2)}</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.chargeBtn, items.length === 0 && styles.chargeBtnDisabled]}
-          disabled={items.length === 0}
-          onPress={() => router.push('/modals/payment')}
-        >
-          <Text style={styles.chargeBtnText}>Charge</Text>
-        </TouchableOpacity>
+        <View style={styles.footerActions}>
+          <TouchableOpacity
+            style={styles.bundleBtn}
+            onPress={() => {
+              if (items.length > 0) {
+                Alert.alert(
+                  'Start Bundle?',
+                  'This will clear your current cart.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Continue', style: 'destructive', onPress: () => router.push('/modals/bundle') },
+                  ]
+                );
+              } else {
+                router.push('/modals/bundle');
+              }
+            }}
+          >
+            <Text style={styles.bundleBtnText}>Bundle</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.chargeBtn, items.length === 0 && styles.chargeBtnDisabled]}
+            disabled={items.length === 0}
+            onPress={() => router.push('/modals/payment')}
+          >
+            <Text style={styles.chargeBtnText}>Charge</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -141,6 +162,18 @@ const styles = StyleSheet.create({
   footerLeft: { flex: 1, gap: 2 },
   cartCount: { color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
   total: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+
+  footerActions: { flexDirection: 'row', gap: 8 },
+
+  bundleBtn: {
+    backgroundColor: C.elevated,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  bundleBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
 
   chargeBtn: {
     backgroundColor: C.red,

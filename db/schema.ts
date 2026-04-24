@@ -20,6 +20,7 @@ export async function initSchema(): Promise<void> {
       total REAL NOT NULL,
       cash_tendered REAL NOT NULL,
       change REAL NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'cash',
       status TEXT NOT NULL DEFAULT 'completed',
       created_at TEXT NOT NULL
     );
@@ -39,6 +40,23 @@ export async function initSchema(): Promise<void> {
       value TEXT NOT NULL
     );
   `);
+
+  // Add payment_method column to existing databases
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN ref_number TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN proof_photo_uri TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN customer_handle TEXT`
+  ).catch(() => {});
 
   await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,

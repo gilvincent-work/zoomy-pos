@@ -25,13 +25,14 @@ describe('insertTransaction', () => {
       total: 285,
       cashTendered: 300,
       change: 15,
+      paymentMethod: 'cash',
       items,
     });
 
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       1,
-      'INSERT INTO transactions (total, cash_tendered, change, status, created_at) VALUES (?, ?, ?, ?, ?)',
-      [285, 300, 15, 'completed', expect.any(String)]
+      'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [285, 300, 15, 'cash', null, null, 'completed', expect.any(String)]
     );
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       2,

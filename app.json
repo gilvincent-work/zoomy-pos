@@ -6,10 +6,43 @@
     "orientation": "portrait",
     "scheme": "zoomypos",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": false },
-    "android": { "adaptiveIcon": { "backgroundColor": "#1a1a2e" } },
-    "web": { "bundler": "metro" },
-    "plugins": ["expo-router", "expo-sqlite"]
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.anonymous.zoomy-pos",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ZoomyPOS needs camera access to take receipt photos as proof of payment.",
+        "NSMicrophoneUsageDescription": "ZoomyPOS does not use the microphone.",
+        "NSPhotoLibraryUsageDescription": "ZoomyPOS needs photo library access to upload your GCash QR code and save receipt photos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "ZoomyPOS needs camera access to take receipt photos as proof of payment.",
+          "microphonePermission": "ZoomyPOS does not use the microphone.",
+          "photosPermission": "ZoomyPOS needs photo library access to upload your GCash QR code and save receipt photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "ZoomyPOS needs photo library access to save receipt photos."
+        }
+      ]
+    ]
   }
 }

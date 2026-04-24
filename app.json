@@ -30,7 +30,16 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -53,6 +62,12 @@
           "photosPermission": "ZoomyPOS needs photo library access to save receipt photos."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5d420805-2236-4266-b2cc-a320076a21c3"
+      }
+    }
   }
 }

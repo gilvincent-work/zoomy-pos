@@ -39,6 +39,14 @@ export async function initSchema(): Promise<void> {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS saved_bundles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      items_json TEXT NOT NULL,
+      price REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Add payment_method column to existing databases

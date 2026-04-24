@@ -33,7 +33,7 @@ type ConfirmedSummary = {
 };
 
 export default function PaymentModal() {
-  const { items, total, bundlePrice, clearCart, addItem, decrementItem } = useCart();
+  const { items, total, bundlePrice, bundleItems, clearCart, addItem, decrementItem } = useCart();
   const [tendered, setTendered] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [digitalStep, setDigitalStep] = useState<DigitalStep>('qr');
@@ -81,14 +81,22 @@ export default function PaymentModal() {
 
   async function handleConfirm() {
     try {
+      const isBundle = bundlePrice !== null;
+      const itemsForDisplay = isBundle && bundleItems
+        ? bundleItems.map((i) => ({ name: i.name, quantity: i.quantity, price: 0 }))
+        : items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.price }));
+      const itemsForInsert = isBundle && bundleItems
+        ? bundleItems.map((i) => ({ productId: i.id, productName: i.name, price: 0, quantity: i.quantity }))
+        : items.map((i) => ({ productId: i.productId, productName: i.productName, price: i.price, quantity: i.quantity }));
+
       const snapshot: ConfirmedSummary = {
-        items: items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.price })),
+        items: itemsForDisplay,
         total,
         method,
         change: isCash ? change : 0,
         customerHandle: customerHandle.trim(),
         refNumber: refNumber.trim(),
-        isBundle: bundlePrice !== null,
+        isBundle,
       };
       await insertTransaction({
         total,
@@ -98,13 +106,8 @@ export default function PaymentModal() {
         refNumber: refNumber.trim() || undefined,
         proofPhotoUri: proofPhotoUri || undefined,
         customerHandle: customerHandle.trim() || undefined,
-        isBundle: bundlePrice !== null,
-        items: items.map((i) => ({
-          productId: i.productId,
-          productName: i.productName,
-          price: i.price,
-          quantity: i.quantity,
-        })),
+        isBundle,
+        items: itemsForInsert,
       });
       clearCart();
       setConfirmed(snapshot);
@@ -175,27 +178,33 @@ export default function PaymentModal() {
 
   function renderOrderSummary() {
     const isBundle = bundlePrice !== null;
+    const displayItems = isBundle && bundleItems
+      ? bundleItems.map((i) => ({ productId: i.id, productName: i.name, price: 0, quantity: i.quantity }))
+      : items;
+
     return (
       <>
         <View style={styles.summaryHeader}>
           <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>ORDER SUMMARY</Text>
           {isBundle && <Text style={styles.bundleTag}>Bundle</Text>}
         </View>
-        {items.map((item) => (
+        {displayItems.map((item) => (
           <View key={item.productId} style={styles.itemRow}>
             <Text style={styles.itemName}>{item.productName}</Text>
-            <View style={styles.qtyControls}>
-              <TouchableOpacity style={styles.qtyBtn} onPress={() => decrementItem(item.productId)}>
-                <Text style={styles.qtyBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.qtyText}>{item.quantity}</Text>
-              <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
-                <Text style={styles.qtyBtnText}>+</Text>
-              </TouchableOpacity>
-              {!isBundle && (
+            {isBundle ? (
+              <Text style={styles.bundleQty}>×{item.quantity}</Text>
+            ) : (
+              <View style={styles.qtyControls}>
+                <TouchableOpacity style={styles.qtyBtn} onPress={() => decrementItem(item.productId)}>
+                  <Text style={styles.qtyBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.qtyText}>{item.quantity}</Text>
+                <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
+                  <Text style={styles.qtyBtnText}>+</Text>
+                </TouchableOpacity>
                 <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
-              )}
-            </View>
+              </View>
+            )}
           </View>
         ))}
         <View style={styles.divider} />
@@ -494,6 +503,7 @@ const styles = StyleSheet.create({
   qtyBtnText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
   qtyText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
   itemTotal: { color: C.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },
+  bundleQty: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
 
   divider: { height: 1, backgroundColor: C.border, marginVertical: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

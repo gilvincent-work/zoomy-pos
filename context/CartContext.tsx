@@ -1,4 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
+import type { BundleItemInput } from '../db/saved-bundles';
+
+export type { BundleItemInput };
 
 export type CartItem = {
   productId: number;
@@ -10,9 +13,8 @@ export type CartItem = {
 type CartState = {
   items: CartItem[];
   bundlePrice: number | null;
+  bundleItems: BundleItemInput[] | null;
 };
-
-type BundleItemInput = { id: number; name: string; quantity: number };
 
 type CartAction =
   | { type: 'ADD_ITEM'; product: { id: number; name: string; price: number } }
@@ -28,6 +30,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       if (existing) {
         return {
           bundlePrice: null,
+          bundleItems: null,
           items: state.items.map((i) =>
             i.productId === action.product.id ? { ...i, quantity: i.quantity + 1 } : i
           ),
@@ -35,6 +38,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       }
       return {
         bundlePrice: null,
+        bundleItems: null,
         items: [
           ...state.items,
           {
@@ -62,16 +66,13 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       };
     }
     case 'CLEAR_CART':
-      return { items: [], bundlePrice: null };
+      return { items: [], bundlePrice: null, bundleItems: null };
     case 'SET_BUNDLE':
       return {
         bundlePrice: action.price,
-        items: action.bundleItems.map((i) => ({
-          productId: i.id,
-          productName: i.name,
-          price: 0,
-          quantity: i.quantity,
-        })),
+        bundleItems: action.bundleItems,
+        // Single opaque item — productId 0 won't match any product tile
+        items: [{ productId: 0, productName: 'Bundle', price: action.price, quantity: 1 }],
       };
     default:
       return state;
@@ -82,6 +83,7 @@ type CartContextValue = {
   items: CartItem[];
   total: number;
   bundlePrice: number | null;
+  bundleItems: BundleItemInput[] | null;
   addItem: (product: { id: number; name: string; price: number }) => void;
   removeItem: (productId: number) => void;
   decrementItem: (productId: number) => void;
@@ -92,7 +94,11 @@ type CartContextValue = {
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(cartReducer, { items: [], bundlePrice: null });
+  const [state, dispatch] = useReducer(cartReducer, {
+    items: [],
+    bundlePrice: null,
+    bundleItems: null,
+  });
 
   const total = state.bundlePrice !== null
     ? state.bundlePrice
@@ -104,6 +110,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         items: state.items,
         total,
         bundlePrice: state.bundlePrice,
+        bundleItems: state.bundleItems,
         addItem: (product) => dispatch({ type: 'ADD_ITEM', product }),
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         decrementItem: (productId) => dispatch({ type: 'DECREMENT_ITEM', productId }),

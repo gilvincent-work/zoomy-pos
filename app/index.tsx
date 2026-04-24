@@ -1,21 +1,24 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
+  View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { ProductTile } from '../components/ProductTile';
 import { useCart } from '../context/CartContext';
 import { getActiveProducts, Product } from '../db/products';
+import { getSavedBundles, deleteSavedBundle, SavedBundle } from '../db/saved-bundles';
 import { C, F, R } from '../constants/theme';
 
 export default function POSScreen() {
   const [products, setProducts] = useState<Product[]>([]);
-  const { items, total, addItem, removeItem, decrementItem } = useCart();
+  const [savedBundles, setSavedBundles] = useState<SavedBundle[]>([]);
+  const { items, total, addItem, removeItem, decrementItem, setBundle } = useCart();
 
   useFocusEffect(
     useCallback(() => {
       getActiveProducts().then(setProducts);
+      getSavedBundles().then(setSavedBundles);
     }, [])
   );
 
@@ -23,6 +26,82 @@ export default function POSScreen() {
     items.find((i) => i.productId === productId)?.quantity ?? 0;
 
   const cartCount = items.reduce((s, i) => s + i.quantity, 0);
+
+  function applyBundle(bundle: SavedBundle) {
+    setBundle(bundle.items, bundle.price);
+  }
+
+  function handleSavedBundleTap(bundle: SavedBundle) {
+    if (items.length > 0) {
+      Alert.alert(
+        'Apply Bundle?',
+        'This will clear your current cart.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Apply', style: 'destructive', onPress: () => applyBundle(bundle) },
+        ]
+      );
+    } else {
+      applyBundle(bundle);
+    }
+  }
+
+  function handleSavedBundleLongPress(bundle: SavedBundle) {
+    Alert.alert(
+      'Delete Preset',
+      `Remove "${bundle.name}" from presets?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteSavedBundle(bundle.id);
+            setSavedBundles((prev) => prev.filter((b) => b.id !== bundle.id));
+          },
+        },
+      ]
+    );
+  }
+
+  function handleBundleButtonPress() {
+    if (items.length > 0) {
+      Alert.alert(
+        'Start Bundle?',
+        'This will clear your current cart.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', style: 'destructive', onPress: () => router.push('/modals/bundle') },
+        ]
+      );
+    } else {
+      router.push('/modals/bundle');
+    }
+  }
+
+  const savedBundlesHeader = savedBundles.length > 0 ? (
+    <View style={styles.presetsSection}>
+      <Text style={styles.presetsLabel}>Bundle Presets</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.presetsRow}
+      >
+        {savedBundles.map((b) => (
+          <TouchableOpacity
+            key={b.id}
+            style={styles.presetChip}
+            onPress={() => handleSavedBundleTap(b)}
+            onLongPress={() => handleSavedBundleLongPress(b)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.presetChipName}>{b.name}</Text>
+            <Text style={styles.presetChipPrice}>₱{b.price.toFixed(2)}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  ) : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -53,6 +132,7 @@ export default function POSScreen() {
         numColumns={3}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
+        ListHeaderComponent={savedBundlesHeader}
         renderItem={({ item }) => (
           <View style={styles.tileWrapper}>
             <ProductTile
@@ -79,23 +159,7 @@ export default function POSScreen() {
           <Text style={styles.total}>₱{total.toFixed(2)}</Text>
         </View>
         <View style={styles.footerActions}>
-          <TouchableOpacity
-            style={styles.bundleBtn}
-            onPress={() => {
-              if (items.length > 0) {
-                Alert.alert(
-                  'Start Bundle?',
-                  'This will clear your current cart.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Continue', style: 'destructive', onPress: () => router.push('/modals/bundle') },
-                  ]
-                );
-              } else {
-                router.push('/modals/bundle');
-              }
-            }}
-          >
+          <TouchableOpacity style={styles.bundleBtn} onPress={handleBundleButtonPress}>
             <Text style={styles.bundleBtnText}>Bundle</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -135,6 +199,30 @@ const styles = StyleSheet.create({
     borderColor: C.borderDark,
   },
   headerIcon: { fontSize: 20 },
+
+  presetsSection: { marginBottom: 4 },
+  presetsLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    paddingHorizontal: 2,
+    marginBottom: 8,
+  },
+  presetsRow: { gap: 8, paddingBottom: 4 },
+  presetChip: {
+    backgroundColor: C.pinkSubtle,
+    borderWidth: 1,
+    borderColor: C.pinkDim,
+    borderRadius: R.md,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    gap: 2,
+  },
+  presetChipName: { color: C.pink, fontSize: F.sm, fontWeight: '800' },
+  presetChipPrice: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
 
   grid: { padding: 12, paddingBottom: 4 },
   row: { gap: 8, marginBottom: 8 },

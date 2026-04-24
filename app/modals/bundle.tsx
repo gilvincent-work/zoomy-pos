@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput,
-  StyleSheet, SafeAreaView,
+  StyleSheet, SafeAreaView, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getActiveProducts, Product } from '../../db/products';
+import { saveBundlePreset } from '../../db/saved-bundles';
 import { useCart } from '../../context/CartContext';
 import { C, F, R } from '../../constants/theme';
 
@@ -39,14 +40,37 @@ export default function BundleModal() {
       return { ...prev, [id]: cur - 1 };
     });
 
-  const handleConfirm = () => {
-    if (!canConfirm) return;
-    const bundleItems = products
+  function buildBundleItems() {
+    return products
       .filter((p) => (quantities[p.id] ?? 0) > 0)
       .map((p) => ({ id: p.id, name: p.name, quantity: quantities[p.id] }));
-    setBundle(bundleItems, parsedPrice);
-    router.replace('/modals/payment');
-  };
+  }
+
+  function handleAddToCart() {
+    if (!canConfirm) return;
+    setBundle(buildBundleItems(), parsedPrice);
+    router.dismiss();
+  }
+
+  function handleSave() {
+    if (!canConfirm) return;
+    Alert.prompt(
+      'Save Bundle Preset',
+      'Give this bundle a name so you can quickly apply it later.',
+      async (name) => {
+        if (!name?.trim()) return;
+        try {
+          await saveBundlePreset(name.trim(), buildBundleItems(), parsedPrice);
+          Alert.alert('Saved!', `"${name.trim()}" is now available as a preset on the POS screen.`);
+        } catch {
+          Alert.alert('Error', 'Could not save the bundle preset.');
+        }
+      },
+      'plain-text',
+      '',
+      'default'
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -99,11 +123,18 @@ export default function BundleModal() {
 
       <View style={styles.footer}>
         <TouchableOpacity
+          style={[styles.saveBtn, !canConfirm && styles.saveBtnDisabled]}
+          disabled={!canConfirm}
+          onPress={handleSave}
+        >
+          <Text style={styles.saveBtnText}>Save</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
           disabled={!canConfirm}
-          onPress={handleConfirm}
+          onPress={handleAddToCart}
         >
-          <Text style={styles.confirmBtnText}>Add Bundle to Cart</Text>
+          <Text style={styles.confirmBtnText}>Add to Cart</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -162,12 +193,7 @@ const styles = StyleSheet.create({
   },
   qtyActive: { color: C.pink },
 
-  empty: {
-    color: C.textMuted,
-    textAlign: 'center',
-    marginTop: 40,
-    fontSize: F.md,
-  },
+  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
 
   priceSection: { marginTop: 8 },
   priceBox: {
@@ -180,26 +206,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  currencySign: {
-    color: C.textSecondary,
-    fontSize: F.xxl,
-    fontWeight: '700',
-    marginRight: 8,
-  },
-  priceInput: {
-    flex: 1,
-    color: C.textPrimary,
-    fontSize: F.xxl,
-    fontWeight: '800',
-  },
+  currencySign: { color: C.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
+  priceInput: { flex: 1, color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
 
   footer: {
+    flexDirection: 'row',
+    gap: 10,
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
   },
+  saveBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    paddingVertical: 16,
+    borderRadius: R.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  saveBtnDisabled: { opacity: 0.4 },
+  saveBtnText: { color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
   confirmBtn: {
+    flex: 2,
     backgroundColor: C.pink,
     paddingVertical: 16,
     borderRadius: R.sm,

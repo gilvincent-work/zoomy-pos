@@ -6,6 +6,7 @@ import {
 import { ProductTile } from './ProductTile';
 import { ProductVariant } from '../db/products';
 import { C, F, R } from '../constants/theme';
+import { useColumns } from '../hooks/useColumns';
 
 type Props = {
   visible: boolean;
@@ -17,6 +18,7 @@ type Props = {
 };
 
 export function VariantPickerModal({ visible, productName, variants, initialQuantities, onDone, onClose }: Props) {
+  const { numColumns, tileMaxWidth } = useColumns();
   const [quantities, setQuantities] = useState<Record<number, number>>({});
 
   useEffect(() => {
@@ -72,13 +74,14 @@ export function VariantPickerModal({ visible, productName, variants, initialQuan
           <Text style={styles.subtitle}>Select variants</Text>
 
           <FlatList
+            key={numColumns}
             data={variants}
             keyExtractor={(v) => String(v.id)}
-            numColumns={3}
+            numColumns={numColumns}
             contentContainerStyle={styles.grid}
             columnWrapperStyle={styles.row}
             renderItem={({ item }) => (
-              <View style={styles.tileWrapper}>
+              <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
                 <ProductTile
                   id={item.id}
                   name={item.name}
@@ -142,7 +145,7 @@ const styles = StyleSheet.create({
   },
   grid: { padding: 12, paddingBottom: 4 },
   row: { gap: 8, marginBottom: 8 },
-  tileWrapper: { flex: 1, maxWidth: '33.33%' },
+  tileWrapper: { flex: 1 },
   empty: {
     color: C.textMuted,
     textAlign: 'center',

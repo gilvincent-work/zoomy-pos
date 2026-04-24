@@ -11,8 +11,10 @@ import { getActiveProducts, getVariantsByProductId, Product, ProductVariant } fr
 import { getSavedBundles, deleteSavedBundle, SavedBundle } from '../db/saved-bundles';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../constants/theme';
+import { useColumns } from '../hooks/useColumns';
 
 export default function POSScreen() {
+  const { numColumns, tileMaxWidth } = useColumns();
   const [products, setProducts] = useState<Product[]>([]);
   const [savedBundles, setSavedBundles] = useState<SavedBundle[]>([]);
   const { items, bundles, total, addItem, removeItem, decrementItem, addBundle, removeBundle, clearCart, clearBundles } = useCart();
@@ -108,8 +110,8 @@ export default function POSScreen() {
   const hasBundlesInCart = bundles.length > 0;
 
   const presetRows: typeof savedBundles[] = [];
-  for (let i = 0; i < savedBundles.length; i += 3) {
-    presetRows.push(savedBundles.slice(i, i + 3));
+  for (let i = 0; i < savedBundles.length; i += numColumns) {
+    presetRows.push(savedBundles.slice(i, i + numColumns));
   }
 
   const listHeader = savedBundles.length > 0 ? (
@@ -131,7 +133,7 @@ export default function POSScreen() {
             const count = presetCount(b.id);
             const isActive = count > 0;
             return (
-              <View key={b.id} style={styles.presetTileWrapper}>
+              <View key={b.id} style={[styles.presetTileWrapper, { maxWidth: tileMaxWidth }]}>
                 <TouchableOpacity
                   style={[styles.presetTile, isActive && styles.presetTileActive]}
                   onPress={() => handleSavedBundleTap(b)}
@@ -166,8 +168,8 @@ export default function POSScreen() {
               </View>
             );
           })}
-          {row.length < 3 && Array.from({ length: 3 - row.length }).map((_, i) => (
-            <View key={`spacer-${i}`} style={styles.presetTileWrapper} />
+          {row.length < numColumns && Array.from({ length: numColumns - row.length }).map((_, i) => (
+            <View key={`spacer-${i}`} style={[styles.presetTileWrapper, { maxWidth: tileMaxWidth }]} />
           ))}
         </View>
       ))}
@@ -243,15 +245,16 @@ export default function POSScreen() {
       </View>
 
       <FlatList
+        key={numColumns}
         data={products}
         keyExtractor={(p) => String(p.id)}
-        numColumns={3}
+        numColumns={numColumns}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.gridRow}
         ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
         renderItem={({ item }) => (
-          <View style={styles.tileWrapper}>
+          <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
             <ProductTile
               id={item.id}
               name={item.name}
@@ -364,7 +367,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   presetsGridRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  presetTileWrapper: { flex: 1, maxWidth: '33.33%' },
+  presetTileWrapper: { flex: 1 },
   presetTile: {
     backgroundColor: C.surface,
     borderRadius: R.md,
@@ -538,7 +541,7 @@ const styles = StyleSheet.create({
 
   grid: { padding: 12, paddingBottom: 4 },
   gridRow: { gap: 8, marginBottom: 8 },
-  tileWrapper: { flex: 1, maxWidth: '33.33%' },
+  tileWrapper: { flex: 1 },
 
   empty: {
     color: C.textMuted,

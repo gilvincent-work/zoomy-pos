@@ -9,12 +9,13 @@ import { VariantPickerModal } from '../components/VariantPickerModal';
 import { useCart } from '../context/CartContext';
 import { getActiveProducts, getVariantsByProductId, Product, ProductVariant } from '../db/products';
 import { getSavedBundles, deleteSavedBundle, SavedBundle } from '../db/saved-bundles';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../constants/theme';
 
 export default function POSScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [savedBundles, setSavedBundles] = useState<SavedBundle[]>([]);
-  const { items, bundles, total, addItem, removeItem, decrementItem, addBundle, removeBundle, clearCart } = useCart();
+  const { items, bundles, total, addItem, removeItem, decrementItem, addBundle, removeBundle, clearCart, clearBundles } = useCart();
 
   const [variantPickerProduct, setVariantPickerProduct] = useState<Product | null>(null);
   const [variantPickerVariants, setVariantPickerVariants] = useState<ProductVariant[]>([]);
@@ -104,97 +105,103 @@ export default function POSScreen() {
     router.push('/modals/bundle');
   }
 
-  const listFooter = (savedBundles.length > 0 || cartCount > 0) ? (
-    <View>
-      {/* Bundle Presets */}
-      {savedBundles.length > 0 && (
-        <View style={styles.presetsSection}>
-          <Text style={styles.presetsLabel}>Bundle Presets</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.presetsRow}
+  const hasBundlesInCart = bundles.length > 0;
+
+  const listHeader = savedBundles.length > 0 ? (
+    <View style={styles.presetsSection}>
+      <View style={styles.presetsHeader}>
+        <Text style={styles.presetsLabel}>Bundle Presets</Text>
+        {hasBundlesInCart && (
+          <TouchableOpacity
+            onPress={clearBundles}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            {savedBundles.map((b) => {
-              const count = presetCount(b.id);
-              const isActive = count > 0;
-              return (
-                <View key={b.id} style={styles.presetChipWrapper}>
-                  <TouchableOpacity
-                    style={[styles.presetChip, isActive && styles.presetChipActive]}
-                    onPress={() => handleSavedBundleTap(b)}
-                    onLongPress={() => handleSavedBundleLongPress(b)}
-                    activeOpacity={0.7}
-                  >
-                    {isActive && (
-                      <View style={styles.presetBadge}>
-                        <Text style={styles.presetBadgeText}>{count}</Text>
-                      </View>
-                    )}
-                    <Text style={[styles.presetChipName, isActive && styles.presetChipNameActive]}>
-                      {b.name}
-                    </Text>
-                    <Text style={[styles.presetChipPrice, isActive && styles.presetChipPriceActive]}>
-                      ₱{b.price.toFixed(2)}
-                    </Text>
-                  </TouchableOpacity>
-                  {isActive && (
-                    <TouchableOpacity
-                      style={styles.presetMinusBtn}
-                      onPress={() => removeOnePreset(b.id)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.presetMinusBtnText}>−</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+            <Text style={styles.presetsClearText}>Clear All</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.presetsRow}
+      >
+        {savedBundles.map((b) => {
+          const count = presetCount(b.id);
+          const isActive = count > 0;
+          return (
+            <View key={b.id} style={styles.presetChipWrapper}>
+              <TouchableOpacity
+                style={[styles.presetChip, isActive && styles.presetChipActive]}
+                onPress={() => handleSavedBundleTap(b)}
+                onLongPress={() => handleSavedBundleLongPress(b)}
+                activeOpacity={0.7}
+              >
+                {isActive && (
+                  <View style={styles.presetBadge}>
+                    <Text style={styles.presetBadgeText}>{count}</Text>
+                  </View>
+                )}
+                <Text style={[styles.presetChipName, isActive && styles.presetChipNameActive]}>
+                  {b.name}
+                </Text>
+                <Text style={[styles.presetChipPrice, isActive && styles.presetChipPriceActive]}>
+                  ₱{b.price.toFixed(2)}
+                </Text>
+              </TouchableOpacity>
+              {isActive && (
+                <TouchableOpacity
+                  style={styles.presetMinusBtn}
+                  onPress={() => removeOnePreset(b.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.presetMinusBtnText}>−</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  ) : null;
 
-      {/* Cart Summary — bundles only (individual items show inline in the product list) */}
-      {bundles.length > 0 && (
-        <View style={styles.cartSummary}>
-          <View style={styles.cartSummaryHeader}>
-            <Text style={styles.cartSummaryLabel}>Bundles in Cart</Text>
-            <TouchableOpacity
-              style={styles.clearCartBtn}
-              onPress={clearCart}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={styles.clearCartBtnText}>Clear All</Text>
-            </TouchableOpacity>
+  const listFooter = bundles.length > 0 ? (
+    <View style={styles.cartSummary}>
+      <View style={styles.cartSummaryHeader}>
+        <Text style={styles.cartSummaryLabel}>Bundles in Cart</Text>
+        <TouchableOpacity
+          style={styles.clearCartBtn}
+          onPress={clearBundles}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.clearCartBtnText}>Clear All</Text>
+        </TouchableOpacity>
+      </View>
+
+      {bundles.map((bundle, idx) => (
+        <View key={bundle.cartId}>
+          {idx > 0 && <View style={styles.cartSummaryBundleSep} />}
+          <View style={styles.cartSummaryBundleHeader}>
+            <Text style={styles.cartSummaryBundleTag}>Bundle</Text>
+            <View style={styles.cartSummaryBundleRight}>
+              <Text style={styles.cartSummaryBundlePrice}>₱{bundle.price.toFixed(2)}</Text>
+              <TouchableOpacity
+                style={styles.cartSummaryRemoveBtn}
+                onPress={() => removeBundle(bundle.cartId)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.cartSummaryRemoveText}>−</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-
-          {bundles.map((bundle, idx) => (
-            <View key={bundle.cartId}>
-              {idx > 0 && <View style={styles.cartSummaryBundleSep} />}
-              <View style={styles.cartSummaryBundleHeader}>
-                <Text style={styles.cartSummaryBundleTag}>Bundle</Text>
-                <View style={styles.cartSummaryBundleRight}>
-                  <Text style={styles.cartSummaryBundlePrice}>₱{bundle.price.toFixed(2)}</Text>
-                  <TouchableOpacity
-                    style={styles.cartSummaryRemoveBtn}
-                    onPress={() => removeBundle(bundle.cartId)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.cartSummaryRemoveText}>−</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              {bundle.items.map((item) => (
-                <View key={item.id} style={styles.cartSummaryRow}>
-                  <Text style={styles.cartSummaryName}>{item.name}</Text>
-                  <Text style={styles.cartSummaryQty}>×{item.quantity}</Text>
-                </View>
-              ))}
+          {bundle.items.map((item, idx) => (
+            <View key={item.variantId ? `${item.id}-${item.variantId}` : `${item.id}-${idx}`} style={styles.cartSummaryRow}>
+              <Text style={styles.cartSummaryName}>{item.name}</Text>
+              <Text style={styles.cartSummaryQty}>×{item.quantity}</Text>
             </View>
           ))}
         </View>
-      )}
+      ))}
     </View>
   ) : null;
 
@@ -206,17 +213,22 @@ export default function POSScreen() {
           <Text style={styles.brandSub}>Point of Sale</Text>
         </View>
         <View style={styles.headerActions}>
+          {cartCount > 0 && (
+            <TouchableOpacity onPress={clearCart} style={styles.clearAllHeaderBtn}>
+              <Text style={styles.clearAllHeaderText}>Clear All</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn}>
-            <Text style={styles.headerIcon}>📦</Text>
+            <Ionicons name="cube-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn}>
-            <Text style={styles.headerIcon}>🧾</Text>
+            <Ionicons name="receipt-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
             style={styles.headerBtn}
           >
-            <Text style={styles.headerIcon}>⚙️</Text>
+            <Ionicons name="settings-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -227,6 +239,7 @@ export default function POSScreen() {
         numColumns={3}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.gridRow}
+        ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
         renderItem={({ item }) => (
           <View style={styles.tileWrapper}>
@@ -243,7 +256,7 @@ export default function POSScreen() {
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.empty}>No products yet.{'\n'}Tap 📦 to add some.</Text>
+          <Text style={styles.empty}>No products yet.{'\n'}Tap <Ionicons name="cube-outline" size={F.md} color={C.textMuted} /> to add some.</Text>
         }
       />
 
@@ -298,7 +311,20 @@ const styles = StyleSheet.create({
   headerLeft: { gap: 1 },
   brandName: { color: C.pink, fontSize: F.xl, fontWeight: '800', letterSpacing: 0.3 },
   brandSub: { color: C.textMuted, fontSize: F.xs, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
-  headerActions: { flexDirection: 'row', gap: 4 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  clearAllHeaderBtn: {
+    backgroundColor: C.redSubtle,
+    borderWidth: 1,
+    borderColor: C.redDim,
+    borderRadius: R.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  clearAllHeaderText: {
+    color: C.red,
+    fontSize: F.xs,
+    fontWeight: '700',
+  },
   headerBtn: {
     padding: 10,
     backgroundColor: C.surface,
@@ -306,17 +332,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.borderDark,
   },
-  headerIcon: { fontSize: 20 },
+  headerIcon: { },
 
   presetsSection: { marginBottom: 4 },
+  presetsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    marginBottom: 8,
+  },
   presetsLabel: {
     color: C.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    paddingHorizontal: 2,
-    marginBottom: 8,
+  },
+  presetsClearText: {
+    color: C.red,
+    fontSize: F.xs,
+    fontWeight: '700',
   },
   presetsRow: { gap: 8, paddingBottom: 12 },
   presetChipWrapper: { position: 'relative' },
@@ -363,7 +399,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: C.pink,
+    backgroundColor: C.red,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -395,14 +431,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   clearCartBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: C.redSubtle,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.redDim,
     borderRadius: R.sm,
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
-  clearCartBtnText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  clearCartBtnText: { color: C.red, fontSize: F.xs, fontWeight: '700' },
   cartSummaryBundleSep: {
     height: 1,
     backgroundColor: C.borderDark,
@@ -438,16 +474,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cartSummaryRemoveBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: C.redSubtle,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.redDim,
     borderRadius: 8,
     width: 22,
     height: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cartSummaryRemoveText: { color: C.textSecondary, fontSize: 16, fontWeight: '800', lineHeight: 18 },
+  cartSummaryRemoveText: { color: C.red, fontSize: 16, fontWeight: '800', lineHeight: 18 },
   cartSummaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -10,14 +10,15 @@ import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
 import { getGcashQrUri } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 const DENOMINATIONS = [1, 5, 10, 20, 50, 100, 200, 500, 1000];
 
-const PAYMENT_METHODS: { key: PaymentMethod; label: string; icon: string }[] = [
-  { key: 'cash', label: 'Cash', icon: '💵' },
-  { key: 'gcash', label: 'GCash', icon: '📱' },
-  { key: 'bank_transfer', label: 'Bank', icon: '🏦' },
+const PAYMENT_METHODS: { key: PaymentMethod; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
+  { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
+  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
 ];
 
 type DigitalStep = 'qr' | 'proof';
@@ -86,7 +87,14 @@ export default function PaymentModal() {
       const isBundle = bundles.length > 0;
 
       const bundleInsertItems = bundles.flatMap((b) =>
-        b.items.map((i) => ({ productId: i.id, productName: i.name, price: 0, quantity: i.quantity }))
+        b.items.map((i) => ({
+          productId: i.id,
+          productName: i.name,
+          price: 0,
+          quantity: i.quantity,
+          variantId: i.variantId,
+          variantName: i.variantName,
+        }))
       );
       const individualInsertItems = items.map((i) => ({
         productId: i.productId,
@@ -147,7 +155,7 @@ export default function PaymentModal() {
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmSheet}>
             <View style={styles.confirmCheck}>
-              <Text style={styles.confirmCheckText}>✓</Text>
+              <Ionicons name="checkmark" size={30} color="#fff" />
             </View>
             <Text style={styles.confirmTitle}>Sale Recorded!</Text>
             <Text style={styles.confirmSub}>Transaction has been saved successfully.</Text>
@@ -249,12 +257,12 @@ export default function PaymentModal() {
                   onPress={() => removeBundle(bundle.cartId)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={styles.trashIcon}>🗑</Text>
+                  <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
                 </TouchableOpacity>
               </View>
             </View>
-            {bundle.items.map((item) => (
-              <View key={item.id} style={styles.itemRow}>
+            {bundle.items.map((item, idx) => (
+              <View key={item.variantId ? `${item.id}-${item.variantId}` : `${item.id}-${idx}`} style={styles.itemRow}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.bundleQty}>×{item.quantity}</Text>
               </View>
@@ -345,7 +353,7 @@ export default function PaymentModal() {
               style={[styles.methodBtn, method === m.key && styles.methodBtnActive]}
               onPress={() => handleMethodChange(m.key)}
             >
-              <Text style={styles.methodIcon}>{m.icon}</Text>
+              <Ionicons name={m.iconName} size={20} color={method === m.key ? C.pink : C.textSecondary} />
               <Text style={[styles.methodLabel, method === m.key && styles.methodLabelActive]}>
                 {m.label}
               </Text>
@@ -378,13 +386,13 @@ export default function PaymentModal() {
             </View>
           ) : method === 'gcash' && !qrUri ? (
             <View style={styles.digitalBox}>
-              <Text style={styles.digitalIcon}>📱</Text>
+              <Ionicons name="phone-portrait-outline" size={40} color={C.textSecondary} />
               <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
-              <Text style={styles.digitalHint}>No GCash QR uploaded. Go to ⚙️ Settings to add one.</Text>
+              <Text style={styles.digitalHint}>No GCash QR uploaded. Go to <Ionicons name="settings-outline" size={F.md} color={C.textSecondary} /> Settings to add one.</Text>
             </View>
           ) : (
             <View style={styles.digitalBox}>
-              <Text style={styles.digitalIcon}>🏦</Text>
+              <Ionicons name="business-outline" size={40} color={C.textSecondary} />
               <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
               <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
             </View>
@@ -413,7 +421,7 @@ export default function PaymentModal() {
             disabled={!hasCartContent}
             onPress={() => setDigitalStep('proof')}
           >
-            <Text style={styles.confirmBtnText}>Customer Paid ✓</Text>
+            <Text style={styles.confirmBtnText}>Customer Paid <Ionicons name="checkmark" size={F.lg} color="#fff" /></Text>
           </TouchableOpacity>
         </View>
 
@@ -452,12 +460,12 @@ export default function PaymentModal() {
             <View style={styles.proofPhotoBox}>
               <Image source={{ uri: proofPhotoUri }} style={styles.proofPhotoPreview} resizeMode="cover" />
               <TouchableOpacity style={styles.proofRetake} onPress={handleTakePhoto}>
-                <Text style={styles.proofRetakeText}>📷 Retake</Text>
+                <Text style={styles.proofRetakeText}><Ionicons name="camera-outline" size={F.md} color={C.textPrimary} /> Retake</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <TouchableOpacity style={styles.cameraBox} onPress={handleTakePhoto}>
-              <Text style={styles.cameraIcon}>📷</Text>
+              <Ionicons name="camera-outline" size={32} color={C.textSecondary} />
               <Text style={styles.cameraText}>Tap to take photo</Text>
             </TouchableOpacity>
           )}
@@ -664,15 +672,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   trashBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: C.redSubtle,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.redDim,
     borderRadius: R.sm,
     padding: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  trashIcon: { fontSize: 14 },
+  trashIcon: {},
 
   mixedDivider: {
     flexDirection: 'row',
@@ -710,7 +718,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   methodBtnActive: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
-  methodIcon: { fontSize: 20 },
+  methodIcon: {},
   methodLabel: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
   methodLabelActive: { color: C.pink },
 
@@ -735,14 +743,14 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   clearBtn: {
     flex: 1,
-    backgroundColor: C.surface,
+    backgroundColor: C.redSubtle,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.redDim,
     padding: 11,
     alignItems: 'center',
   },
-  clearBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.sm },
+  clearBtnText: { color: C.red, fontWeight: '700', fontSize: F.sm },
   exactBtn: {
     flex: 2,
     backgroundColor: C.elevated,
@@ -789,7 +797,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 8,
   },
-  digitalIcon: { fontSize: 40 },
+  digitalIcon: {},
   digitalAmount: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
   digitalHint: { color: C.textSecondary, fontSize: F.md, textAlign: 'center' },
 
@@ -842,7 +850,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  cameraIcon: { fontSize: 32 },
+  cameraIcon: {},
   cameraText: { color: C.textSecondary, fontSize: F.md },
   proofPhotoBox: { backgroundColor: C.surface, borderRadius: R.md, padding: 12, alignItems: 'center', gap: 10 },
   proofPhotoPreview: { width: '100%', height: 220, borderRadius: R.sm },
@@ -885,7 +893,7 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
   confirmBtn: {
     flex: 2,
-    backgroundColor: C.pink,
+    backgroundColor: C.green,
     borderRadius: R.sm,
     padding: 16,
     alignItems: 'center',
@@ -918,7 +926,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 14,
   },
-  confirmCheckText: { color: '#fff', fontSize: 30, fontWeight: '800' },
+  confirmCheckText: {},
   confirmTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
   confirmSub: { color: C.textSecondary, fontSize: F.sm, marginBottom: 18, textAlign: 'center' },
   confirmDivider: { height: 1, backgroundColor: C.borderDark, width: '100%', marginVertical: 12 },

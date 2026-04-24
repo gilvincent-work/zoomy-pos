@@ -233,7 +233,9 @@ export default function TransactionsModal() {
                 {selected.items.map((item) => (
                   <View key={item.id} style={styles.itemRow}>
                     <Text style={styles.itemName}>
-                      {item.product_name} × {item.quantity}
+                      {item.variant_name
+                        ? `${item.product_name} — ${item.variant_name} × ${item.quantity}`
+                        : `${item.product_name} × ${item.quantity}`}
                     </Text>
                     {!selected.is_bundle && (
                       <Text style={styles.itemPrice}>

@@ -39,7 +39,8 @@
     "babel-preset-expo": "~54.0.10",
     "jest": "~29.7.0",
     "jest-expo": "~54.0.17",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "workbox-build": "^7.4.0"
   },
   "private": true
 }

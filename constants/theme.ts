@@ -17,9 +17,13 @@ export const C = {
   red:         '#e94560',
   redSubtle:   '#2a1219',
 
-  // Green — success / proof confirmed
+  // Green — success / save / proof confirmed
   green:       '#32c86e',
+  greenDim:    '#1a6b3a',
   greenSubtle: '#0d2618',
+
+  // Red — destructive / clear / cancel
+  redDim:      '#7a2333',
 
   // Text
   textPrimary:   '#ede9e3',

@@ -7,6 +7,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { getAllTransactions, Transaction, PaymentMethod } from '../../db/transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 type DateFilter = 'today' | 'week' | 'month' | 'all';
@@ -42,11 +43,11 @@ const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: 'all', label: 'All' },
 ];
 
-const METHOD_FILTERS: { key: MethodFilter; label: string }[] = [
+const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'all', label: 'All' },
-  { key: 'cash', label: '💵 Cash' },
-  { key: 'gcash', label: '📱 GCash' },
-  { key: 'bank_transfer', label: '🏦 Bank' },
+  { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
+  { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
+  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
 ];
 
 function getMethodDisplayName(method: PaymentMethod): string {
@@ -76,7 +77,7 @@ function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void
     <Modal visible={!!uri} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.photoOverlay}>
         <TouchableOpacity style={styles.photoCloseBtn} onPress={onClose}>
-          <Text style={styles.photoCloseBtnText}>✕</Text>
+          <Ionicons name="close" size={18} color="#fff" />
         </TouchableOpacity>
         <ScrollView
           ref={scrollRef}
@@ -175,7 +176,8 @@ export default function TransactionsModal() {
             onPress={() => setMethodFilter(f.key)}
           >
             <Text style={[styles.methodText, methodFilter === f.key && styles.methodTextActive]}>
-              {f.label}
+              {f.iconName && <Ionicons name={f.iconName} size={F.xs} color={methodFilter === f.key ? C.textPrimary : C.textMuted} />}
+              {f.iconName ? ' ' : ''}{f.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -187,7 +189,7 @@ export default function TransactionsModal() {
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
         <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-          <Text style={styles.exportBtnText}>⬆ Export</Text>
+          <Text style={styles.exportBtnText}><Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export</Text>
         </TouchableOpacity>
       </View>
 
@@ -233,7 +235,9 @@ export default function TransactionsModal() {
                 {selected.items.map((item) => (
                   <View key={item.id} style={styles.itemRow}>
                     <Text style={styles.itemName}>
-                      {item.product_name} × {item.quantity}
+                      {item.variant_name
+                        ? `${item.product_name} — ${item.variant_name} × ${item.quantity}`
+                        : `${item.product_name} × ${item.quantity}`}
                     </Text>
                     {!selected.is_bundle && (
                       <Text style={styles.itemPrice}>

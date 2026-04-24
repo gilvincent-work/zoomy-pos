@@ -23,7 +23,7 @@ export default function RootLayout() {
   return (
     <CartProvider>
       <Stack screenOptions={{ headerStyle: { backgroundColor: C.bg }, headerTintColor: C.textPrimary }}>
-        <Stack.Screen name="index" options={{ title: 'ZoomyPOS' }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="modals/payment" options={{ presentation: 'modal', title: 'Payment' }} />
         <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
         <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />

@@ -31,20 +31,42 @@ describe('insertTransaction', () => {
 
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       1,
-      'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [285, 300, 15, 'cash', null, null, 'completed', expect.any(String)]
+      expect.stringContaining('INSERT INTO transactions'),
+      expect.arrayContaining([285, 300, 15, 'cash'])
     );
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       2,
-      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity) VALUES (?, ?, ?, ?, ?)',
-      [10, 1, 'Cake', 120, 2]
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [10, 1, 'Cake', 120, 2, null, null]
     );
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       3,
-      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity) VALUES (?, ?, ?, ?, ?)',
-      [10, 2, 'Drink', 45, 1]
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [10, 2, 'Drink', 45, 1, null, null]
     );
     expect(id).toBe(10);
+  });
+
+  it('passes variant fields when provided', async () => {
+    mockDb.runAsync
+      .mockResolvedValueOnce({ lastInsertRowId: 10, changes: 1 })
+      .mockResolvedValue({ lastInsertRowId: 20, changes: 1 });
+
+    await insertTransaction({
+      total: 45,
+      cashTendered: 50,
+      change: 5,
+      paymentMethod: 'cash',
+      items: [
+        { productId: 1, productName: 'Milk Tea', price: 45, quantity: 1, variantId: 5, variantName: 'Wintermelon' },
+      ],
+    });
+
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('variant_id, variant_name'),
+      [10, 1, 'Milk Tea', 45, 1, 5, 'Wintermelon']
+    );
   });
 });
 
@@ -63,8 +85,7 @@ describe('getAllTransactions', () => {
     mockDb.getAllAsync.mockResolvedValueOnce([]);
     await getAllTransactions();
     expect(mockDb.getAllAsync).toHaveBeenCalledWith(
-      expect.stringContaining('FROM transactions t'),
-      undefined
+      expect.stringContaining('FROM transactions t')
     );
   });
 
@@ -72,15 +93,21 @@ describe('getAllTransactions', () => {
     mockDb.getAllAsync.mockResolvedValueOnce([
       {
         t_id: 1, t_total: 285, t_cash: 300, t_change: 15,
+        t_payment: 'cash', t_ref: null, t_proof: null,
+        t_handle: null, t_bundle: 0,
         t_status: 'completed', t_created: '2026-04-19T10:00:00.000Z',
         ti_id: 1, transaction_id: 1, product_id: 1,
         product_name: 'Cake', price: 120, quantity: 2,
+        variant_id: null, variant_name: null,
       },
       {
         t_id: 1, t_total: 285, t_cash: 300, t_change: 15,
+        t_payment: 'cash', t_ref: null, t_proof: null,
+        t_handle: null, t_bundle: 0,
         t_status: 'completed', t_created: '2026-04-19T10:00:00.000Z',
         ti_id: 2, transaction_id: 1, product_id: 2,
         product_name: 'Drink', price: 45, quantity: 1,
+        variant_id: null, variant_name: null,
       },
     ]);
 

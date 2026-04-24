@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "expo": "~54.0.33",
+    "expo-constants": "~18.0.13",
     "expo-crypto": "~15.0.8",
     "expo-file-system": "~19.0.21",
     "expo-image-picker": "~17.0.10",
@@ -29,7 +30,7 @@
     "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^13.3.3",
     "@types/react": "~19.1.0",
-    "babel-preset-expo": "^55.0.17",
+    "babel-preset-expo": "~54.0.10",
     "jest": "~29.7.0",
     "jest-expo": "~54.0.17",
     "typescript": "~5.9.2"

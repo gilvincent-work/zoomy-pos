@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, Modal, Image, ScrollView, Dimensions,
+  SafeAreaView, Modal, Image, ScrollView, Dimensions, Alert,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { getAllTransactions, Transaction, PaymentMethod } from '../../db/transactions';
+import { exportTransactionsCsv } from '../../utils/export-csv';
+import { C, F, R } from '../../constants/theme';
 
 type DateFilter = 'today' | 'week' | 'month' | 'all';
 type MethodFilter = 'all' | PaymentMethod;
@@ -127,6 +129,19 @@ export default function TransactionsModal() {
     [filtered]
   );
 
+  async function handleExport() {
+    if (filtered.length === 0) {
+      Alert.alert('Nothing to export', 'No transactions match the current filter.');
+      return;
+    }
+    try {
+      const label = dateFilter === 'all' ? 'all' : dateFilter;
+      await exportTransactionsCsv(filtered, label);
+    } catch {
+      Alert.alert('Export failed', 'Could not export transactions. Please try again.');
+    }
+  }
+
   function handleVoid() {
     if (!selected) return;
     setSelected(null);
@@ -167,8 +182,13 @@ export default function TransactionsModal() {
       </View>
 
       <View style={styles.summaryBar}>
-        <Text style={styles.summaryCount}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</Text>
-        <Text style={styles.summaryTotal}>Total: ₱{filteredTotal.toFixed(2)}</Text>
+        <View style={styles.summaryLeft}>
+          <Text style={styles.summaryCount}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</Text>
+          <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
+        </View>
+        <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
+          <Text style={styles.exportBtnText}>⬆ Export CSV</Text>
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -260,6 +280,16 @@ export default function TransactionsModal() {
                   </>
                 )}
 
+                {selected.customer_handle && (
+                  <>
+                    <View style={styles.divider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Furbaby / IG</Text>
+                      <Text style={[styles.summaryValue, { color: C.pink }]}>{selected.customer_handle}</Text>
+                    </View>
+                  </>
+                )}
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>
@@ -281,78 +311,117 @@ export default function TransactionsModal() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
+  container: { flex: 1, backgroundColor: C.bg },
+
   filterRow: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4,
   },
   filterBtn: {
-    flex: 1, paddingVertical: 8, borderRadius: 6,
-    backgroundColor: '#16213e', alignItems: 'center',
+    flex: 1, paddingVertical: 9, borderRadius: R.sm,
+    backgroundColor: C.elevated, alignItems: 'center',
+    borderWidth: 1, borderColor: C.borderDark,
   },
-  filterBtnActive: { backgroundColor: '#e94560' },
-  filterText: { color: '#888', fontSize: 12, fontWeight: 'bold' },
+  filterBtnActive: { backgroundColor: C.pink, borderColor: C.pink },
+  filterText: { color: C.textMuted, fontSize: F.sm, fontWeight: '700' },
   filterTextActive: { color: '#fff' },
+
   methodRow: {
     flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4,
   },
   methodBtn: {
-    flex: 1, paddingVertical: 6, borderRadius: 6,
-    backgroundColor: '#16213e', alignItems: 'center',
+    flex: 1, paddingVertical: 7, borderRadius: R.sm,
+    backgroundColor: C.surface, alignItems: 'center',
+    borderWidth: 1, borderColor: C.borderDark,
   },
-  methodBtnActive: { backgroundColor: '#0f3460', borderWidth: 1, borderColor: '#e94560' },
-  methodText: { color: '#888', fontSize: 11, fontWeight: 'bold' },
-  methodTextActive: { color: '#eee' },
+  methodBtnActive: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
+  methodText: { color: C.textMuted, fontSize: F.xs, fontWeight: '700' },
+  methodTextActive: { color: C.textPrimary },
+
   summaryBar: {
-    flexDirection: 'row', justifyContent: 'space-between',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: C.borderDark,
   },
-  summaryCount: { color: '#aaa', fontSize: 12 },
-  summaryTotal: { color: '#e94560', fontSize: 12, fontWeight: 'bold' },
-  list: { padding: 16, paddingTop: 4 },
-  empty: { color: '#666', textAlign: 'center', marginTop: 40 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  summaryLeft: { gap: 1 },
+  summaryCount: { color: C.textSecondary, fontSize: F.sm },
+  summaryTotal: { color: C.pink, fontSize: F.sm, fontWeight: '700' },
+  exportBtn: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  exportBtnText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+
+  list: { padding: 16, paddingTop: 10 },
+  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#16213e', borderTopLeftRadius: 16, borderTopRightRadius: 16,
-    padding: 20, paddingBottom: 36,
+    backgroundColor: C.surface,
+    borderTopLeftRadius: R.xl,
+    borderTopRightRadius: R.xl,
+    borderTopWidth: 1,
+    borderColor: C.borderDark,
+    padding: 20,
+    paddingBottom: 40,
   },
-  sheetTitle: { color: '#eee', fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
-  sheetMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
-  sheetTime: { color: '#aaa', fontSize: 12 },
+  sheetTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 4 },
+  sheetMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  sheetTime: { color: C.textSecondary, fontSize: F.sm },
   sheetMethodBadge: {
-    backgroundColor: '#0f3460', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2,
+    backgroundColor: C.elevated, borderRadius: R.sm,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: C.border,
   },
-  sheetMethodText: { color: '#eee', fontSize: 10, fontWeight: 'bold' },
+  sheetMethodText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+
   itemRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    marginBottom: 6,
+    flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8,
   },
-  itemName: { color: '#eee', fontSize: 13 },
-  itemPrice: { color: '#eee', fontSize: 13 },
-  divider: { height: 1, backgroundColor: '#0f3460', marginVertical: 10 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  summaryLabel: { color: '#aaa', fontSize: 13 },
-  summaryValue: { color: '#eee', fontSize: 13, fontWeight: 'bold' },
+  itemName: { color: C.textPrimary, fontSize: F.md },
+  itemPrice: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+
+  divider: { height: 1, backgroundColor: C.borderDark, marginVertical: 12 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  summaryLabel: { color: C.textSecondary, fontSize: F.md },
+  summaryValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+
   sheetBtns: { flexDirection: 'row', gap: 12, marginTop: 20 },
   closeBtn: {
-    flex: 1, backgroundColor: '#1a1a2e', borderRadius: 8,
+    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border,
   },
-  closeBtnText: { color: '#aaa', fontWeight: 'bold' },
+  closeBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
   voidBtn: {
-    flex: 2, backgroundColor: '#c0392b', borderRadius: 8,
+    flex: 2, backgroundColor: C.red, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
-  voidBtnText: { color: '#fff', fontWeight: 'bold' },
-  proofLabel: { color: '#aaa', fontSize: 10, fontWeight: 'bold', marginBottom: 8 },
-  proofRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  refBox: { backgroundColor: '#1a1a2e', borderRadius: 6, padding: 8, flex: 1 },
-  refLabel: { color: '#888', fontSize: 10 },
-  refValue: { color: '#eee', fontSize: 13, fontWeight: 'bold', marginTop: 2 },
-  proofThumb: { width: 60, height: 60, borderRadius: 6, backgroundColor: '#1a1a2e' },
-  photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
-  photoCloseBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-  photoCloseBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  proofLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
+  proofRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  refBox: {
+    backgroundColor: C.elevated, borderRadius: R.sm,
+    padding: 10, flex: 1,
+    borderWidth: 1, borderColor: C.borderDark,
+  },
+  refLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '600' },
+  refValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '700', marginTop: 2 },
+  proofThumb: { width: 64, height: 64, borderRadius: R.sm, backgroundColor: C.elevated },
+
+  photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.97)' },
+  photoCloseBtn: {
+    position: 'absolute', top: 52, right: 20, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  photoCloseBtnText: { color: '#fff', fontSize: F.lg, fontWeight: '700' },
   photoScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
   photoFull: { width: SCREEN_W, height: SCREEN_H * 0.75 },
-  photoHint: { color: '#888', fontSize: 12, textAlign: 'center', paddingBottom: 40 },
+  photoHint: { color: C.textMuted, fontSize: F.sm, textAlign: 'center', paddingBottom: 40 },
 });

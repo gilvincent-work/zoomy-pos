@@ -10,6 +10,7 @@ import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
 import { getGcashQrUri } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
+import { C, F, R } from '../../constants/theme';
 
 const DENOMINATIONS = [1, 5, 10, 20, 50, 100, 200, 500, 1000];
 
@@ -30,6 +31,7 @@ export default function PaymentModal() {
   const [qrFullScreen, setQrFullScreen] = useState(false);
   const [refNumber, setRefNumber] = useState('');
   const [proofPhotoUri, setProofPhotoUri] = useState<string | null>(null);
+  const [customerHandle, setCustomerHandle] = useState('');
 
   const isCash = method === 'cash';
   const isDigital = !isCash;
@@ -75,6 +77,7 @@ export default function PaymentModal() {
         paymentMethod: method,
         refNumber: refNumber.trim() || undefined,
         proofPhotoUri: proofPhotoUri || undefined,
+        customerHandle: customerHandle.trim() || undefined,
         items: items.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -129,7 +132,9 @@ export default function PaymentModal() {
               onPress={() => handleMethodChange(m.key)}
             >
               <Text style={styles.methodIcon}>{m.icon}</Text>
-              <Text style={[styles.methodLabel, method === m.key && styles.methodLabelActive]}>{m.label}</Text>
+              <Text style={[styles.methodLabel, method === m.key && styles.methodLabelActive]}>
+                {m.label}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -137,7 +142,7 @@ export default function PaymentModal() {
     );
   }
 
-  // Digital Step 1: QR display / collect prompt
+  // Digital Step 1: QR display
   if (isDigital && digitalStep === 'qr') {
     return (
       <SafeAreaView style={styles.container}>
@@ -170,6 +175,19 @@ export default function PaymentModal() {
               <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
             </View>
           )}
+
+          <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>
+            FURBABY / IG HANDLE <Text style={styles.optionalTag}>optional</Text>
+          </Text>
+          <TextInput
+            style={styles.handleInput}
+            placeholder="@username or furbaby name"
+            placeholderTextColor={C.textMuted}
+            value={customerHandle}
+            onChangeText={setCustomerHandle}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
         </ScrollView>
 
         <View style={styles.footer}>
@@ -208,7 +226,7 @@ export default function PaymentModal() {
           <TextInput
             style={styles.refInput}
             placeholder="e.g. 1234 5678 9012"
-            placeholderTextColor="#666"
+            placeholderTextColor={C.textMuted}
             value={refNumber}
             onChangeText={setRefNumber}
             keyboardType="default"
@@ -228,6 +246,17 @@ export default function PaymentModal() {
               <Text style={styles.cameraText}>Tap to take photo</Text>
             </TouchableOpacity>
           )}
+
+          <Text style={styles.sectionLabel}>FURBABY / IG HANDLE <Text style={styles.optionalTag}>optional</Text></Text>
+          <TextInput
+            style={styles.handleInput}
+            placeholder="@username or furbaby name"
+            placeholderTextColor={C.textMuted}
+            value={customerHandle}
+            onChangeText={setCustomerHandle}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
         </ScrollView>
 
         <View style={styles.footer}>
@@ -245,16 +274,17 @@ export default function PaymentModal() {
     );
   }
 
-  // Cash flow (unchanged)
+  // Cash flow
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} scrollEnabled={false}>
         {renderOrderSummary()}
         {renderMethodSelector()}
 
         <Text style={styles.sectionLabel}>CASH TENDERED</Text>
         <View style={styles.tenderedBox}>
-          <Text style={styles.tenderedAmount}>₱{tendered.toFixed(2)}</Text>
+          <Text style={styles.tenderedLabel}>₱</Text>
+          <Text style={styles.tenderedAmount}>{tendered.toFixed(2)}</Text>
         </View>
 
         <View style={styles.denomGrid}>
@@ -270,18 +300,29 @@ export default function PaymentModal() {
             <Text style={styles.clearBtnText}>Clear</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.exactBtn} onPress={() => setTendered(total)}>
-            <Text style={styles.exactBtnText}>Exact</Text>
+            <Text style={styles.exactBtnText}>Exact  ₱{total.toFixed(2)}</Text>
           </TouchableOpacity>
         </View>
 
         {tendered > 0 && (
-          <View style={styles.changeBox}>
-            <Text style={styles.changeLabel}>CHANGE</Text>
-            <Text style={[styles.changeAmount, change < 0 && styles.changeNegative]}>
-              ₱{Math.abs(change).toFixed(2)}
-            </Text>
+          <View style={[styles.changeBox, change < 0 && styles.changeBoxShort]}>
+            <Text style={styles.changeLabel}>{change >= 0 ? 'CHANGE' : 'SHORT BY'}</Text>
+            <Text style={styles.changeAmount}>₱{Math.abs(change).toFixed(2)}</Text>
           </View>
         )}
+
+        <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>
+          FURBABY / IG HANDLE <Text style={styles.optionalTag}>optional</Text>
+        </Text>
+        <TextInput
+          style={styles.handleInput}
+          placeholder="@username or furbaby name"
+          placeholderTextColor={C.textMuted}
+          value={customerHandle}
+          onChangeText={setCustomerHandle}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
       </ScrollView>
 
       <View style={styles.footer}>
@@ -301,69 +342,245 @@ export default function PaymentModal() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
-  scroll: { padding: 16 },
-  title: { color: '#eee', fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
-  sectionLabel: { color: '#aaa', fontSize: 11, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  itemName: { color: '#eee', fontSize: 14, flex: 1 },
+  container: { flex: 1, backgroundColor: C.bg },
+  scroll: { padding: 14, paddingBottom: 8 },
+
+  title: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
+  proofSubtitle: { color: C.textSecondary, fontSize: F.md, marginBottom: 12 },
+
+  sectionLabel: {
+    color: C.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  sectionLabelHandle: { marginTop: 8 },
+  optionalTag: { color: C.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
+
+  itemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: C.borderDark,
+  },
+  itemName: { color: C.textPrimary, fontSize: F.md, flex: 1, fontWeight: '500' },
   qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  qtyBtn: { backgroundColor: '#0f3460', borderRadius: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  qtyBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  qtyText: { color: '#eee', fontSize: 14, fontWeight: 'bold', minWidth: 20, textAlign: 'center' },
-  itemTotal: { color: '#eee', fontSize: 14, minWidth: 70, textAlign: 'right' },
-  divider: { height: 1, backgroundColor: '#0f3460', marginVertical: 10 },
+  qtyBtn: {
+    backgroundColor: C.elevated,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyBtnText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qtyText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
+  itemTotal: { color: C.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },
+
+  divider: { height: 1, backgroundColor: C.border, marginVertical: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  totalLabel: { color: '#aaa', fontSize: 14, fontWeight: 'bold' },
-  totalAmount: { color: '#e94560', fontSize: 24, fontWeight: 'bold' },
-  methodRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  methodBtn: { flex: 1, backgroundColor: '#16213e', borderRadius: 8, paddingVertical: 12, alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
-  methodBtnActive: { borderColor: '#e94560', backgroundColor: '#1a1a2e' },
-  methodIcon: { fontSize: 24, marginBottom: 4 },
-  methodLabel: { color: '#888', fontSize: 12, fontWeight: 'bold' },
-  methodLabelActive: { color: '#e94560' },
-  tenderedBox: { backgroundColor: '#16213e', borderRadius: 8, padding: 16, alignItems: 'center', marginBottom: 12 },
-  tenderedAmount: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
-  denomGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  totalLabel: { color: C.textSecondary, fontSize: F.md, fontWeight: '700', letterSpacing: 0.5 },
+  totalAmount: { color: C.pink, fontSize: F.xxl, fontWeight: '800' },
+
+  methodRow: { flexDirection: 'row', gap: 8, marginBottom: 2 },
+  methodBtn: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderRadius: R.sm,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: C.borderDark,
+    gap: 2,
+  },
+  methodBtnActive: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
+  methodIcon: { fontSize: 20 },
+  methodLabel: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  methodLabelActive: { color: C.pink },
+
+  tenderedBox: {
+    backgroundColor: C.surface,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 8,
+    gap: 4,
+  },
+  tenderedLabel: { color: C.textSecondary, fontSize: F.lg, fontWeight: '700' },
+  tenderedAmount: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800', flex: 1 },
+
+  denomGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   denomCell: { width: '30%' },
-  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  clearBtn: { flex: 1, backgroundColor: '#16213e', borderRadius: 6, padding: 12, alignItems: 'center' },
-  clearBtnText: { color: '#aaa', fontWeight: 'bold' },
-  exactBtn: { flex: 1, backgroundColor: '#0f3460', borderRadius: 6, padding: 12, alignItems: 'center' },
-  exactBtnText: { color: '#eee', fontWeight: 'bold' },
-  changeBox: { backgroundColor: '#0d7a3e', borderRadius: 8, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  changeLabel: { color: '#fff', fontWeight: 'bold' },
-  changeAmount: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
-  changeNegative: { color: '#ffaaaa' },
-  digitalBox: { backgroundColor: '#16213e', borderRadius: 8, padding: 24, alignItems: 'center', marginTop: 8 },
-  digitalIcon: { fontSize: 36, marginBottom: 8 },
-  digitalAmount: { color: '#fff', fontSize: 28, fontWeight: 'bold', marginBottom: 4 },
-  digitalHint: { color: '#aaa', fontSize: 12, textAlign: 'center' },
+
+  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  clearBtn: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 11,
+    alignItems: 'center',
+  },
+  clearBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.sm },
+  exactBtn: {
+    flex: 2,
+    backgroundColor: C.elevated,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 11,
+    alignItems: 'center',
+  },
+  exactBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
+
+  changeBox: {
+    backgroundColor: C.greenSubtle,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.green,
+    padding: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  changeBoxShort: { backgroundColor: C.redSubtle, borderColor: C.red },
+  changeLabel: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
+  changeAmount: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+
+  handleInput: {
+    backgroundColor: C.surface,
+    color: C.textPrimary,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    fontSize: F.md,
+  },
+
+  digitalBox: {
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 28,
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  digitalIcon: { fontSize: 40 },
+  digitalAmount: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  digitalHint: { color: C.textSecondary, fontSize: F.md, textAlign: 'center' },
+
   qrSection: { marginTop: 8 },
-  qrBox: { backgroundColor: '#16213e', borderRadius: 8, padding: 20, alignItems: 'center' },
-  qrPreview: { width: 160, height: 160, borderRadius: 8, marginBottom: 12 },
-  qrAmount: { color: '#e94560', fontSize: 22, fontWeight: 'bold' },
-  qrHint: { color: '#aaa', fontSize: 11, marginTop: 4 },
-  fullScreenBtn: { backgroundColor: '#0f3460', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6, marginTop: 12 },
-  fullScreenBtnText: { color: '#eee', fontWeight: 'bold', fontSize: 13 },
+  qrBox: {
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 24,
+    alignItems: 'center',
+    gap: 10,
+  },
+  qrPreview: { width: 180, height: 180, borderRadius: R.sm, marginBottom: 4 },
+  qrAmount: { color: C.pink, fontSize: F.xxl, fontWeight: '800' },
+  qrHint: { color: C.textSecondary, fontSize: F.sm },
+  fullScreenBtn: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    borderRadius: R.sm,
+    marginTop: 4,
+  },
+  fullScreenBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.md },
+
   qrFullOverlay: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   qrFull: { width: '80%', height: '60%' },
-  qrFullAmount: { color: '#1a1a2e', fontSize: 28, fontWeight: 'bold', marginTop: 16 },
-  qrFullHint: { color: '#888', fontSize: 12, marginTop: 8 },
-  proofSubtitle: { color: '#888', fontSize: 12, marginBottom: 8 },
-  refInput: { backgroundColor: '#16213e', color: '#eee', borderRadius: 8, padding: 14, fontSize: 15, borderWidth: 1, borderColor: '#0f3460' },
-  cameraBox: { backgroundColor: '#16213e', borderWidth: 2, borderStyle: 'dashed', borderColor: '#0f3460', borderRadius: 8, padding: 24, alignItems: 'center' },
-  cameraIcon: { fontSize: 28, marginBottom: 4 },
-  cameraText: { color: '#888', fontSize: 12 },
-  proofPhotoBox: { backgroundColor: '#16213e', borderRadius: 8, padding: 12, alignItems: 'center' },
-  proofPhotoPreview: { width: '100%', height: 200, borderRadius: 8, marginBottom: 8 },
-  proofRetake: { backgroundColor: '#0f3460', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6 },
-  proofRetakeText: { color: '#eee', fontSize: 12, fontWeight: 'bold' },
-  footer: { flexDirection: 'row', gap: 12, padding: 16, borderTopWidth: 1, borderTopColor: '#0f3460' },
-  backBtn: { backgroundColor: '#16213e', borderRadius: 8, padding: 14, alignItems: 'center', paddingHorizontal: 18 },
-  cancelBtn: { flex: 1, backgroundColor: '#16213e', borderRadius: 8, padding: 14, alignItems: 'center' },
-  cancelBtnText: { color: '#aaa', fontWeight: 'bold', fontSize: 15 },
-  confirmBtn: { flex: 2, backgroundColor: '#e94560', borderRadius: 8, padding: 14, alignItems: 'center' },
-  confirmBtnDisabled: { backgroundColor: '#555' },
-  confirmBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  qrFullAmount: { color: '#111', fontSize: F.xxl, fontWeight: '800', marginTop: 16 },
+  qrFullHint: { color: '#888', fontSize: F.sm, marginTop: 8 },
+
+  refInput: {
+    backgroundColor: C.surface,
+    color: C.textPrimary,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    fontSize: F.lg,
+    fontWeight: '500',
+  },
+  cameraBox: {
+    backgroundColor: C.surface,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: C.border,
+    borderRadius: R.md,
+    padding: 28,
+    alignItems: 'center',
+    gap: 8,
+  },
+  cameraIcon: { fontSize: 32 },
+  cameraText: { color: C.textSecondary, fontSize: F.md },
+  proofPhotoBox: { backgroundColor: C.surface, borderRadius: R.md, padding: 12, alignItems: 'center', gap: 10 },
+  proofPhotoPreview: { width: '100%', height: 220, borderRadius: R.sm },
+  proofRetake: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: R.sm,
+  },
+  proofRetakeText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+
+  footer: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: C.borderDark,
+    backgroundColor: C.surface,
+  },
+  backBtn: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    padding: 16,
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
+    padding: 16,
+    alignItems: 'center',
+  },
+  cancelBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  confirmBtn: {
+    flex: 2,
+    backgroundColor: C.pink,
+    borderRadius: R.sm,
+    padding: 16,
+    alignItems: 'center',
+  },
+  confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: F.lg },
 });

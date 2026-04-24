@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { Transaction } from '../db/transactions';
+import { C, F, R } from '../constants/theme';
 
 type Props = { transaction: Transaction; onPress: (t: Transaction) => void };
 
@@ -23,7 +24,7 @@ export function TransactionRow({ transaction, onPress }: Props) {
     >
       <View style={{ flex: 1 }}>
         <View style={styles.topRow}>
-          <Text style={styles.time}>{dateStr} {time}</Text>
+          <Text style={styles.time}>{dateStr} · {time}</Text>
           <View style={styles.methodBadge}>
             <Text style={styles.methodText}>{methodLabel}</Text>
           </View>
@@ -33,8 +34,8 @@ export function TransactionRow({ transaction, onPress }: Props) {
             </View>
           )}
         </View>
-        <Text style={styles.items}>
-          {transaction.items.map((i) => `${i.product_name} x${i.quantity}`).join(', ')}
+        <Text style={styles.items} numberOfLines={2}>
+          {transaction.items.map((i) => `${i.product_name} ×${i.quantity}`).join('  ·  ')}
         </Text>
       </View>
       <View style={styles.right}>
@@ -52,25 +53,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#16213e',
-    borderRadius: 8,
-    padding: 14,
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+    padding: 16,
     marginBottom: 8,
   },
-  voided: { opacity: 0.5 },
-  topRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  time: { color: '#aaa', fontSize: 11 },
+  voided: { opacity: 0.45 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  time: { color: C.textSecondary, fontSize: F.sm },
   methodBadge: {
-    backgroundColor: '#0f3460', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1,
+    backgroundColor: C.elevated,
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  methodText: { color: '#aaa', fontSize: 9, fontWeight: 'bold' },
-  items: { color: '#eee', fontSize: 12, marginTop: 2 },
-  right: { alignItems: 'flex-end' },
-  total: { color: '#e94560', fontSize: 16, fontWeight: 'bold' },
-  voidedText: { textDecorationLine: 'line-through', color: '#888' },
-  voidedLabel: { color: '#e94560', fontSize: 10, marginTop: 2 },
-  proofBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 },
-  proofBadgeGreen: { backgroundColor: '#0d7a3e' },
-  proofBadgeRed: { backgroundColor: '#e94560' },
-  proofBadgeText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
+  methodText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  items: { color: C.textPrimary, fontSize: F.md, lineHeight: 20 },
+  right: { alignItems: 'flex-end', paddingLeft: 12 },
+  total: { color: C.pink, fontSize: F.xl, fontWeight: '800' },
+  voidedText: { textDecorationLine: 'line-through', color: C.textMuted },
+  voidedLabel: { color: C.red, fontSize: F.xs, marginTop: 3, fontWeight: '700' },
+  proofBadge: { borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 },
+  proofBadgeGreen: { backgroundColor: C.greenSubtle },
+  proofBadgeRed: { backgroundColor: C.redSubtle },
+  proofBadgeText: { color: C.textPrimary, fontSize: F.xs, fontWeight: '700' },
 });

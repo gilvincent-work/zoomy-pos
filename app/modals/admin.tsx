@@ -9,6 +9,7 @@ import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
 import * as FileSystem from 'expo-file-system/legacy';
 import { copyToDocumentDir } from '../../utils/photos';
+import { C, F, R } from '../../constants/theme';
 
 type Step = 'verify' | 'new_pin' | 'settings';
 
@@ -205,47 +206,62 @@ export default function AdminModal() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: '#1a1a2e',
+    flex: 1, backgroundColor: C.bg,
     alignItems: 'center', justifyContent: 'center', padding: 24,
   },
-  title: { color: '#eee', fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
-  subtitle: { color: '#aaa', fontSize: 13, textAlign: 'center', marginBottom: 32 },
+  title: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
+  subtitle: { color: C.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
+
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 40 },
-  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#e94560' },
-  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0f3460' },
+  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.pink },
+  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+
   keypad: { width: '80%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   key: {
     width: '29%', aspectRatio: 1.4,
-    backgroundColor: '#16213e', borderRadius: 8,
+    backgroundColor: C.surface, borderRadius: R.sm,
     alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.borderDark,
   },
-  keyConfirm: { backgroundColor: '#e94560' },
-  keyText: { color: '#eee', fontSize: 20, fontWeight: 'bold' },
+  keyConfirm: { backgroundColor: C.pink, borderColor: C.pink },
+  keyText: { color: C.textPrimary, fontSize: F.xl, fontWeight: '700' },
   keyConfirmText: { color: '#fff' },
   cancelBtn: { marginTop: 32 },
-  cancelText: { color: '#888', fontSize: 14 },
+  cancelText: { color: C.textSecondary, fontSize: F.md },
+
   settingsScroll: { padding: 20, alignItems: 'stretch' },
   settingsRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#16213e', borderRadius: 8, padding: 14, marginBottom: 10,
+    backgroundColor: C.surface, borderRadius: R.md,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: C.borderDark,
   },
-  settingsRowTitle: { color: '#eee', fontSize: 14, fontWeight: 'bold' },
-  settingsRowSub: { color: '#888', fontSize: 11, marginTop: 2 },
-  settingsArrow: { color: '#888', fontSize: 18 },
-  sectionLabel: { color: '#aaa', fontSize: 10, fontWeight: 'bold', marginTop: 20, marginBottom: 8 },
-  qrBox: { backgroundColor: '#16213e', borderRadius: 8, padding: 20, alignItems: 'center' },
-  qrImage: { width: 180, height: 180, borderRadius: 8, marginBottom: 12 },
+  settingsRowTitle: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  settingsRowSub: { color: C.textSecondary, fontSize: F.sm, marginTop: 2 },
+  settingsArrow: { color: C.textSecondary, fontSize: F.xl },
+  sectionLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+
+  qrBox: {
+    backgroundColor: C.surface, borderRadius: R.md,
+    padding: 20, alignItems: 'center',
+    borderWidth: 1, borderColor: C.borderDark,
+  },
+  qrImage: { width: 180, height: 180, borderRadius: R.sm, marginBottom: 12 },
   qrBtns: { flexDirection: 'row', gap: 8 },
-  qrReplaceBtn: { backgroundColor: '#0f3460', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 },
-  qrRemoveBtn: { backgroundColor: '#c0392b', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 },
-  qrBtnText: { color: '#eee', fontSize: 12, fontWeight: 'bold' },
-  qrUploadArea: { alignItems: 'center', padding: 20 },
-  qrUploadIcon: { fontSize: 36, marginBottom: 8 },
-  qrUploadText: { color: '#eee', fontSize: 14, fontWeight: 'bold' },
-  qrUploadHint: { color: '#888', fontSize: 11, marginTop: 4 },
-  settingsDone: {
-    backgroundColor: '#e94560', borderRadius: 8, padding: 14,
-    alignItems: 'center', marginTop: 24,
+  qrReplaceBtn: {
+    backgroundColor: C.elevated, paddingVertical: 10, paddingHorizontal: 16, borderRadius: R.sm,
+    borderWidth: 1, borderColor: C.border,
   },
-  settingsDoneText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  qrRemoveBtn: { backgroundColor: C.red, paddingVertical: 10, paddingHorizontal: 16, borderRadius: R.sm },
+  qrBtnText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  qrUploadArea: { alignItems: 'center', padding: 20 },
+  qrUploadIcon: { fontSize: 40, marginBottom: 10 },
+  qrUploadText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qrUploadHint: { color: C.textSecondary, fontSize: F.sm, marginTop: 4 },
+
+  settingsDone: {
+    backgroundColor: C.pink, borderRadius: R.sm,
+    padding: 15, alignItems: 'center', marginTop: 24,
+  },
+  settingsDoneText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
+import { C } from '../constants/theme';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -13,15 +14,15 @@ export default function RootLayout() {
 
   if (!ready) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#e94560" size="large" />
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.pink} size="large" />
       </View>
     );
   }
 
   return (
     <CartProvider>
-      <Stack screenOptions={{ headerStyle: { backgroundColor: '#1a1a2e' }, headerTintColor: '#eee' }}>
+      <Stack screenOptions={{ headerStyle: { backgroundColor: C.bg }, headerTintColor: C.textPrimary }}>
         <Stack.Screen name="index" options={{ title: 'ZoomyPOS' }} />
         <Stack.Screen name="modals/payment" options={{ presentation: 'modal', title: 'Payment' }} />
         <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />

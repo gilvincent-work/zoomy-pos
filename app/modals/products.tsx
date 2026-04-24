@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllProducts, createProduct, updateProduct, Product } from '../../db/products';
+import { C, F, R } from '../../constants/theme';
 
 type FormState = { name: string; price: string; emoji: string };
 const EMPTY_FORM: FormState = { name: '', price: '', emoji: '🍬' };
@@ -67,7 +68,7 @@ export default function ProductsModal() {
             <TextInput
               style={styles.input}
               placeholder="Emoji"
-              placeholderTextColor="#666"
+              placeholderTextColor={C.textMuted}
               value={form.emoji}
               onChangeText={(v) => setForm((f) => ({ ...f, emoji: v }))}
               maxLength={2}
@@ -75,14 +76,14 @@ export default function ProductsModal() {
             <TextInput
               style={styles.input}
               placeholder="Product name"
-              placeholderTextColor="#666"
+              placeholderTextColor={C.textMuted}
               value={form.name}
               onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
             />
             <TextInput
               style={styles.input}
               placeholder="Price (e.g. 120)"
-              placeholderTextColor="#666"
+              placeholderTextColor={C.textMuted}
               value={form.price}
               onChangeText={(v) => setForm((f) => ({ ...f, price: v }))}
               keyboardType="decimal-pad"
@@ -120,7 +121,7 @@ export default function ProductsModal() {
                   <Switch
                     value={item.is_active === 1}
                     onValueChange={() => handleToggle(item)}
-                    trackColor={{ false: '#333', true: '#e94560' }}
+                    trackColor={{ false: C.borderDark, true: C.pink }}
                     thumbColor="#fff"
                   />
                 </View>
@@ -137,37 +138,43 @@ export default function ProductsModal() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
+  container: { flex: 1, backgroundColor: C.bg },
   list: { padding: 16 },
+
   addBtn: {
-    margin: 16, backgroundColor: '#e94560', borderRadius: 8,
-    padding: 14, alignItems: 'center',
+    margin: 16, backgroundColor: C.pink, borderRadius: R.sm,
+    padding: 15, alignItems: 'center',
   },
-  addBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
   productRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#16213e', borderRadius: 8, padding: 14, marginBottom: 8,
+    backgroundColor: C.surface, borderRadius: R.md,
+    padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: C.borderDark,
   },
-  productInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  productEmoji: { fontSize: 28 },
-  productName: { color: '#eee', fontSize: 14, fontWeight: 'bold' },
-  productPrice: { color: '#e94560', fontSize: 12, marginTop: 2 },
-  empty: { color: '#666', textAlign: 'center', marginTop: 40 },
+  productInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  productEmoji: { fontSize: 30 },
+  productName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  productPrice: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
+  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
+
   form: { padding: 20, gap: 12 },
-  formTitle: { color: '#eee', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
+  formTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 6 },
   input: {
-    backgroundColor: '#16213e', color: '#eee', borderRadius: 8,
-    padding: 14, fontSize: 15, borderWidth: 1, borderColor: '#0f3460',
+    backgroundColor: C.surface, color: C.textPrimary, borderRadius: R.sm,
+    padding: 14, fontSize: F.md, borderWidth: 1, borderColor: C.border,
   },
   formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: {
-    flex: 1, backgroundColor: '#16213e', borderRadius: 8,
+    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border,
   },
-  cancelText: { color: '#aaa', fontWeight: 'bold' },
+  cancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
   saveBtn: {
-    flex: 2, backgroundColor: '#e94560', borderRadius: 8,
+    flex: 2, backgroundColor: C.pink, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
-  saveBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  saveBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

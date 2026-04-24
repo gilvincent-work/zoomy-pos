@@ -16,6 +16,7 @@ const mockProduct = {
   name: 'Cake',
   price: 120,
   emoji: '🍰',
+  has_variants: 0,
   is_active: 1,
   created_at: '2026-04-19T10:00:00.000Z',
 };
@@ -32,34 +33,34 @@ describe('getActiveProducts', () => {
 });
 
 describe('getAllProducts', () => {
-  it('queries all products ordered by name', async () => {
-    mockDb.getAllAsync.mockResolvedValueOnce([mockProduct]);
+  it('queries all products with variant count ordered by name', async () => {
+    mockDb.getAllAsync.mockResolvedValueOnce([{ ...mockProduct, variant_count: 0 }]);
     const result = await getAllProducts();
     expect(mockDb.getAllAsync).toHaveBeenCalledWith(
-      'SELECT * FROM products ORDER BY name ASC'
+      expect.stringContaining('LEFT JOIN product_variants')
     );
-    expect(result).toEqual([mockProduct]);
+    expect(result).toEqual([{ ...mockProduct, variant_count: 0 }]);
   });
 });
 
 describe('createProduct', () => {
   it('inserts product and returns new id', async () => {
     mockDb.runAsync.mockResolvedValueOnce({ lastInsertRowId: 5, changes: 1 });
-    const id = await createProduct({ name: 'Cookie', price: 35, emoji: '🍪' });
+    const id = await createProduct({ name: 'Cookie', price: 35, has_variants: false });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'INSERT INTO products (name, price, emoji, is_active, created_at) VALUES (?, ?, ?, 1, ?)',
-      ['Cookie', 35, '🍪', expect.any(String)]
+      'INSERT INTO products (name, price, emoji, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
+      ['Cookie', 35, '🍬', 0, expect.any(String)]
     );
     expect(id).toBe(5);
   });
 });
 
 describe('updateProduct', () => {
-  it('updates name, price, emoji and is_active by id', async () => {
-    await updateProduct(1, { name: 'Big Cake', price: 150, emoji: '🎂', is_active: 0 });
+  it('updates name, price, has_variants and is_active by id', async () => {
+    await updateProduct(1, { name: 'Big Cake', price: 150, has_variants: false, is_active: 0 });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'UPDATE products SET name = ?, price = ?, emoji = ?, is_active = ? WHERE id = ?',
-      ['Big Cake', 150, '🎂', 0, 1]
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ? WHERE id = ?',
+      ['Big Cake', 150, 0, 0, 1]
     );
   });
 });

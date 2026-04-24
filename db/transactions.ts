@@ -7,6 +7,8 @@ export type TransactionItem = {
   product_name: string;
   price: number;
   quantity: number;
+  variant_id: number | null;
+  variant_name: string | null;
 };
 
 export type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
@@ -31,6 +33,8 @@ type InsertItem = {
   productName: string;
   price: number;
   quantity: number;
+  variantId?: number;
+  variantName?: string;
 };
 
 export async function insertTransaction(data: {
@@ -55,8 +59,8 @@ export async function insertTransaction(data: {
 
   for (const item of data.items) {
     await db.runAsync(
-      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity) VALUES (?, ?, ?, ?, ?)',
-      [transactionId, item.productId, item.productName, item.price, item.quantity]
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [transactionId, item.productId, item.productName, item.price, item.quantity, item.variantId ?? null, item.variantName ?? null]
     );
   }
 
@@ -92,6 +96,8 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     product_name: string | null;
     price: number | null;
     quantity: number | null;
+    variant_id: number | null;
+    variant_name: string | null;
   };
 
   const rows = await db.getAllAsync<Row>(
@@ -101,11 +107,10 @@ export async function getAllTransactions(): Promise<Transaction[]> {
             t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
             t.status AS t_status, t.created_at AS t_created,
             ti.id AS ti_id, ti.transaction_id, ti.product_id, ti.product_name,
-            ti.price, ti.quantity
+            ti.price, ti.quantity, ti.variant_id, ti.variant_name
      FROM transactions t
      LEFT JOIN transaction_items ti ON ti.transaction_id = t.id
-     ORDER BY t.created_at DESC`,
-    undefined
+     ORDER BY t.created_at DESC`
   );
 
   const map = new Map<number, Transaction>();
@@ -134,6 +139,8 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         product_name: row.product_name!,
         price: row.price!,
         quantity: row.quantity!,
+        variant_id: row.variant_id ?? null,
+        variant_name: row.variant_name ?? null,
       });
     }
   }

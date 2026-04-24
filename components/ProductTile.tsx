@@ -5,14 +5,15 @@ import { C, F, R } from '../constants/theme';
 type Props = {
   id: number;
   name: string;
-  emoji: string;
+  price?: number | null;
+  hasVariants?: boolean;
   badgeCount: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, emoji, badgeCount, onPress, onLongPress, onMinus }: Props) {
+export function ProductTile({ id, name, price, hasVariants, badgeCount, onPress, onLongPress, onMinus }: Props) {
   const active = badgeCount > 0;
   return (
     <TouchableOpacity
@@ -27,8 +28,10 @@ export function ProductTile({ id, name, emoji, badgeCount, onPress, onLongPress,
           <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
         </View>
       )}
-      <Text style={styles.emoji}>{emoji}</Text>
       <Text style={styles.name} numberOfLines={3}>{name}</Text>
+      {!hasVariants && price != null && (
+        <Text style={styles.price}>₱{price.toFixed(2)}</Text>
+      )}
       {active && onMinus && (
         <TouchableOpacity
           testID="minus-btn"
@@ -67,15 +70,14 @@ const styles = StyleSheet.create({
     top: 7,
     right: 7,
     backgroundColor: C.pink,
-    borderRadius: 10,
-    minWidth: 22,
-    height: 22,
+    borderRadius: 13,
+    minWidth: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  badgeText: { color: '#fff', fontSize: F.sm, fontWeight: '800' },
-  emoji: { fontSize: 34 },
+  badgeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
   name: {
     color: C.textPrimary,
     fontSize: F.sm,
@@ -83,6 +85,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     lineHeight: 17,
+  },
+  price: {
+    color: C.pink,
+    fontSize: F.sm,
+    fontWeight: '700',
+    marginTop: 4,
   },
   minusBtn: {
     position: 'absolute',

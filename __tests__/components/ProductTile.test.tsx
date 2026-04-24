@@ -5,17 +5,17 @@ import { ProductTile } from '../../components/ProductTile';
 const baseProps = {
   id: 1,
   name: 'Cake',
-  emoji: '🍰',
+  price: 120,
   badgeCount: 0,
   onPress: jest.fn(),
   onLongPress: jest.fn(),
 };
 
 describe('ProductTile', () => {
-  it('renders emoji and name', () => {
+  it('renders name and price', () => {
     const { getByText } = render(<ProductTile {...baseProps} />);
-    expect(getByText('🍰')).toBeTruthy();
     expect(getByText('Cake')).toBeTruthy();
+    expect(getByText('₱120.00')).toBeTruthy();
   });
 
   it('does not show badge when badgeCount is 0', () => {
@@ -43,5 +43,10 @@ describe('ProductTile', () => {
     );
     fireEvent(getByTestId('tile'), 'longPress');
     expect(onLongPress).toHaveBeenCalledWith(1);
+  });
+
+  it('hides price for variant products', () => {
+    const { queryByText } = render(<ProductTile {...baseProps} hasVariants />);
+    expect(queryByText('₱120.00')).toBeNull();
   });
 });

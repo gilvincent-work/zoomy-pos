@@ -1,6 +1,12 @@
 import { getDatabase } from './database';
 
-export type BundleItemInput = { id: number; name: string; quantity: number };
+export type BundleItemInput = {
+  id: number;
+  name: string;
+  quantity: number;
+  variantId?: number;
+  variantName?: string;
+};
 
 export type SavedBundle = {
   id: number;

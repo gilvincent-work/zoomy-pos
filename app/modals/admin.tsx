@@ -9,11 +9,12 @@ import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
 import * as FileSystem from 'expo-file-system/legacy';
 import { copyToDocumentDir } from '../../utils/photos';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 type Step = 'verify' | 'new_pin' | 'settings';
 
-const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
+const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'backspace', '0', 'confirm'];
 
 export default function AdminModal() {
   const { action, transactionId } = useLocalSearchParams<{
@@ -34,11 +35,11 @@ export default function AdminModal() {
   }, []);
 
   function handleKey(key: string) {
-    if (key === '⌫') {
+    if (key === 'backspace') {
       setCurrentPin((p) => p.slice(0, -1));
       return;
     }
-    if (key === '✓') {
+    if (key === 'confirm') {
       handleSubmit();
       return;
     }
@@ -116,7 +117,7 @@ export default function AdminModal() {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.settingsScroll}>
-          <Text style={styles.title}>⚙️ Admin Settings</Text>
+          <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={C.textPrimary} /> Admin Settings</Text>
           <Text style={styles.subtitle}>Manage PIN and payment settings</Text>
 
           <TouchableOpacity
@@ -138,16 +139,16 @@ export default function AdminModal() {
                 <Image source={{ uri: qrUri }} style={styles.qrImage} resizeMode="contain" />
                 <View style={styles.qrBtns}>
                   <TouchableOpacity style={styles.qrReplaceBtn} onPress={handlePickQr}>
-                    <Text style={styles.qrBtnText}>📷 Replace</Text>
+                    <Text style={styles.qrBtnText}><Ionicons name="camera-outline" size={F.sm} color={C.textPrimary} /> Replace</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.qrRemoveBtn} onPress={handleRemoveQr}>
-                    <Text style={styles.qrBtnText}>🗑 Remove</Text>
+                    <Text style={styles.qrBtnText}><Ionicons name="trash-outline" size={F.sm} color={C.textPrimary} /> Remove</Text>
                   </TouchableOpacity>
                 </View>
               </>
             ) : (
               <TouchableOpacity style={styles.qrUploadArea} onPress={handlePickQr}>
-                <Text style={styles.qrUploadIcon}>📱</Text>
+                <Ionicons name="phone-portrait-outline" size={40} color={C.textSecondary} style={{ marginBottom: 10 }} />
                 <Text style={styles.qrUploadText}>Tap to upload GCash QR</Text>
                 <Text style={styles.qrUploadHint}>Pick from photo library</Text>
               </TouchableOpacity>
@@ -172,7 +173,7 @@ export default function AdminModal() {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>
-        {step === 'verify' ? '🔐 Enter Admin PIN' : '🔐 Enter New PIN'}
+        <Ionicons name="lock-closed-outline" size={F.xl} color={C.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
       </Text>
       <Text style={styles.subtitle}>
         {step === 'verify' && action === 'void_transaction'
@@ -188,11 +189,17 @@ export default function AdminModal() {
         {PIN_KEYS.map((key) => (
           <TouchableOpacity
             key={key}
-            style={[styles.key, key === '✓' && styles.keyConfirm]}
+            style={[styles.key, key === 'confirm' && styles.keyConfirm]}
             onPress={() => handleKey(key)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.keyText, key === '✓' && styles.keyConfirmText]}>{key}</Text>
+            {key === 'backspace' ? (
+              <Ionicons name="backspace-outline" size={F.xl} color={C.textPrimary} />
+            ) : key === 'confirm' ? (
+              <Ionicons name="checkmark" size={F.xl} color="#fff" />
+            ) : (
+              <Text style={styles.keyText}>{key}</Text>
+            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -255,7 +262,7 @@ const styles = StyleSheet.create({
   qrRemoveBtn: { backgroundColor: C.red, paddingVertical: 10, paddingHorizontal: 16, borderRadius: R.sm },
   qrBtnText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
   qrUploadArea: { alignItems: 'center', padding: 20 },
-  qrUploadIcon: { fontSize: 40, marginBottom: 10 },
+  qrUploadIcon: {},
   qrUploadText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
   qrUploadHint: { color: C.textSecondary, fontSize: F.sm, marginTop: 4 },
 

@@ -43,6 +43,9 @@ export function TransactionRow({ transaction, onPress }: Props) {
         <Text style={styles.items} numberOfLines={2}>
           {transaction.items.map((i) => `${i.product_name} ×${i.quantity}`).join('  ·  ')}
         </Text>
+        {transaction.remarks && (
+          <Text style={styles.remarks} numberOfLines={1} ellipsizeMode="tail">{transaction.remarks}</Text>
+        )}
       </View>
       <View style={styles.right}>
         <Text style={[styles.total, isVoided && styles.voidedText]}>
@@ -79,6 +82,7 @@ const styles = StyleSheet.create({
   },
   methodText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
   items: { color: C.textPrimary, fontSize: F.md, lineHeight: 20 },
+  remarks: { color: C.textMuted, fontSize: F.xs, marginTop: 3 },
   right: { alignItems: 'flex-end', paddingLeft: 12 },
   total: { color: C.pink, fontSize: F.xl, fontWeight: '800' },
   voidedText: { textDecorationLine: 'line-through', color: C.textMuted },

@@ -11,9 +11,9 @@ ZoomyPOS works like a regular app on your phone — no App Store needed. Just fo
 1. Open **Google Chrome** on your phone
 2. Go to: **zoomy-pos.vercel.app**
 3. Wait for the page to fully load
-4. Tap the **three-dot menu ( ⋮ )** in the top-right corner
-5. Tap **"Add to Home screen"** or **"Install app"**
-6. Tap **"Install"** on the pop-up
+4. Tap the **Share button** beside the URL
+5. Tap **"View More"**
+6. Tap **"Add to Home Screen"**
 7. The app will appear on your home screen — open it from there from now on
 
 ---
@@ -23,10 +23,11 @@ ZoomyPOS works like a regular app on your phone — no App Store needed. Just fo
 1. Open **Safari** on your iPhone
 2. Go to: **zoomy-pos.vercel.app**
 3. Wait for the page to fully load
-4. Tap the **Share button** at the bottom of the screen (the box with an arrow pointing up)
-5. Scroll down the menu and tap **"Add to Home Screen"**
-6. Tap **"Add"** in the top-right corner
-7. The app will appear on your home screen — open it from there from now on
+4. Tap the **three dots ( ⋯ )** beside the URL
+5. Tap **"Share"**
+6. Tap **"View More"**
+7. Tap **"Add to Home Screen"**
+8. The app will appear on your home screen — open it from there from now on
 
 ---
 

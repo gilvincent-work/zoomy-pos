@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput,
-  StyleSheet, SafeAreaView, Alert, Modal,
+  StyleSheet, SafeAreaView, Alert, Modal, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -208,7 +208,11 @@ export default function BundleModal() {
 
           return (
             <View style={styles.itemRow}>
-              <Text style={styles.emoji}>{item.emoji}</Text>
+              {item.image_uri ? (
+                <Image source={{ uri: item.image_uri }} style={styles.itemThumb} resizeMode="cover" />
+              ) : (
+                <Text style={styles.emoji}>{item.emoji}</Text>
+              )}
               <Text style={styles.itemName}>{item.name}</Text>
               {renderStepper(`p_${item.id}`, () => incrementProduct(item.id), () => decrementProduct(item.id))}
             </View>
@@ -340,6 +344,7 @@ const styles = StyleSheet.create({
     borderColor: C.borderDark,
   },
   emoji: { fontSize: 22, marginRight: 12 },
+  itemThumb: { width: 36, height: 36, borderRadius: 6, marginRight: 12 },
   itemName: { flex: 1, color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
 
   variantGroup: {

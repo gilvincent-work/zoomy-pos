@@ -44,7 +44,26 @@ export default function ProductsModal() {
 
   // ─── Image picker ─────────────────────────────────────────────────────────
 
-  async function pickImage() {
+  function pickImage() {
+    if (Platform.OS === 'web') {
+      // On iOS PWA, Alert callbacks are async and lose the user-gesture context,
+      // blocking programmatic input.click(). Trigger the file input directly here
+      // so the click happens in the same synchronous user-gesture stack.
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (file) {
+          const uri = URL.createObjectURL(file);
+          const saved = await copyToDocumentDir(uri, `product_${Date.now()}.jpg`);
+          setProductForm((f) => ({ ...f, imageUri: saved }));
+        }
+      };
+      input.click();
+      return;
+    }
+
     Alert.alert('Product Photo', 'Choose a source', [
       {
         text: 'Take Photo',

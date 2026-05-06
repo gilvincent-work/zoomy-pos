@@ -45,7 +45,8 @@ export default function PaymentModal() {
   const change = tendered - total;
   const hasCartContent = items.length > 0 || bundles.length > 0;
 
-  const activeQrUri: string | null = method !== 'cash' ? (qrUris[method as QrMethod] ?? null) : null;
+  const activeQrUri: string | null =
+    (method === 'gcash' || method === 'maya' || method === 'bpi') ? (qrUris[method] ?? null) : null;
 
   const dynamicMethods: { key: PaymentMethod; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
     { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
@@ -56,6 +57,7 @@ export default function PaymentModal() {
         label: qrMethodLabel(m),
         iconName: 'phone-portrait-outline' as const,
       })),
+    { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
   ];
 
   const canConfirmCash = tendered >= total && hasCartContent;
@@ -157,6 +159,7 @@ export default function PaymentModal() {
     const methodLabel = confirmed.method === 'gcash' ? 'GCash'
       : confirmed.method === 'maya' ? 'Maya'
       : confirmed.method === 'bpi' ? 'BPI'
+      : confirmed.method === 'bank_transfer' ? 'Bank Transfer'
       : 'Cash';
     const isMixed = confirmed.bundles.length > 0 && confirmed.items.length > 0;
     return (
@@ -381,7 +384,13 @@ export default function PaymentModal() {
           {renderOrderSummary()}
           {renderMethodSelector()}
 
-          {activeQrUri ? (
+          {method === 'bank_transfer' ? (
+            <View style={styles.digitalBox}>
+              <Ionicons name="business-outline" size={40} color={C.textSecondary} />
+              <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
+              <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
+            </View>
+          ) : activeQrUri ? (
             <View style={styles.qrSection}>
               <Text style={styles.sectionLabel}>SCAN TO PAY</Text>
               <View style={styles.qrBox}>

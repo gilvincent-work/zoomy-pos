@@ -13,6 +13,7 @@ export function TransactionRow({ transaction, onPress }: Props) {
   const methodLabel = transaction.payment_method === 'gcash' ? 'GCash'
     : transaction.payment_method === 'maya' ? 'Maya'
     : transaction.payment_method === 'bpi' ? 'BPI'
+    : transaction.payment_method === 'bank_transfer' ? 'Bank'
     : 'Cash';
   const hasProof = !!transaction.ref_number || !!transaction.proof_photo_uri;
   const isDigital = transaction.payment_method !== 'cash';

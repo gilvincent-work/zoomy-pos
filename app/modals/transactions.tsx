@@ -49,6 +49,7 @@ const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeo
   { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
   { key: 'maya', label: 'Maya', iconName: 'phone-portrait-outline' },
   { key: 'bpi', label: 'BPI', iconName: 'business-outline' },
+  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
 ];
 
 function getMethodDisplayName(method: PaymentMethod): string {
@@ -56,6 +57,7 @@ function getMethodDisplayName(method: PaymentMethod): string {
     case 'gcash': return 'GCash';
     case 'maya': return 'Maya';
     case 'bpi': return 'BPI';
+    case 'bank_transfer': return 'Bank Transfer';
     default: return 'Cash';
   }
 }

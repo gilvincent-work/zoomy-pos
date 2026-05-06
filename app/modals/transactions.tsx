@@ -301,6 +301,16 @@ export default function TransactionsModal() {
                   </>
                 )}
 
+                {selected.remarks && (
+                  <>
+                    <View style={styles.divider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Remarks</Text>
+                      <Text style={[styles.summaryValue, { flex: 1, textAlign: 'right' }]}>{selected.remarks}</Text>
+                    </View>
+                  </>
+                )}
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>

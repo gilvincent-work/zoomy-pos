@@ -39,7 +39,7 @@ export default function BundleModal() {
 
   const totalSelected = Object.values(quantities).reduce((s, q) => s + q, 0);
   const parsedPrice = parseFloat(price);
-  const canConfirm = totalSelected > 0 && parsedPrice > 0;
+  const canConfirm = totalSelected > 0 && parsedPrice >= 0;
 
   const incrementProduct = (id: number) =>
     setQuantities((prev) => {

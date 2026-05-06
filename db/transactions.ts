@@ -69,6 +69,11 @@ export async function insertTransaction(data: {
   return transactionId;
 }
 
+export async function updateTransactionRemarks(id: number, remarks: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE transactions SET remarks = ? WHERE id = ?', [remarks, id]);
+}
+
 export async function voidTransaction(id: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(

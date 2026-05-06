@@ -1,11 +1,11 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, Modal, Image, ScrollView, Dimensions, Alert,
+  SafeAreaView, Modal, Image, ScrollView, Dimensions, Alert, TextInput,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
-import { getAllTransactions, Transaction, PaymentMethod } from '../../db/transactions';
+import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
@@ -108,6 +108,8 @@ export default function TransactionsModal() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('all');
   const [photoView, setPhotoView] = useState<string | null>(null);
+  const [remarksModalVisible, setRemarksModalVisible] = useState(false);
+  const [remarksInput, setRemarksInput] = useState('');
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
@@ -141,6 +143,22 @@ export default function TransactionsModal() {
     } catch {
       Alert.alert('Export failed', 'Could not export transactions. Please try again.');
     }
+  }
+
+  function openRemarksModal() {
+    if (!selected) return;
+    setRemarksInput(selected.remarks ?? '');
+    setRemarksModalVisible(true);
+  }
+
+  async function handleSaveRemarks() {
+    if (!selected) return;
+    const trimmed = remarksInput.trim() || null;
+    await updateTransactionRemarks(selected.id, trimmed);
+    const updated = { ...selected, remarks: trimmed };
+    setSelected(updated);
+    setTransactions((prev) => prev.map((t) => t.id === selected.id ? updated : t));
+    setRemarksModalVisible(false);
   }
 
   function handleVoid() {
@@ -315,9 +333,12 @@ export default function TransactionsModal() {
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
+                    <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
+                  </TouchableOpacity>
                   {selected.status === 'completed' && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
-                      <Text style={styles.voidBtnText}>Void Transaction</Text>
+                      <Text style={styles.voidBtnText}>Void</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -326,6 +347,37 @@ export default function TransactionsModal() {
           </View>
         </View>
         <PhotoViewer uri={photoView} onClose={() => setPhotoView(null)} />
+
+        <Modal
+          visible={remarksModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setRemarksModalVisible(false)}
+        >
+          <View style={styles.remarksOverlay}>
+            <View style={styles.remarksSheet}>
+              <Text style={styles.remarksTitle}>Remarks</Text>
+              <TextInput
+                style={styles.remarksInput}
+                placeholder="e.g. free item given"
+                placeholderTextColor={C.textMuted}
+                value={remarksInput}
+                onChangeText={setRemarksInput}
+                multiline
+                autoFocus
+                autoCapitalize="sentences"
+              />
+              <View style={styles.remarksBtnsRow}>
+                <TouchableOpacity style={styles.remarksCancelBtn} onPress={() => setRemarksModalVisible(false)}>
+                  <Text style={styles.remarksCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.remarksSaveBtn} onPress={handleSaveRemarks}>
+                  <Text style={styles.remarksSaveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </Modal>
     </SafeAreaView>
   );
@@ -423,11 +475,47 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   closeBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  remarksBtn: {
+    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border,
+  },
+  remarksBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
   voidBtn: {
-    flex: 2, backgroundColor: C.red, borderRadius: R.sm,
+    flex: 1, backgroundColor: C.red, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  remarksOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  remarksSheet: {
+    backgroundColor: C.surface, borderRadius: R.lg,
+    padding: 20, width: '100%',
+    borderWidth: 1, borderColor: C.borderDark,
+  },
+  remarksTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 14 },
+  remarksInput: {
+    backgroundColor: C.elevated, borderRadius: R.sm,
+    borderWidth: 1, borderColor: C.borderDark,
+    padding: 12, color: C.textPrimary, fontSize: F.md,
+    minHeight: 80, textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  remarksBtnsRow: { flexDirection: 'row', gap: 10 },
+  remarksCancelBtn: {
+    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
+    padding: 13, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border,
+  },
+  remarksCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  remarksSaveBtn: {
+    flex: 2, backgroundColor: C.pink, borderRadius: R.sm,
+    padding: 13, alignItems: 'center',
+  },
+  remarksSaveText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 
   proofLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
   proofRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },

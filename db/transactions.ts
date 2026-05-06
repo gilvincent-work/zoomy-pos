@@ -11,7 +11,7 @@ export type TransactionItem = {
   variant_name: string | null;
 };
 
-export type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
+export type PaymentMethod = 'cash' | 'gcash' | 'maya' | 'bpi';
 
 export type Transaction = {
   id: number;

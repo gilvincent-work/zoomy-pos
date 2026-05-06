@@ -122,4 +122,10 @@ export async function initSchema(): Promise<void> {
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]
   );
+
+  // Migrate legacy single GCash QR to new per-method key
+  await db.runAsync(
+    `INSERT OR IGNORE INTO settings (key, value)
+     SELECT 'qr_gcash', value FROM settings WHERE key = 'gcash_qr_uri'`
+  ).catch(() => {});
 }

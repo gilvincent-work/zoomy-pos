@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, Text, View, StyleSheet, Image } from 'react-native';
 import { C, F, R } from '../constants/theme';
 
 type Props = {
@@ -7,13 +7,14 @@ type Props = {
   name: string;
   price?: number | null;
   hasVariants?: boolean;
+  imageUri?: string | null;
   badgeCount: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, price, hasVariants, badgeCount, onPress, onLongPress, onMinus }: Props) {
+export function ProductTile({ id, name, price, hasVariants, imageUri, badgeCount, onPress, onLongPress, onMinus }: Props) {
   const active = badgeCount > 0;
   return (
     <TouchableOpacity
@@ -28,9 +29,23 @@ export function ProductTile({ id, name, price, hasVariants, badgeCount, onPress,
           <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
         </View>
       )}
-      <Text style={styles.name} numberOfLines={3}>{name}</Text>
-      {!hasVariants && price != null && (
-        <Text style={styles.price}>₱{price.toFixed(2)}</Text>
+      {imageUri ? (
+        <>
+          <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
+          <View style={styles.textArea}>
+            <Text style={styles.name} numberOfLines={2}>{name}</Text>
+            {!hasVariants && price != null && (
+              <Text style={styles.price}>₱{price.toFixed(2)}</Text>
+            )}
+          </View>
+        </>
+      ) : (
+        <View style={styles.noImageContent}>
+          <Text style={styles.name} numberOfLines={3}>{name}</Text>
+          {!hasVariants && price != null && (
+            <Text style={styles.price}>₱{price.toFixed(2)}</Text>
+          )}
+        </View>
       )}
       {active && onMinus && (
         <TouchableOpacity
@@ -54,16 +69,33 @@ const styles = StyleSheet.create({
   tile: {
     backgroundColor: C.surface,
     borderRadius: R.md,
-    padding: 10,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    aspectRatio: 0.9,
+    aspectRatio: 0.65,
     borderWidth: 1.5,
     borderColor: C.borderDark,
   },
   tileActive: {
     borderColor: C.pink,
     backgroundColor: C.pinkSubtle,
+  },
+  photo: {
+    width: '100%',
+    flex: 3,
+  },
+  textArea: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingBottom: 4,
+  },
+  noImageContent: {
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badge: {
     position: 'absolute',

@@ -5,6 +5,7 @@ export type Product = {
   name: string;
   price: number | null;
   emoji: string;
+  image_uri: string | null;
   has_variants: number;
   is_active: number;
   created_at: string;
@@ -59,13 +60,14 @@ export async function createProduct(input: {
   name: string;
   price: number | null;
   has_variants: boolean;
+  image_uri?: string | null;
   variants?: { name: string; price: number }[];
 }): Promise<number> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, '🍬', input.has_variants ? 1 : 0, now]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, now]
   );
   const productId = result.lastInsertRowId;
 
@@ -88,13 +90,14 @@ export async function updateProduct(
     price: number | null;
     has_variants: boolean;
     is_active: number;
+    image_uri?: string | null;
     variants?: { id?: number; name: string; price: number }[];
   }
 ): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ? WHERE id = ?',
-    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, id]
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ? WHERE id = ?',
+    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, id]
   );
 
   if (fields.has_variants && fields.variants) {

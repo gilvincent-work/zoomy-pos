@@ -32,6 +32,7 @@ type ConfirmedSummary = {
   customerHandle: string;
   refNumber: string;
   isBundle: boolean;
+  remarks: string;
 };
 
 export default function PaymentModal() {
@@ -44,6 +45,7 @@ export default function PaymentModal() {
   const [refNumber, setRefNumber] = useState('');
   const [proofPhotoUri, setProofPhotoUri] = useState<string | null>(null);
   const [customerHandle, setCustomerHandle] = useState('');
+  const [remarks, setRemarks] = useState('');
   const [confirmed, setConfirmed] = useState<ConfirmedSummary | null>(null);
 
   const isCash = method === 'cash';
@@ -125,6 +127,7 @@ export default function PaymentModal() {
         customerHandle: customerHandle.trim(),
         refNumber: refNumber.trim(),
         isBundle,
+        remarks: remarks.trim(),
       };
       await insertTransaction({
         total,
@@ -135,6 +138,7 @@ export default function PaymentModal() {
         proofPhotoUri: proofPhotoUri || undefined,
         customerHandle: customerHandle.trim() || undefined,
         isBundle,
+        remarks: remarks.trim() || undefined,
         items: itemsForInsert,
       });
       clearCart();
@@ -223,6 +227,12 @@ export default function PaymentModal() {
               <View style={styles.confirmRow}>
                 <Text style={styles.confirmMeta}>Furbaby / IG</Text>
                 <Text style={[styles.confirmMetaValue, { color: C.pink }]}>{confirmed.customerHandle}</Text>
+              </View>
+            ) : null}
+            {confirmed.remarks ? (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmMeta}>Remarks</Text>
+                <Text style={[styles.confirmMetaValue, { flex: 1, textAlign: 'right' }]}>{confirmed.remarks}</Text>
               </View>
             ) : null}
 
@@ -480,6 +490,17 @@ export default function PaymentModal() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+
+          <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>REMARKS <Text style={styles.optionalTag}>optional</Text></Text>
+          <TextInput
+            style={[styles.handleInput, { minHeight: 44 }]}
+            placeholder="e.g. free item given"
+            placeholderTextColor={C.textMuted}
+            value={remarks}
+            onChangeText={setRemarks}
+            multiline
+            autoCapitalize="sentences"
+          />
         </ScrollView>
 
         <View style={styles.footer}>
@@ -546,6 +567,17 @@ export default function PaymentModal() {
           onChangeText={setCustomerHandle}
           autoCapitalize="none"
           autoCorrect={false}
+        />
+
+        <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>REMARKS <Text style={styles.optionalTag}>optional</Text></Text>
+        <TextInput
+          style={[styles.handleInput, { minHeight: 44 }]}
+          placeholder="e.g. free item given"
+          placeholderTextColor={C.textMuted}
+          value={remarks}
+          onChangeText={setRemarks}
+          multiline
+          autoCapitalize="sentences"
         />
       </ScrollView>
 

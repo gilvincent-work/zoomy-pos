@@ -11,6 +11,8 @@ export function TransactionRow({ transaction, onPress }: Props) {
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isVoided = transaction.status === 'voided';
   const methodLabel = transaction.payment_method === 'gcash' ? 'GCash'
+    : transaction.payment_method === 'maya' ? 'Maya'
+    : transaction.payment_method === 'bpi' ? 'BPI'
     : transaction.payment_method === 'bank_transfer' ? 'Bank'
     : 'Cash';
   const hasProof = !!transaction.ref_number || !!transaction.proof_photo_uri;

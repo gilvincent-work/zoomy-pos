@@ -23,7 +23,7 @@ function formatItems(transaction: Transaction): string {
 }
 
 function formatPaymentMethod(method: string, refNumber: string | null, isBundle: boolean): string {
-  const label = method === 'gcash' ? 'GCash' : method === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
+  const label = method === 'gcash' ? 'GCash' : method === 'maya' ? 'Maya' : method === 'bpi' ? 'BPI' : method === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
   const withRef = refNumber ? `${label} (${refNumber})` : label;
   return isBundle ? `${withRef} · Bundle` : withRef;
 }

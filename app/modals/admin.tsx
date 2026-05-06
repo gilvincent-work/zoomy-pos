@@ -123,7 +123,7 @@ export default function AdminModal() {
   if (step === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.settingsScroll}>
+        <ScrollView style={styles.settingsScrollView} contentContainerStyle={styles.settingsScroll}>
           <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={C.textPrimary} /> Admin Settings</Text>
           <Text style={styles.subtitle}>Manage PIN and payment settings</Text>
 
@@ -173,7 +173,7 @@ export default function AdminModal() {
             );
           })}
 
-          <TouchableOpacity onPress={() => router.dismiss()} style={styles.settingsDone}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.settingsDone}>
             <Text style={styles.settingsDoneText}>Done</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -254,6 +254,7 @@ const styles = StyleSheet.create({
   cancelBtn: { marginTop: 32 },
   cancelText: { color: C.textSecondary, fontSize: F.md },
 
+  settingsScrollView: { flex: 1, alignSelf: 'stretch' },
   settingsScroll: { padding: 20, alignItems: 'stretch' },
   settingsRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

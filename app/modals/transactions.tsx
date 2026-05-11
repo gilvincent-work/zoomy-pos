@@ -7,6 +7,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
+import { importTransactionsZip } from '../../utils/import-csv';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
@@ -114,6 +115,7 @@ export default function TransactionsModal() {
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
@@ -146,6 +148,38 @@ export default function TransactionsModal() {
       await exportTransactionsZip(filtered, label);
     } catch {
       Alert.alert('Export failed', 'Could not export transactions. Please try again.');
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const { imported, skipped, failed, photosMissing } = await importTransactionsZip();
+
+      if (imported === 0 && skipped === 0 && failed === 0) {
+        // User cancelled picker — do nothing
+        return;
+      }
+
+      const all = await getAllTransactions();
+      setTransactions(all);
+
+      const parts: string[] = [];
+      if (imported > 0) parts.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
+      if (skipped > 0) parts.push(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+      if (failed > 0) parts.push(`${failed} row${failed !== 1 ? 's' : ''} failed`);
+      if (photosMissing > 0) parts.push(`${photosMissing} photo${photosMissing !== 1 ? 's' : ''} missing`);
+
+      if (imported === 0 && skipped > 0) {
+        Alert.alert('Nothing new', 'All transactions already exist.');
+      } else {
+        Alert.alert('Import complete', parts.join(', ') + '.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not import file. Please try again.';
+      Alert.alert('Import failed', message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -210,9 +244,18 @@ export default function TransactionsModal() {
           <Text style={styles.summaryCount}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</Text>
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
-        <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-          <Text style={styles.exportBtnText}><Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export</Text>
-        </TouchableOpacity>
+        <View style={styles.summaryActions}>
+          <TouchableOpacity style={styles.exportBtn} onPress={handleImport} disabled={importing}>
+            <Text style={styles.exportBtnText}>
+              <Ionicons name="arrow-down" size={F.xs} color={C.textSecondary} /> {importing ? 'Importing…' : 'Import'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
+            <Text style={styles.exportBtnText}>
+              <Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -422,6 +465,7 @@ const styles = StyleSheet.create({
   summaryLeft: { gap: 1 },
   summaryCount: { color: C.textSecondary, fontSize: F.sm },
   summaryTotal: { color: C.pink, fontSize: F.sm, fontWeight: '700' },
+  summaryActions: { flexDirection: 'row', gap: 8 },
   exportBtn: {
     backgroundColor: C.elevated,
     borderWidth: 1,

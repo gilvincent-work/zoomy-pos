@@ -1,22 +1,24 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
+  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, ProductVariant, getAllVariantsByProductId } from '../../db/products';
 import {
   getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
 } from '../../db/saved-bundles';
+import { copyToDocumentDir } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 type VariantFormRow = { id?: number; name: string; price: string };
-type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[] };
+type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[]; imageUri: string | null };
 type BundleForm = { name: string; price: string };
 type FormMode = 'product' | 'bundle';
 
-const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, variants: [] };
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, variants: [], imageUri: null };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
@@ -38,6 +40,58 @@ export default function ProductsModal() {
     const [p, b] = await Promise.all([getAllProducts(), getAllSavedBundles()]);
     setProducts(p);
     setBundles(b);
+  }
+
+  // ─── Image picker ─────────────────────────────────────────────────────────
+
+  function pickImage() {
+    if (Platform.OS === 'web') {
+      // On iOS PWA, Alert callbacks are async and lose the user-gesture context,
+      // blocking programmatic input.click(). Trigger the file input directly here
+      // so the click happens in the same synchronous user-gesture stack.
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (file) {
+          const uri = URL.createObjectURL(file);
+          const saved = await copyToDocumentDir(uri, `product_${Date.now()}.jpg`);
+          setProductForm((f) => ({ ...f, imageUri: saved }));
+        }
+      };
+      input.click();
+      return;
+    }
+
+    Alert.alert('Product Photo', 'Choose a source', [
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission needed', 'Camera access is required to take photos.');
+            return;
+          }
+          const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+          if (!result.canceled && result.assets[0]) {
+            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
+            setProductForm((f) => ({ ...f, imageUri: saved }));
+          }
+        },
+      },
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.7 });
+          if (!result.canceled && result.assets[0]) {
+            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
+            setProductForm((f) => ({ ...f, imageUri: saved }));
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   // ─── Product actions ──────────────────────────────────────────────────────
@@ -72,6 +126,7 @@ export default function ProductsModal() {
           price: null,
           has_variants: true,
           is_active: existing.is_active,
+          image_uri: productForm.imageUri,
           variants: parsedVariants,
         });
       } else {
@@ -79,6 +134,7 @@ export default function ProductsModal() {
           name,
           price: null,
           has_variants: true,
+          image_uri: productForm.imageUri,
           variants: parsedVariants,
         });
       }
@@ -95,9 +151,10 @@ export default function ProductsModal() {
           price,
           has_variants: false,
           is_active: existing.is_active,
+          image_uri: productForm.imageUri,
         });
       } else {
-        await createProduct({ name, price, has_variants: false });
+        await createProduct({ name, price, has_variants: false, image_uri: productForm.imageUri });
       }
     }
 
@@ -130,6 +187,7 @@ export default function ProductsModal() {
       price: product.price != null ? String(product.price) : '',
       hasVariants: product.has_variants === 1,
       variants,
+      imageUri: product.image_uri ?? null,
     });
     setEditingId(product.id);
     setFormMode('product');
@@ -203,6 +261,27 @@ export default function ProductsModal() {
             <Text style={styles.formTitle}>
               {isBundle ? 'Edit Bundle Preset' : (editingId ? 'Edit Product' : 'New Product')}
             </Text>
+
+            {!isBundle && (
+              <View style={styles.imagePickerRow}>
+                {productForm.imageUri ? (
+                  <View style={styles.imagePreviewWrap}>
+                    <Image source={{ uri: productForm.imageUri }} style={styles.imagePreview} resizeMode="cover" />
+                    <TouchableOpacity
+                      style={styles.imageRemoveBtn}
+                      onPress={() => setProductForm((f) => ({ ...f, imageUri: null }))}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
+                    <Ionicons name="camera-outline" size={22} color={C.pink} />
+                    <Text style={styles.imagePickerText}>Add Photo</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
 
             <TextInput
               style={styles.input}
@@ -510,6 +589,34 @@ const styles = StyleSheet.create({
     color: C.pink,
     fontWeight: '700',
     fontSize: F.md,
+  },
+
+  imagePickerRow: { alignItems: 'flex-start' },
+  imagePickerBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: C.pink,
+    borderRadius: R.sm,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    width: 90,
+    height: 90,
+  },
+  imagePickerText: { color: C.pink, fontWeight: '700', fontSize: F.xs },
+  imagePreviewWrap: { width: 90, height: 90, borderRadius: R.sm, overflow: 'hidden' },
+  imagePreview: { width: '100%', height: '100%' },
+  imageRemoveBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   form: { padding: 20, gap: 12 },

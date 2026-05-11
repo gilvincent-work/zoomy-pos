@@ -1,4 +1,3 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import { getDatabase } from './database';
 
 export async function getAdminHash(): Promise<string | null> {
@@ -33,20 +32,7 @@ export async function getQrUri(method: QrMethod): Promise<string | null> {
     'SELECT value FROM settings WHERE key = ?',
     [`qr_${method}`]
   );
-  if (!row?.value) return null;
-  if (row.value.startsWith('data:')) return row.value;
-
-  let filename = row.value;
-  if (filename.includes('/')) filename = filename.split('/').pop()!;
-
-  try {
-    const fullUri = `${FileSystem.documentDirectory}${filename}`;
-    const info = await FileSystem.getInfoAsync(fullUri);
-    if (!info.exists) return null;
-    return fullUri;
-  } catch {
-    return null;
-  }
+  return row?.value ?? null;
 }
 
 export async function setQrUri(method: QrMethod, uri: string): Promise<void> {

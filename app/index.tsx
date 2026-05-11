@@ -260,6 +260,7 @@ export default function POSScreen() {
               name={item.name}
               price={item.price}
               hasVariants={item.has_variants === 1}
+              imageUri={item.image_uri ?? null}
               badgeCount={getBadge(item.id)}
               onPress={() => handleProductPress(item)}
               onLongPress={() => removeItem(item.id)}

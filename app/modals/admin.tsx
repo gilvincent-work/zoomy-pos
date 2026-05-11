@@ -7,7 +7,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 import { sha256 } from '../../utils/hash';
-import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
+import {
+  getAdminHash, setAdminHash, getAllQrUris,
+  setQrUri, removeQrUri, QrMethod, QrUris, qrMethodLabel,
+} from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 import { exportProductsCsv } from '../../utils/export-products-csv';
@@ -28,13 +31,13 @@ export default function AdminModal() {
   const [step, setStep] = useState<Step>('verify');
   const [pin, setPin] = useState('');
   const [newPin, setNewPin] = useState('');
-  const [qrUri, setQrUri] = useState<string | null>(null);
+  const [qrUris, setQrUris] = useState<QrUris>({ gcash: null, maya: null, bpi: null });
 
   const currentPin = step === 'verify' ? pin : newPin;
   const setCurrentPin = step === 'verify' ? setPin : setNewPin;
 
   useEffect(() => {
-    getGcashQrUri().then(setQrUri);
+    getAllQrUris().then(setQrUris);
   }, []);
 
   function handleKey(key: string) {
@@ -86,21 +89,22 @@ export default function AdminModal() {
     }
   }
 
-  async function handlePickQr() {
+  async function handlePickQr(method: QrMethod) {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
       base64: true,
     });
     if (result.canceled) return;
-    if (qrUri && !qrUri.startsWith('data:') && Platform.OS !== 'web') {
+    const oldUri = qrUris[method];
+    if (oldUri && !oldUri.startsWith('data:') && Platform.OS !== 'web') {
       const FileSystem = await import('expo-file-system/legacy');
-      await FileSystem.deleteAsync(qrUri).catch(() => {});
+      await FileSystem.deleteAsync(oldUri).catch(() => {});
     }
     const asset = result.assets[0];
     const dataUri = `data:image/jpeg;base64,${asset.base64}`;
-    await setGcashQrUri(dataUri);
-    setQrUri(dataUri);
+    await setQrUri(method, dataUri);
+    setQrUris((prev) => ({ ...prev, [method]: dataUri }));
   }
 
   function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
@@ -164,17 +168,18 @@ export default function AdminModal() {
     }
   }
 
-  async function handleRemoveQr() {
-    Alert.alert('Remove QR?', 'This will remove your GCash QR code.', [
+  async function handleRemoveQr(method: QrMethod) {
+    Alert.alert('Remove QR?', `This will remove your ${qrMethodLabel(method)} QR code.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
-          if (qrUri && !qrUri.startsWith('data:') && Platform.OS !== 'web') {
+          const oldUri = qrUris[method];
+          if (oldUri && !oldUri.startsWith('data:') && Platform.OS !== 'web') {
             const FileSystem = await import('expo-file-system/legacy');
-            await FileSystem.deleteAsync(qrUri).catch(() => {});
+            await FileSystem.deleteAsync(oldUri).catch(() => {});
           }
-          await removeGcashQrUri();
-          setQrUri(null);
+          await removeQrUri(method);
+          setQrUris((prev) => ({ ...prev, [method]: null }));
         },
       },
     ]);
@@ -183,7 +188,7 @@ export default function AdminModal() {
   if (step === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.settingsScroll}>
+        <ScrollView style={styles.settingsScrollView} contentContainerStyle={styles.settingsScroll}>
           <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={C.textPrimary} /> Admin Settings</Text>
           <Text style={styles.subtitle}>Manage PIN and payment settings</Text>
 
@@ -198,29 +203,40 @@ export default function AdminModal() {
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>
 
-          <Text style={styles.sectionLabel}>GCASH QR CODE</Text>
+          <Text style={styles.sectionLabel}>QR CODES</Text>
 
-          <View style={styles.qrBox}>
-            {qrUri ? (
-              <>
-                <Image source={{ uri: qrUri }} style={styles.qrImage} resizeMode="contain" />
-                <View style={styles.qrBtns}>
-                  <TouchableOpacity style={styles.qrReplaceBtn} onPress={handlePickQr}>
-                    <Text style={styles.qrBtnText}><Ionicons name="camera-outline" size={F.sm} color={C.textPrimary} /> Replace</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.qrRemoveBtn} onPress={handleRemoveQr}>
-                    <Text style={styles.qrBtnText}><Ionicons name="trash-outline" size={F.sm} color={C.textPrimary} /> Remove</Text>
-                  </TouchableOpacity>
+          {(['gcash', 'maya', 'bpi'] as QrMethod[]).map((method) => {
+            const uri = qrUris[method];
+            const label = qrMethodLabel(method);
+            return (
+              <View key={method} style={[styles.qrRow, !uri && styles.qrRowEmpty]}>
+                <View style={styles.qrRowThumb}>
+                  {uri
+                    ? <Image source={{ uri }} style={styles.qrThumbImage} resizeMode="contain" />
+                    : <Ionicons name="add" size={22} color={C.textMuted} />
+                  }
                 </View>
-              </>
-            ) : (
-              <TouchableOpacity style={styles.qrUploadArea} onPress={handlePickQr}>
-                <Ionicons name="phone-portrait-outline" size={40} color={C.textSecondary} style={{ marginBottom: 10 }} />
-                <Text style={styles.qrUploadText}>Tap to upload GCash QR</Text>
-                <Text style={styles.qrUploadHint}>Pick from photo library</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+                <View style={styles.qrRowInfo}>
+                  <Text style={[styles.qrRowLabel, !uri && styles.qrRowLabelMuted]}>{label}</Text>
+                  <Text style={styles.qrRowStatus}>{uri ? 'QR uploaded ✓' : 'No QR uploaded'}</Text>
+                </View>
+                {uri ? (
+                  <View style={styles.qrRowBtns}>
+                    <TouchableOpacity style={styles.qrReplaceBtn} onPress={() => handlePickQr(method)}>
+                      <Text style={styles.qrBtnText}>Replace</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.qrRemoveBtn} onPress={() => handleRemoveQr(method)}>
+                      <Ionicons name="trash-outline" size={F.sm} color={C.textPrimary} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.qrUploadBtn} onPress={() => handlePickQr(method)}>
+                    <Text style={styles.qrBtnText}>Upload</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
 
           <Text style={styles.sectionLabel}>CATALOG BACKUP</Text>
 
@@ -244,7 +260,7 @@ export default function AdminModal() {
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.dismiss()} style={styles.settingsDone}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.settingsDone}>
             <Text style={styles.settingsDoneText}>Done</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -325,6 +341,7 @@ const styles = StyleSheet.create({
   cancelBtn: { marginTop: 32 },
   cancelText: { color: C.textSecondary, fontSize: F.md },
 
+  settingsScrollView: { flex: 1, alignSelf: 'stretch' },
   settingsScroll: { padding: 20, alignItems: 'stretch' },
   settingsRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -337,23 +354,57 @@ const styles = StyleSheet.create({
   settingsArrow: { color: C.textSecondary, fontSize: F.xl },
   sectionLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
 
-  qrBox: {
-    backgroundColor: C.surface, borderRadius: R.md,
-    padding: 20, alignItems: 'center',
-    borderWidth: 1, borderColor: C.borderDark,
+  qrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.borderDark,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
   },
-  qrImage: { width: 180, height: 180, borderRadius: R.sm, marginBottom: 12 },
-  qrBtns: { flexDirection: 'row', gap: 8 },
+  qrRowEmpty: { borderStyle: 'dashed' },
+  qrRowThumb: {
+    width: 48, height: 48,
+    borderRadius: R.sm,
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  qrThumbImage: { width: 48, height: 48 },
+  qrRowInfo: { flex: 1 },
+  qrRowLabel: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qrRowLabelMuted: { color: C.textMuted },
+  qrRowStatus: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+  qrRowBtns: { flexDirection: 'row', gap: 6 },
   qrReplaceBtn: {
-    backgroundColor: C.elevated, paddingVertical: 10, paddingHorizontal: 16, borderRadius: R.sm,
-    borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.elevated,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  qrRemoveBtn: { backgroundColor: C.red, paddingVertical: 10, paddingHorizontal: 16, borderRadius: R.sm },
+  qrRemoveBtn: {
+    backgroundColor: C.red,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: R.sm,
+  },
+  qrUploadBtn: {
+    backgroundColor: C.elevated,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
   qrBtnText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
-  qrUploadArea: { alignItems: 'center', padding: 20 },
-  qrUploadIcon: {},
-  qrUploadText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  qrUploadHint: { color: C.textSecondary, fontSize: F.sm, marginTop: 4 },
 
   settingsDone: {
     backgroundColor: C.pink, borderRadius: R.sm,

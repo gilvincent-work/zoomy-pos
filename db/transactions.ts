@@ -11,7 +11,7 @@ export type TransactionItem = {
   variant_name: string | null;
 };
 
-export type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
+export type PaymentMethod = 'cash' | 'gcash' | 'maya' | 'bpi' | 'bank_transfer';
 
 export type Transaction = {
   id: number;
@@ -25,6 +25,7 @@ export type Transaction = {
   is_bundle: boolean;
   status: 'completed' | 'voided';
   created_at: string;
+  remarks: string | null;
   items: TransactionItem[];
 };
 
@@ -46,13 +47,14 @@ export async function insertTransaction(data: {
   proofPhotoUri?: string;
   customerHandle?: string;
   isBundle?: boolean;
+  remarks?: string;
   items: InsertItem[];
 }): Promise<number> {
   const db = await getDatabase();
 
   const result = await db.runAsync(
-    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', new Date().toISOString()]
+    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', new Date().toISOString(), data.remarks ?? null]
   );
 
   const transactionId = result.lastInsertRowId;
@@ -65,6 +67,11 @@ export async function insertTransaction(data: {
   }
 
   return transactionId;
+}
+
+export async function updateTransactionRemarks(id: number, remarks: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE transactions SET remarks = ? WHERE id = ?', [remarks, id]);
 }
 
 export async function voidTransaction(id: number): Promise<void> {
@@ -90,6 +97,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     t_bundle: number;
     t_status: string;
     t_created: string;
+    t_remarks: string | null;
     ti_id: number | null;
     transaction_id: number | null;
     product_id: number | null;
@@ -105,7 +113,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
             t.change AS t_change, t.payment_method AS t_payment,
             t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
             t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
-            t.status AS t_status, t.created_at AS t_created,
+            t.status AS t_status, t.created_at AS t_created, t.remarks AS t_remarks,
             ti.id AS ti_id, ti.transaction_id, ti.product_id, ti.product_name,
             ti.price, ti.quantity, ti.variant_id, ti.variant_name
      FROM transactions t
@@ -128,6 +136,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         is_bundle: row.t_bundle === 1,
         status: row.t_status as 'completed' | 'voided',
         created_at: row.t_created,
+        remarks: row.t_remarks ?? null,
         items: [],
       });
     }

@@ -8,18 +8,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
-import { getGcashQrUri } from '../../db/settings';
+import { getAllQrUris, QrUris, QrMethod, qrMethodLabel } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
 const DENOMINATIONS = [1, 5, 10, 20, 50, 100, 200, 500, 1000];
-
-const PAYMENT_METHODS: { key: PaymentMethod; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
-  { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
-  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
-];
 
 type DigitalStep = 'qr' | 'proof';
 
@@ -32,6 +26,7 @@ type ConfirmedSummary = {
   customerHandle: string;
   refNumber: string;
   isBundle: boolean;
+  remarks: string;
 };
 
 export default function PaymentModal() {
@@ -39,21 +34,38 @@ export default function PaymentModal() {
   const [tendered, setTendered] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [digitalStep, setDigitalStep] = useState<DigitalStep>('qr');
-  const [qrUri, setQrUri] = useState<string | null>(null);
+  const [qrUris, setQrUris] = useState<QrUris>({ gcash: null, maya: null, bpi: null });
   const [qrFullScreen, setQrFullScreen] = useState(false);
   const [refNumber, setRefNumber] = useState('');
   const [proofPhotoUri, setProofPhotoUri] = useState<string | null>(null);
   const [customerHandle, setCustomerHandle] = useState('');
+  const [remarks, setRemarks] = useState('');
   const [confirmed, setConfirmed] = useState<ConfirmedSummary | null>(null);
 
   const isCash = method === 'cash';
   const isDigital = !isCash;
   const change = tendered - total;
   const hasCartContent = items.length > 0 || bundles.length > 0;
+
+  const activeQrUri: string | null =
+    (method === 'gcash' || method === 'maya' || method === 'bpi') ? (qrUris[method] ?? null) : null;
+
+  const dynamicMethods: { key: PaymentMethod; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
+    { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
+    ...(['gcash', 'maya', 'bpi'] as QrMethod[])
+      .filter((m) => qrUris[m] !== null)
+      .map((m) => ({
+        key: m as PaymentMethod,
+        label: qrMethodLabel(m),
+        iconName: 'phone-portrait-outline' as const,
+      })),
+    { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
+  ];
+
   const canConfirmCash = tendered >= total && hasCartContent;
 
   useEffect(() => {
-    getGcashQrUri().then(setQrUri);
+    getAllQrUris().then(setQrUris);
   }, []);
 
   function handleMethodChange(m: PaymentMethod) {
@@ -125,6 +137,7 @@ export default function PaymentModal() {
         customerHandle: customerHandle.trim(),
         refNumber: refNumber.trim(),
         isBundle,
+        remarks: remarks.trim(),
       };
       await insertTransaction({
         total,
@@ -135,6 +148,7 @@ export default function PaymentModal() {
         proofPhotoUri: proofPhotoUri || undefined,
         customerHandle: customerHandle.trim() || undefined,
         isBundle,
+        remarks: remarks.trim() || undefined,
         items: itemsForInsert,
       });
       clearCart();
@@ -147,6 +161,8 @@ export default function PaymentModal() {
   function renderConfirmationModal() {
     if (!confirmed) return null;
     const methodLabel = confirmed.method === 'gcash' ? 'GCash'
+      : confirmed.method === 'maya' ? 'Maya'
+      : confirmed.method === 'bpi' ? 'BPI'
       : confirmed.method === 'bank_transfer' ? 'Bank Transfer'
       : 'Cash';
     const isMixed = confirmed.bundles.length > 0 && confirmed.items.length > 0;
@@ -223,6 +239,12 @@ export default function PaymentModal() {
               <View style={styles.confirmRow}>
                 <Text style={styles.confirmMeta}>Furbaby / IG</Text>
                 <Text style={[styles.confirmMetaValue, { color: C.pink }]}>{confirmed.customerHandle}</Text>
+              </View>
+            ) : null}
+            {confirmed.remarks ? (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmMeta}>Remarks</Text>
+                <Text style={[styles.confirmMetaValue, { flex: 1, textAlign: 'right' }]}>{confirmed.remarks}</Text>
               </View>
             ) : null}
 
@@ -347,7 +369,7 @@ export default function PaymentModal() {
       <>
         <Text style={styles.sectionLabel}>PAYMENT METHOD</Text>
         <View style={styles.methodRow}>
-          {PAYMENT_METHODS.map((m) => (
+          {dynamicMethods.map((m) => (
             <TouchableOpacity
               key={m.key}
               style={[styles.methodBtn, method === m.key && styles.methodBtnActive]}
@@ -372,11 +394,17 @@ export default function PaymentModal() {
           {renderOrderSummary()}
           {renderMethodSelector()}
 
-          {method === 'gcash' && qrUri ? (
+          {method === 'bank_transfer' ? (
+            <View style={styles.digitalBox}>
+              <Ionicons name="business-outline" size={40} color={C.textSecondary} />
+              <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
+              <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
+            </View>
+          ) : activeQrUri ? (
             <View style={styles.qrSection}>
               <Text style={styles.sectionLabel}>SCAN TO PAY</Text>
               <View style={styles.qrBox}>
-                <Image source={{ uri: qrUri }} style={styles.qrPreview} resizeMode="contain" />
+                <Image source={{ uri: activeQrUri }} style={styles.qrPreview} resizeMode="contain" />
                 <Text style={styles.qrAmount}>₱{total.toFixed(2)}</Text>
                 <Text style={styles.qrHint}>Show this to customer</Text>
                 <TouchableOpacity style={styles.fullScreenBtn} onPress={() => setQrFullScreen(true)}>
@@ -384,17 +412,11 @@ export default function PaymentModal() {
                 </TouchableOpacity>
               </View>
             </View>
-          ) : method === 'gcash' && !qrUri ? (
+          ) : (
             <View style={styles.digitalBox}>
               <Ionicons name="phone-portrait-outline" size={40} color={C.textSecondary} />
               <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
-              <Text style={styles.digitalHint}>No GCash QR uploaded. Go to <Ionicons name="settings-outline" size={F.md} color={C.textSecondary} /> Settings to add one.</Text>
-            </View>
-          ) : (
-            <View style={styles.digitalBox}>
-              <Ionicons name="business-outline" size={40} color={C.textSecondary} />
-              <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
-              <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
+              <Text style={styles.digitalHint}>No QR uploaded. Go to Settings to add one.</Text>
             </View>
           )}
 
@@ -427,7 +449,7 @@ export default function PaymentModal() {
 
         <Modal visible={qrFullScreen} animationType="fade" onRequestClose={() => setQrFullScreen(false)}>
           <TouchableOpacity style={styles.qrFullOverlay} onPress={() => setQrFullScreen(false)} activeOpacity={1}>
-            {qrUri && <Image source={{ uri: qrUri }} style={styles.qrFull} resizeMode="contain" />}
+            {activeQrUri && <Image source={{ uri: activeQrUri }} style={styles.qrFull} resizeMode="contain" />}
             <Text style={styles.qrFullAmount}>₱{total.toFixed(2)}</Text>
             <Text style={styles.qrFullHint}>Tap anywhere to close</Text>
           </TouchableOpacity>
@@ -479,6 +501,17 @@ export default function PaymentModal() {
             onChangeText={setCustomerHandle}
             autoCapitalize="none"
             autoCorrect={false}
+          />
+
+          <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>REMARKS <Text style={styles.optionalTag}>optional</Text></Text>
+          <TextInput
+            style={[styles.handleInput, { minHeight: 44 }]}
+            placeholder="e.g. free item given"
+            placeholderTextColor={C.textMuted}
+            value={remarks}
+            onChangeText={setRemarks}
+            multiline
+            autoCapitalize="sentences"
           />
         </ScrollView>
 
@@ -546,6 +579,17 @@ export default function PaymentModal() {
           onChangeText={setCustomerHandle}
           autoCapitalize="none"
           autoCorrect={false}
+        />
+
+        <Text style={[styles.sectionLabel, styles.sectionLabelHandle]}>REMARKS <Text style={styles.optionalTag}>optional</Text></Text>
+        <TextInput
+          style={[styles.handleInput, { minHeight: 44 }]}
+          placeholder="e.g. free item given"
+          placeholderTextColor={C.textMuted}
+          value={remarks}
+          onChangeText={setRemarks}
+          multiline
+          autoCapitalize="sentences"
         />
       </ScrollView>
 

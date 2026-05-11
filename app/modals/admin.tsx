@@ -13,6 +13,12 @@ import {
 } from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
+import { exportProductsArchive } from '../../utils/export-products-csv';
+import { pickProductsZip } from '../../utils/import-products-csv';
+import { parseCatalog, ParseError } from '../../utils/products-csv-format';
+import { makeImageResolver } from '../../utils/import-images';
+import { upsertCatalog, type ImportSummary } from '../../db/catalog-import';
+import { useToast } from '../../components/Toast';
 
 type Step = 'verify' | 'new_pin' | 'settings';
 
@@ -28,6 +34,7 @@ export default function AdminModal() {
   const [pin, setPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [qrUris, setQrUris] = useState<QrUris>({ gcash: null, maya: null, bpi: null });
+  const { showToast } = useToast();
 
   const currentPin = step === 'verify' ? pin : newPin;
   const setCurrentPin = step === 'verify' ? setPin : setNewPin;
@@ -103,6 +110,88 @@ export default function AdminModal() {
     setQrUris((prev) => ({ ...prev, [method]: dataUri }));
   }
 
+  function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
+    if (Platform.OS === 'web') {
+      return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: confirmLabel, onPress: () => resolve(true) },
+      ]);
+    });
+  }
+
+  function formatImportSummary(s: ImportSummary): string {
+    const imageLine = s.imagesMissing > 0
+      ? `Images:   ${s.imagesRestored} restored, ${s.imagesMissing} missing`
+      : `Images:   ${s.imagesRestored} restored`;
+    return [
+      `Products: +${s.productsInserted} new, ${s.productsUpdated} updated`,
+      `Variants: +${s.variantsInserted} new, ${s.variantsUpdated} updated`,
+      `Bundles:  +${s.bundlesInserted} new, ${s.bundlesUpdated} updated`,
+      imageLine,
+    ].join('\n');
+  }
+
+  async function handleExportCatalog() {
+    try {
+      await exportProductsArchive();
+      showToast({ variant: 'success', title: 'Catalog exported' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      showToast({ variant: 'error', title: 'Export failed', message });
+    }
+  }
+
+  async function handleImportCatalog() {
+    try {
+      const picked = await pickProductsZip();
+      if (picked == null) return;
+      const parsed = parseCatalog(picked.csvText);
+      if (
+        parsed.products.length === 0 &&
+        parsed.variants.length === 0 &&
+        parsed.bundles.length === 0
+      ) {
+        showToast({
+          variant: 'error',
+          title: 'Nothing to import',
+          message: 'No products found in archive.',
+        });
+        return;
+      }
+      const productsWithImages = parsed.products.filter((p) => p.image_filename).length;
+      const imageSuffix = productsWithImages > 0 ? ` (${productsWithImages} with images)` : '';
+      const ok = await confirmAction(
+        'Import Catalog',
+        `Import ${parsed.products.length} products${imageSuffix}, ${parsed.variants.length} variants, ${parsed.bundles.length} bundles? Existing items with the same name will be updated.`,
+        'Import'
+      );
+      if (!ok) return;
+      const summary = await upsertCatalog(parsed, {
+        resolveImage: makeImageResolver(picked.zip),
+      });
+      showToast({
+        variant: 'success',
+        title: 'Catalog imported',
+        message: formatImportSummary(summary),
+      });
+    } catch (err) {
+      const message =
+        err instanceof ParseError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Unknown error';
+      showToast({
+        variant: 'error',
+        title: 'Import failed',
+        message: `${message}\nNo changes were made.`,
+      });
+    }
+  }
+
   async function handleRemoveQr(method: QrMethod) {
     Alert.alert('Remove QR?', `This will remove your ${qrMethodLabel(method)} QR code.`, [
       { text: 'Cancel', style: 'cancel' },
@@ -172,6 +261,28 @@ export default function AdminModal() {
               </View>
             );
           })}
+
+          <Text style={styles.sectionLabel}>CATALOG BACKUP</Text>
+
+          <TouchableOpacity style={styles.settingsRow} onPress={handleExportCatalog}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsRowTitle}>
+                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog (ZIP)
+              </Text>
+              <Text style={styles.settingsRowSub}>Save products, variants, bundles, and images</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingsRow} onPress={handleImportCatalog}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsRowTitle}>
+                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog (ZIP)
+              </Text>
+              <Text style={styles.settingsRowSub}>Restore from a previously exported archive</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.back()} style={styles.settingsDone}>
             <Text style={styles.settingsDoneText}>Done</Text>

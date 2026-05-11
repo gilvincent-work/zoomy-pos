@@ -12,6 +12,23 @@ import {
 import { copyToDocumentDir } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
+import { useToast } from '../../components/Toast';
+
+async function confirmAction(
+  title: string,
+  message: string,
+  destructiveLabel: string
+): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    return window.confirm(`${title}\n\n${message}`);
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 type VariantFormRow = { id?: number; name: string; price: string };
 type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[]; imageUri: string | null };
@@ -22,6 +39,7 @@ const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, va
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
+  const { showToast } = useToast();
   const [products, setProducts] = useState<(Product & { variant_count: number })[]>([]);
   const [bundles, setBundles] = useState<SavedBundle[]>([]);
   const [productForm, setProductForm] = useState<ProductForm>(EMPTY_PRODUCT);
@@ -194,11 +212,20 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  function confirmDeleteProduct(id: number, name: string) {
-    Alert.alert('Delete Product', `Remove "${name}" permanently?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteProduct(id); await refreshAll(); } },
-    ]);
+  async function confirmDeleteProduct(id: number, name: string) {
+    const ok = await confirmAction('Delete Product', `Remove "${name}" permanently?`, 'Delete');
+    if (!ok) return;
+    try {
+      await deleteProduct(id);
+      await refreshAll();
+      showToast({ variant: 'success', title: 'Product deleted' });
+    } catch (e) {
+      showToast({
+        variant: 'error',
+        title: 'Delete failed',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   // ─── Bundle actions ───────────────────────────────────────────────────────
@@ -229,11 +256,20 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  function confirmDeleteBundle(id: number, name: string) {
-    Alert.alert('Delete Bundle', `Remove "${name}" preset permanently?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteSavedBundle(id); await refreshAll(); } },
-    ]);
+  async function confirmDeleteBundle(id: number, name: string) {
+    const ok = await confirmAction('Delete Bundle', `Remove "${name}" preset permanently?`, 'Delete');
+    if (!ok) return;
+    try {
+      await deleteSavedBundle(id);
+      await refreshAll();
+      showToast({ variant: 'success', title: 'Bundle deleted' });
+    } catch (e) {
+      showToast({
+        variant: 'error',
+        title: 'Delete failed',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   // ─── Shared ───────────────────────────────────────────────────────────────

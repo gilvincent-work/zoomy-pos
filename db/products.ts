@@ -138,3 +138,84 @@ export async function deleteProduct(id: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
 }
+
+export async function getProductByName(name: string): Promise<Product | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<Product>(
+    'SELECT * FROM products WHERE name = ? LIMIT 1',
+    [name]
+  );
+  return row ?? null;
+}
+
+export async function getVariantByProductIdAndName(
+  productId: number,
+  name: string
+): Promise<ProductVariant | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<ProductVariant>(
+    'SELECT * FROM product_variants WHERE product_id = ? AND name = ? LIMIT 1',
+    [productId, name]
+  );
+  return row ?? null;
+}
+
+export type UpsertProductInput = {
+  name: string;
+  price: number | null;
+  emoji: string;
+  has_variants: number;
+  image_uri?: string | null;
+};
+
+export type UpsertResult = { id: number; inserted: boolean };
+
+export async function upsertProduct(input: UpsertProductInput): Promise<UpsertResult> {
+  const db = await getDatabase();
+  const existing = await getProductByName(input.name);
+  const hasImageUri = Object.prototype.hasOwnProperty.call(input, 'image_uri');
+  if (existing) {
+    if (hasImageUri) {
+      await db.runAsync(
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, existing.id]
+      );
+    } else {
+      await db.runAsync(
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, existing.id]
+      );
+    }
+    return { id: existing.id, inserted: false };
+  }
+  const result = await db.runAsync(
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, new Date().toISOString()]
+  );
+  return { id: result.lastInsertRowId, inserted: true };
+}
+
+export async function setProductImageUri(id: number, uri: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE products SET image_uri = ? WHERE id = ?', [uri, id]);
+}
+
+export async function upsertVariant(
+  productId: number,
+  input: { name: string; price: number }
+): Promise<UpsertResult> {
+  const db = await getDatabase();
+  const existing = await getVariantByProductIdAndName(productId, input.name);
+  if (existing) {
+    await db.runAsync(
+      'UPDATE product_variants SET price = ?, is_active = 1 WHERE id = ?',
+      [input.price, existing.id]
+    );
+    return { id: existing.id, inserted: false };
+  }
+  const result = await db.runAsync(
+    'INSERT INTO product_variants (product_id, name, price, is_active, created_at) VALUES (?, ?, ?, 1, ?)',
+    [productId, input.name, input.price, new Date().toISOString()]
+  );
+  return { id: result.lastInsertRowId, inserted: true };
+}

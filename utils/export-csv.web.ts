@@ -1,13 +1,6 @@
 import JSZip from 'jszip';
 import type { Transaction } from '../db/transactions';
-
-function csvCell(value: string | number | null | undefined): string {
-  const str = String(value ?? '');
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+import { csvCell } from './products-csv-format';
 
 function formatTime(isoString: string): string {
   const d = new Date(isoString);

@@ -86,3 +86,33 @@ export async function deleteSavedBundle(id: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('DELETE FROM saved_bundles WHERE id = ?', [id]);
 }
+
+export async function getBundleByName(name: string): Promise<SavedBundle | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<BundleRow>(
+    'SELECT id, name, items_json, price, is_active, created_at FROM saved_bundles WHERE name = ? LIMIT 1',
+    [name]
+  );
+  return row ? rowToBundle(row) : null;
+}
+
+export async function upsertBundleByName(
+  name: string,
+  items: BundleItemInput[],
+  price: number
+): Promise<{ id: number; inserted: boolean }> {
+  const db = await getDatabase();
+  const existing = await getBundleByName(name);
+  if (existing) {
+    await db.runAsync(
+      'UPDATE saved_bundles SET price = ?, items_json = ?, is_active = 1 WHERE id = ?',
+      [price, JSON.stringify(items), existing.id]
+    );
+    return { id: existing.id, inserted: false };
+  }
+  const result = await db.runAsync(
+    'INSERT INTO saved_bundles (name, items_json, price, is_active, created_at) VALUES (?, ?, ?, 1, ?)',
+    [name, JSON.stringify(items), price, new Date().toISOString()]
+  );
+  return { id: result.lastInsertRowId, inserted: true };
+}

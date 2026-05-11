@@ -10,6 +10,10 @@ import { sha256 } from '../../utils/hash';
 import { getAdminHash, setAdminHash, getGcashQrUri, setGcashQrUri, removeGcashQrUri } from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
+import { exportProductsCsv } from '../../utils/export-products-csv';
+import { pickProductsCsv } from '../../utils/import-products-csv';
+import { parseCatalog, ParseError } from '../../utils/products-csv-format';
+import { upsertCatalog, type ImportSummary } from '../../db/catalog-import';
 
 type Step = 'verify' | 'new_pin' | 'settings';
 
@@ -99,6 +103,67 @@ export default function AdminModal() {
     setQrUri(dataUri);
   }
 
+  function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
+    if (Platform.OS === 'web') {
+      return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: confirmLabel, onPress: () => resolve(true) },
+      ]);
+    });
+  }
+
+  function formatImportSummary(s: ImportSummary): string {
+    return [
+      `Products: +${s.productsInserted} new, ${s.productsUpdated} updated`,
+      `Variants: +${s.variantsInserted} new, ${s.variantsUpdated} updated`,
+      `Bundles:  +${s.bundlesInserted} new, ${s.bundlesUpdated} updated`,
+    ].join('\n');
+  }
+
+  async function handleExportCatalog() {
+    try {
+      await exportProductsCsv();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert('Export failed', message);
+    }
+  }
+
+  async function handleImportCatalog() {
+    try {
+      const text = await pickProductsCsv();
+      if (text == null) return;
+      const parsed = parseCatalog(text);
+      if (
+        parsed.products.length === 0 &&
+        parsed.variants.length === 0 &&
+        parsed.bundles.length === 0
+      ) {
+        Alert.alert('Nothing to import', 'No products found in file.');
+        return;
+      }
+      const ok = await confirmAction(
+        'Import Catalog',
+        `Import ${parsed.products.length} products, ${parsed.variants.length} variants, ${parsed.bundles.length} bundles? Existing items with the same name will be updated.`,
+        'Import'
+      );
+      if (!ok) return;
+      const summary = await upsertCatalog(parsed);
+      Alert.alert('Import complete', formatImportSummary(summary));
+    } catch (err) {
+      const message =
+        err instanceof ParseError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Unknown error';
+      Alert.alert('Import failed', `${message}\n\nNo changes were made.`);
+    }
+  }
+
   async function handleRemoveQr() {
     Alert.alert('Remove QR?', 'This will remove your GCash QR code.', [
       { text: 'Cancel', style: 'cancel' },
@@ -156,6 +221,28 @@ export default function AdminModal() {
               </TouchableOpacity>
             )}
           </View>
+
+          <Text style={styles.sectionLabel}>CATALOG BACKUP</Text>
+
+          <TouchableOpacity style={styles.settingsRow} onPress={handleExportCatalog}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsRowTitle}>
+                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog to CSV
+              </Text>
+              <Text style={styles.settingsRowSub}>Save products, variants, and bundles to a file</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingsRow} onPress={handleImportCatalog}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsRowTitle}>
+                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog from CSV
+              </Text>
+              <Text style={styles.settingsRowSub}>Restore from a previously exported file</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.dismiss()} style={styles.settingsDone}>
             <Text style={styles.settingsDoneText}>Done</Text>

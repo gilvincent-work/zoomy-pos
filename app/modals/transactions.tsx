@@ -116,6 +116,14 @@ export default function TransactionsModal() {
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
   const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
+  const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showImportResult(variant: 'success' | 'error' | 'info', title: string, message: string) {
+    if (importResultTimer.current) clearTimeout(importResultTimer.current);
+    setImportResult({ variant, title, message });
+    importResultTimer.current = setTimeout(() => setImportResult(null), 4000);
+  }
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
@@ -169,18 +177,18 @@ export default function TransactionsModal() {
       if (photosMissing > 0) lines.push(`${photosMissing} proof photo${photosMissing !== 1 ? 's' : ''} not found in ZIP`);
 
       if (imported > 0) {
-        Alert.alert('Import complete', lines.join('\n'));
+        showImportResult('success', 'Import complete', lines.join(' · '));
       } else if (skipped > 0) {
-        Alert.alert('Already up to date', lines.join('\n'));
+        showImportResult('info', 'Already up to date', lines.join(' · '));
       } else {
-        Alert.alert('Nothing imported', lines.join('\n'));
+        showImportResult('info', 'Nothing imported', lines.join(' · '));
       }
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : '';
       const message = raw.includes('transactions.csv') || raw.includes('Invalid CSV')
         ? raw
         : 'Could not read this file. Make sure you selected a Zoomy export ZIP.';
-      Alert.alert('Import failed', message);
+      showImportResult('error', 'Import failed', message);
     } finally {
       setImporting(false);
     }
@@ -260,6 +268,29 @@ export default function TransactionsModal() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {importResult && (
+        <TouchableOpacity
+          style={[
+            styles.importBanner,
+            importResult.variant === 'success' && styles.importBannerSuccess,
+            importResult.variant === 'error' && styles.importBannerError,
+          ]}
+          onPress={() => {
+            if (importResultTimer.current) clearTimeout(importResultTimer.current);
+            setImportResult(null);
+          }}
+          activeOpacity={0.8}
+        >
+          <View style={styles.importBannerContent}>
+            <Text style={styles.importBannerTitle}>{importResult.title}</Text>
+            {!!importResult.message && (
+              <Text style={styles.importBannerMsg}>{importResult.message}</Text>
+            )}
+          </View>
+          <Ionicons name="close" size={F.sm} color={C.textSecondary} />
+        </TouchableOpacity>
+      )}
 
       <FlatList
         data={filtered}
@@ -478,6 +509,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   exportBtnText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+
+  importBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: C.elevated,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  importBannerSuccess: { backgroundColor: C.greenSubtle, borderColor: C.greenDim },
+  importBannerError: { backgroundColor: C.redSubtle, borderColor: C.redDim },
+  importBannerContent: { flex: 1 },
+  importBannerTitle: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  importBannerMsg: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
 
   list: { padding: 16, paddingTop: 10 },
   empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },

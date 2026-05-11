@@ -13,9 +13,10 @@ import {
 } from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
-import { exportProductsCsv } from '../../utils/export-products-csv';
-import { pickProductsCsv } from '../../utils/import-products-csv';
+import { exportProductsArchive } from '../../utils/export-products-csv';
+import { pickProductsZip } from '../../utils/import-products-csv';
 import { parseCatalog, ParseError } from '../../utils/products-csv-format';
+import { makeImageResolver } from '../../utils/import-images';
 import { upsertCatalog, type ImportSummary } from '../../db/catalog-import';
 
 type Step = 'verify' | 'new_pin' | 'settings';
@@ -120,16 +121,20 @@ export default function AdminModal() {
   }
 
   function formatImportSummary(s: ImportSummary): string {
+    const imageLine = s.imagesMissing > 0
+      ? `Images:   ${s.imagesRestored} restored, ${s.imagesMissing} missing`
+      : `Images:   ${s.imagesRestored} restored`;
     return [
       `Products: +${s.productsInserted} new, ${s.productsUpdated} updated`,
       `Variants: +${s.variantsInserted} new, ${s.variantsUpdated} updated`,
       `Bundles:  +${s.bundlesInserted} new, ${s.bundlesUpdated} updated`,
+      imageLine,
     ].join('\n');
   }
 
   async function handleExportCatalog() {
     try {
-      await exportProductsCsv();
+      await exportProductsArchive();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       Alert.alert('Export failed', message);
@@ -138,24 +143,28 @@ export default function AdminModal() {
 
   async function handleImportCatalog() {
     try {
-      const text = await pickProductsCsv();
-      if (text == null) return;
-      const parsed = parseCatalog(text);
+      const picked = await pickProductsZip();
+      if (picked == null) return;
+      const parsed = parseCatalog(picked.csvText);
       if (
         parsed.products.length === 0 &&
         parsed.variants.length === 0 &&
         parsed.bundles.length === 0
       ) {
-        Alert.alert('Nothing to import', 'No products found in file.');
+        Alert.alert('Nothing to import', 'No products found in archive.');
         return;
       }
+      const productsWithImages = parsed.products.filter((p) => p.image_filename).length;
+      const imageSuffix = productsWithImages > 0 ? ` (${productsWithImages} with images)` : '';
       const ok = await confirmAction(
         'Import Catalog',
-        `Import ${parsed.products.length} products, ${parsed.variants.length} variants, ${parsed.bundles.length} bundles? Existing items with the same name will be updated.`,
+        `Import ${parsed.products.length} products${imageSuffix}, ${parsed.variants.length} variants, ${parsed.bundles.length} bundles? Existing items with the same name will be updated.`,
         'Import'
       );
       if (!ok) return;
-      const summary = await upsertCatalog(parsed);
+      const summary = await upsertCatalog(parsed, {
+        resolveImage: makeImageResolver(picked.zip),
+      });
       Alert.alert('Import complete', formatImportSummary(summary));
     } catch (err) {
       const message =
@@ -243,9 +252,9 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleExportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog to CSV
+                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog (ZIP)
               </Text>
-              <Text style={styles.settingsRowSub}>Save products, variants, and bundles to a file</Text>
+              <Text style={styles.settingsRowSub}>Save products, variants, bundles, and images</Text>
             </View>
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>
@@ -253,9 +262,9 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleImportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog from CSV
+                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog (ZIP)
               </Text>
-              <Text style={styles.settingsRowSub}>Restore from a previously exported file</Text>
+              <Text style={styles.settingsRowSub}>Restore from a previously exported archive</Text>
             </View>
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>

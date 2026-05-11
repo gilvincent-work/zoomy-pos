@@ -165,6 +165,7 @@ export type UpsertProductInput = {
   price: number | null;
   emoji: string;
   has_variants: number;
+  image_uri?: string | null;
 };
 
 export type UpsertResult = { id: number; inserted: boolean };
@@ -172,18 +173,31 @@ export type UpsertResult = { id: number; inserted: boolean };
 export async function upsertProduct(input: UpsertProductInput): Promise<UpsertResult> {
   const db = await getDatabase();
   const existing = await getProductByName(input.name);
+  const hasImageUri = Object.prototype.hasOwnProperty.call(input, 'image_uri');
   if (existing) {
-    await db.runAsync(
-      'UPDATE products SET price = ?, emoji = ?, has_variants = ?, is_active = 1 WHERE id = ?',
-      [input.price, input.emoji, input.has_variants, existing.id]
-    );
+    if (hasImageUri) {
+      await db.runAsync(
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, existing.id]
+      );
+    } else {
+      await db.runAsync(
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, existing.id]
+      );
+    }
     return { id: existing.id, inserted: false };
   }
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji, input.has_variants, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, new Date().toISOString()]
   );
   return { id: result.lastInsertRowId, inserted: true };
+}
+
+export async function setProductImageUri(id: number, uri: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE products SET image_uri = ? WHERE id = ?', [uri, id]);
 }
 
 export async function upsertVariant(

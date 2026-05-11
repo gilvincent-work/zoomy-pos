@@ -1,10 +1,11 @@
 import { getDatabase } from './database';
-import { upsertProduct, upsertVariant } from './products';
+import { upsertProduct, upsertVariant, setProductImageUri } from './products';
 import { upsertBundleByName } from './saved-bundles';
 import {
   bundleItemsToInput,
   type ParsedCatalog,
 } from '../utils/products-csv-format';
+import type { ResolveImage } from '../utils/import-images';
 
 export type ImportSummary = {
   productsInserted: number;
@@ -13,9 +14,18 @@ export type ImportSummary = {
   variantsUpdated: number;
   bundlesInserted: number;
   bundlesUpdated: number;
+  imagesRestored: number;
+  imagesMissing: number;
 };
 
-export async function upsertCatalog(parsed: ParsedCatalog): Promise<ImportSummary> {
+export type UpsertCatalogOptions = {
+  resolveImage?: ResolveImage;
+};
+
+export async function upsertCatalog(
+  parsed: ParsedCatalog,
+  options: UpsertCatalogOptions = {}
+): Promise<ImportSummary> {
   const db = await getDatabase();
   const summary: ImportSummary = {
     productsInserted: 0,
@@ -24,6 +34,8 @@ export async function upsertCatalog(parsed: ParsedCatalog): Promise<ImportSummar
     variantsUpdated: 0,
     bundlesInserted: 0,
     bundlesUpdated: 0,
+    imagesRestored: 0,
+    imagesMissing: 0,
   };
 
   await db.execAsync('BEGIN');
@@ -39,6 +51,20 @@ export async function upsertCatalog(parsed: ParsedCatalog): Promise<ImportSummar
       productNameToId.set(p.name, result.id);
       if (result.inserted) summary.productsInserted += 1;
       else summary.productsUpdated += 1;
+
+      if (p.image_filename && options.resolveImage) {
+        try {
+          const uri = await options.resolveImage(p.image_filename, p.name);
+          if (uri) {
+            await setProductImageUri(result.id, uri);
+            summary.imagesRestored += 1;
+          } else {
+            summary.imagesMissing += 1;
+          }
+        } catch {
+          summary.imagesMissing += 1;
+        }
+      }
     }
 
     const variantKeyToId = new Map<string, number>();

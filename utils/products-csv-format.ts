@@ -9,6 +9,7 @@ export const CATALOG_CSV_HEADER = [
   'has_variants',
   'parent_product_name',
   'bundle_items_json',
+  'image_filename',
 ] as const;
 
 export type ParsedProduct = {
@@ -16,7 +17,38 @@ export type ParsedProduct = {
   price: number | null;
   emoji: string;
   has_variants: number;
+  image_filename: string | null;
 };
+
+export const CATALOG_CSV_NAME = 'catalog.csv';
+export const CATALOG_IMAGES_DIR = 'images';
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'product';
+}
+
+function hash4(input: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0').slice(0, 4);
+}
+
+export function productImageBasename(productName: string): string {
+  return `${slugify(productName)}-${hash4(productName)}.jpg`;
+}
+
+export function productImageEntryPath(productName: string): string {
+  return `${CATALOG_IMAGES_DIR}/${productImageBasename(productName)}`;
+}
 
 export type ParsedVariant = {
   parent_product_name: string;
@@ -62,7 +94,8 @@ export function csvCell(value: string | number | null | undefined): string {
 export function serializeCatalog(
   products: Product[],
   variantsByProductId: Map<number, ProductVariant[]>,
-  bundles: SavedBundle[]
+  bundles: SavedBundle[],
+  productImageFilenames: Map<number, string>
 ): string {
   const productNameById = new Map<number, string>();
   for (const p of products) productNameById.set(p.id, p.name);
@@ -83,6 +116,7 @@ export function serializeCatalog(
       csvCell(p.has_variants),
       csvCell(''),
       csvCell(''),
+      csvCell(productImageFilenames.get(p.id) ?? ''),
     ]);
   }
 
@@ -96,6 +130,7 @@ export function serializeCatalog(
         csvCell(''),
         csvCell(''),
         csvCell(p.name),
+        csvCell(''),
         csvCell(''),
       ]);
     }
@@ -119,6 +154,7 @@ export function serializeCatalog(
       csvCell(''),
       csvCell(''),
       csvCell(JSON.stringify(itemsForCsv)),
+      csvCell(''),
     ]);
   }
 
@@ -211,7 +247,7 @@ export function parseCatalog(text: string): ParsedCatalog {
         r + 1
       );
     }
-    const [type, name, priceStr, emoji, hasVariantsStr, parentName, bundleJson] =
+    const [type, name, priceStr, emoji, hasVariantsStr, parentName, bundleJson, imageFilename] =
       row.map((c) => c);
 
     if (type === 'product') {
@@ -233,6 +269,7 @@ export function parseCatalog(text: string): ParsedCatalog {
         price,
         emoji: emoji || '🍬',
         has_variants,
+        image_filename: imageFilename ? imageFilename : null,
       });
     } else if (type === 'variant') {
       if (!name) throw new ParseError('variant row missing name', r + 1);

@@ -170,10 +170,11 @@ export default function TransactionsModal() {
       if (failed > 0) parts.push(`${failed} row${failed !== 1 ? 's' : ''} failed`);
       if (photosMissing > 0) parts.push(`${photosMissing} photo${photosMissing !== 1 ? 's' : ''} missing`);
 
+      const message = parts.join(', ') + '.';
       if (imported === 0 && skipped > 0) {
-        Alert.alert('Nothing new', 'All transactions already exist.');
+        Alert.alert('Nothing new', message);
       } else {
-        Alert.alert('Import complete', parts.join(', ') + '.');
+        Alert.alert('Import complete', message);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not import file. Please try again.';

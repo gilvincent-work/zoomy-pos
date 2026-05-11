@@ -69,6 +69,47 @@ export async function insertTransaction(data: {
   return transactionId;
 }
 
+export async function importTransaction(data: {
+  total: number;
+  cashTendered: number;
+  change: number;
+  paymentMethod: PaymentMethod;
+  refNumber?: string;
+  proofPhotoUri?: string;
+  customerHandle?: string;
+  isBundle?: boolean;
+  status: 'completed' | 'voided';
+  createdAt: string;
+  items: { productName: string; quantity: number }[];
+}): Promise<number> {
+  const db = await getDatabase();
+
+  const result = await db.runAsync(
+    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, data.status, data.createdAt, null]
+  );
+
+  const transactionId = result.lastInsertRowId;
+
+  for (const item of data.items) {
+    await db.runAsync(
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [transactionId, 0, item.productName, 0, item.quantity, null, null]
+    );
+  }
+
+  return transactionId;
+}
+
+export async function transactionExists(createdAtMinute: string, total: number): Promise<boolean> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ id: number }>(
+    'SELECT id FROM transactions WHERE total = ? AND substr(created_at, 1, 16) = ?',
+    [total, createdAtMinute]
+  );
+  return row !== null;
+}
+
 export async function updateTransactionRemarks(id: number, remarks: string | null): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('UPDATE transactions SET remarks = ? WHERE id = ?', [remarks, id]);

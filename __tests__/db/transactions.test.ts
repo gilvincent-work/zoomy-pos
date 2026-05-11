@@ -2,6 +2,8 @@ import {
   insertTransaction,
   voidTransaction,
   getAllTransactions,
+  importTransaction,
+  transactionExists,
 } from '../../db/transactions';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
@@ -121,5 +123,89 @@ describe('getAllTransactions', () => {
     expect(result[0].items).toHaveLength(2);
     expect(result[0].items[0].product_name).toBe('Cake');
     expect(result[0].items[1].product_name).toBe('Drink');
+  });
+});
+
+describe('importTransaction', () => {
+  it('inserts with provided createdAt and status', async () => {
+    mockDb.runAsync
+      .mockResolvedValueOnce({ lastInsertRowId: 42, changes: 1 })
+      .mockResolvedValue({ lastInsertRowId: 99, changes: 1 });
+
+    const id = await importTransaction({
+      total: 140,
+      cashTendered: 140,
+      change: 0,
+      paymentMethod: 'gcash',
+      status: 'completed',
+      createdAt: '2026-04-24T07:36:00.000Z',
+      items: [{ productName: 'jerky treats', quantity: 1 }],
+    });
+
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('INSERT INTO transactions'),
+      expect.arrayContaining([140, 140, 0, 'gcash', '2026-04-24T07:36:00.000Z', 'completed'])
+    );
+    expect(id).toBe(42);
+  });
+
+  it('inserts items with product_id=0 and price=0', async () => {
+    mockDb.runAsync
+      .mockResolvedValueOnce({ lastInsertRowId: 42, changes: 1 })
+      .mockResolvedValue({ lastInsertRowId: 99, changes: 1 });
+
+    await importTransaction({
+      total: 140,
+      cashTendered: 140,
+      change: 0,
+      paymentMethod: 'gcash',
+      status: 'completed',
+      createdAt: '2026-04-24T07:36:00.000Z',
+      items: [{ productName: 'jerky treats', quantity: 1 }],
+    });
+
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [42, 0, 'jerky treats', 0, 1, null, null]
+    );
+  });
+
+  it('stores voided status correctly', async () => {
+    mockDb.runAsync.mockResolvedValue({ lastInsertRowId: 1, changes: 1 });
+
+    await importTransaction({
+      total: 140,
+      cashTendered: 140,
+      change: 0,
+      paymentMethod: 'cash',
+      status: 'voided',
+      createdAt: '2026-04-24T07:36:00.000Z',
+      items: [],
+    });
+
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO transactions'),
+      expect.arrayContaining(['voided'])
+    );
+  });
+});
+
+describe('transactionExists', () => {
+  it('returns true when a matching transaction exists', async () => {
+    mockDb.getFirstAsync.mockResolvedValueOnce({ id: 5 });
+    const exists = await transactionExists('2026-04-24T07:36', 140);
+    expect(exists).toBe(true);
+    expect(mockDb.getFirstAsync).toHaveBeenCalledWith(
+      expect.stringContaining('substr(created_at, 1, 16)'),
+      [140, '2026-04-24T07:36']
+    );
+  });
+
+  it('returns false when no matching transaction exists', async () => {
+    mockDb.getFirstAsync.mockResolvedValueOnce(null);
+    const exists = await transactionExists('2026-04-24T07:36', 140);
+    expect(exists).toBe(false);
   });
 });

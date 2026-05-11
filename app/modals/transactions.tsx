@@ -7,6 +7,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
+import { importTransactionsZip } from '../../utils/import-csv';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
@@ -114,6 +115,15 @@ export default function TransactionsModal() {
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
+  const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showImportResult(variant: 'success' | 'error' | 'info', title: string, message: string) {
+    if (importResultTimer.current) clearTimeout(importResultTimer.current);
+    setImportResult({ variant, title, message });
+    importResultTimer.current = setTimeout(() => setImportResult(null), 4000);
+  }
 
   useFocusEffect(
     useCallback(() => { getAllTransactions().then(setTransactions); }, [])
@@ -146,6 +156,41 @@ export default function TransactionsModal() {
       await exportTransactionsZip(filtered, label);
     } catch {
       Alert.alert('Export failed', 'Could not export transactions. Please try again.');
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const { imported, skipped, failed, photosMissing } = await importTransactionsZip();
+
+      // User cancelled file picker — silent return
+      if (imported === 0 && skipped === 0 && failed === 0 && photosMissing === 0) return;
+
+      const all = await getAllTransactions();
+      setTransactions(all);
+
+      const lines: string[] = [];
+      if (imported > 0) lines.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
+      if (skipped > 0) lines.push(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+      if (failed > 0) lines.push(`${failed} row${failed !== 1 ? 's' : ''} could not be read`);
+      if (photosMissing > 0) lines.push(`${photosMissing} proof photo${photosMissing !== 1 ? 's' : ''} not found in ZIP`);
+
+      if (imported > 0) {
+        showImportResult('success', 'Import complete', lines.join(' · '));
+      } else if (skipped > 0) {
+        showImportResult('info', 'Already up to date', lines.join(' · '));
+      } else {
+        showImportResult('info', 'Nothing imported', lines.join(' · '));
+      }
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : '';
+      const message = raw.includes('transactions.csv') || raw.includes('Invalid CSV')
+        ? raw
+        : 'Could not read this file. Make sure you selected a Zoomy export ZIP.';
+      showImportResult('error', 'Import failed', message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -210,10 +255,42 @@ export default function TransactionsModal() {
           <Text style={styles.summaryCount}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</Text>
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
-        <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-          <Text style={styles.exportBtnText}><Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export</Text>
-        </TouchableOpacity>
+        <View style={styles.summaryActions}>
+          <TouchableOpacity style={styles.exportBtn} onPress={handleImport} disabled={importing}>
+            <Text style={styles.exportBtnText}>
+              <Ionicons name="arrow-down" size={F.xs} color={C.textSecondary} /> {importing ? 'Importing…' : 'Import'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
+            <Text style={styles.exportBtnText}>
+              <Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {importResult && (
+        <TouchableOpacity
+          style={[
+            styles.importBanner,
+            importResult.variant === 'success' && styles.importBannerSuccess,
+            importResult.variant === 'error' && styles.importBannerError,
+          ]}
+          onPress={() => {
+            if (importResultTimer.current) clearTimeout(importResultTimer.current);
+            setImportResult(null);
+          }}
+          activeOpacity={0.8}
+        >
+          <View style={styles.importBannerContent}>
+            <Text style={styles.importBannerTitle}>{importResult.title}</Text>
+            {!!importResult.message && (
+              <Text style={styles.importBannerMsg}>{importResult.message}</Text>
+            )}
+          </View>
+          <Ionicons name="close" size={F.sm} color={C.textSecondary} />
+        </TouchableOpacity>
+      )}
 
       <FlatList
         data={filtered}
@@ -422,6 +499,7 @@ const styles = StyleSheet.create({
   summaryLeft: { gap: 1 },
   summaryCount: { color: C.textSecondary, fontSize: F.sm },
   summaryTotal: { color: C.pink, fontSize: F.sm, fontWeight: '700' },
+  summaryActions: { flexDirection: 'row', gap: 8 },
   exportBtn: {
     backgroundColor: C.elevated,
     borderWidth: 1,
@@ -431,6 +509,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   exportBtnText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+
+  importBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: C.elevated,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  importBannerSuccess: { backgroundColor: C.greenSubtle, borderColor: C.greenDim },
+  importBannerError: { backgroundColor: C.redSubtle, borderColor: C.redDim },
+  importBannerContent: { flex: 1 },
+  importBannerTitle: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  importBannerMsg: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
 
   list: { padding: 16, paddingTop: 10 },
   empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },

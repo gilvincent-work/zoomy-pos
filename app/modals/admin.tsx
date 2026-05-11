@@ -18,6 +18,7 @@ import { pickProductsZip } from '../../utils/import-products-csv';
 import { parseCatalog, ParseError } from '../../utils/products-csv-format';
 import { makeImageResolver } from '../../utils/import-images';
 import { upsertCatalog, type ImportSummary } from '../../db/catalog-import';
+import { useToast } from '../../components/Toast';
 
 type Step = 'verify' | 'new_pin' | 'settings';
 
@@ -33,6 +34,7 @@ export default function AdminModal() {
   const [pin, setPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [qrUris, setQrUris] = useState<QrUris>({ gcash: null, maya: null, bpi: null });
+  const { showToast } = useToast();
 
   const currentPin = step === 'verify' ? pin : newPin;
   const setCurrentPin = step === 'verify' ? setPin : setNewPin;
@@ -135,9 +137,10 @@ export default function AdminModal() {
   async function handleExportCatalog() {
     try {
       await exportProductsArchive();
+      showToast({ variant: 'success', title: 'Catalog exported' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      Alert.alert('Export failed', message);
+      showToast({ variant: 'error', title: 'Export failed', message });
     }
   }
 
@@ -151,7 +154,11 @@ export default function AdminModal() {
         parsed.variants.length === 0 &&
         parsed.bundles.length === 0
       ) {
-        Alert.alert('Nothing to import', 'No products found in archive.');
+        showToast({
+          variant: 'error',
+          title: 'Nothing to import',
+          message: 'No products found in archive.',
+        });
         return;
       }
       const productsWithImages = parsed.products.filter((p) => p.image_filename).length;
@@ -165,7 +172,11 @@ export default function AdminModal() {
       const summary = await upsertCatalog(parsed, {
         resolveImage: makeImageResolver(picked.zip),
       });
-      Alert.alert('Import complete', formatImportSummary(summary));
+      showToast({
+        variant: 'success',
+        title: 'Catalog imported',
+        message: formatImportSummary(summary),
+      });
     } catch (err) {
       const message =
         err instanceof ParseError
@@ -173,7 +184,11 @@ export default function AdminModal() {
           : err instanceof Error
           ? err.message
           : 'Unknown error';
-      Alert.alert('Import failed', `${message}\n\nNo changes were made.`);
+      showToast({
+        variant: 'error',
+        title: 'Import failed',
+        message: `${message}\nNo changes were made.`,
+      });
     }
   }
 

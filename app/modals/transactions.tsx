@@ -156,28 +156,30 @@ export default function TransactionsModal() {
     try {
       const { imported, skipped, failed, photosMissing } = await importTransactionsZip();
 
-      if (imported === 0 && skipped === 0 && failed === 0) {
-        // User cancelled picker — do nothing
-        return;
-      }
+      // User cancelled file picker — silent return
+      if (imported === 0 && skipped === 0 && failed === 0 && photosMissing === 0) return;
 
       const all = await getAllTransactions();
       setTransactions(all);
 
-      const parts: string[] = [];
-      if (imported > 0) parts.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
-      if (skipped > 0) parts.push(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
-      if (failed > 0) parts.push(`${failed} row${failed !== 1 ? 's' : ''} failed`);
-      if (photosMissing > 0) parts.push(`${photosMissing} photo${photosMissing !== 1 ? 's' : ''} missing`);
+      const lines: string[] = [];
+      if (imported > 0) lines.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
+      if (skipped > 0) lines.push(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+      if (failed > 0) lines.push(`${failed} row${failed !== 1 ? 's' : ''} could not be read`);
+      if (photosMissing > 0) lines.push(`${photosMissing} proof photo${photosMissing !== 1 ? 's' : ''} not found in ZIP`);
 
-      const message = parts.join(', ') + '.';
-      if (imported === 0 && skipped > 0) {
-        Alert.alert('Nothing new', message);
+      if (imported > 0) {
+        Alert.alert('Import complete', lines.join('\n'));
+      } else if (skipped > 0) {
+        Alert.alert('Already up to date', lines.join('\n'));
       } else {
-        Alert.alert('Import complete', message);
+        Alert.alert('Nothing imported', lines.join('\n'));
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Could not import file. Please try again.';
+      const raw = err instanceof Error ? err.message : '';
+      const message = raw.includes('transactions.csv') || raw.includes('Invalid CSV')
+        ? raw
+        : 'Could not read this file. Make sure you selected a Zoomy export ZIP.';
       Alert.alert('Import failed', message);
     } finally {
       setImporting(false);

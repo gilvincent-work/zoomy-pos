@@ -285,6 +285,13 @@ export default function POSScreen() {
             <Text style={styles.bundleBtnText}>Bundle</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.scanBtn}
+            onPress={() => router.push('/modals/scan')}
+            accessibilityLabel="Scan product"
+          >
+            <Ionicons name="scan-outline" size={20} color={C.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.chargeBtn, items.length === 0 && bundles.length === 0 && styles.chargeBtnDisabled]}
             disabled={items.length === 0 && bundles.length === 0}
             onPress={() => router.push('/modals/payment')}
@@ -576,6 +583,16 @@ const styles = StyleSheet.create({
     borderRadius: R.sm,
     borderWidth: 1,
     borderColor: C.border,
+  },
+  scanBtn: {
+    backgroundColor: C.elevated,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bundleBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
 

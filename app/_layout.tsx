@@ -31,6 +31,7 @@ export default function RootLayout() {
           <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />
           <Stack.Screen name="modals/admin" options={{ presentation: 'modal', title: '' }} />
           <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Bundle' }} />
+          <Stack.Screen name="modals/scan"   options={{ presentation: 'modal', headerShown: false }} />
         </Stack>
       </CartProvider>
     </ToastProvider>

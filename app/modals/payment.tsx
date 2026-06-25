@@ -449,9 +449,13 @@ export default function PaymentModal() {
 
         <Modal visible={qrFullScreen} animationType="fade" onRequestClose={() => setQrFullScreen(false)}>
           <TouchableOpacity style={styles.qrFullOverlay} onPress={() => setQrFullScreen(false)} activeOpacity={1}>
-            {activeQrUri && <Image source={{ uri: activeQrUri }} style={styles.qrFull} resizeMode="contain" />}
-            <Text style={styles.qrFullAmount}>₱{total.toFixed(2)}</Text>
-            <Text style={styles.qrFullHint}>Tap anywhere to close</Text>
+            <View style={styles.qrFullImageWrap}>
+              {activeQrUri && <Image source={{ uri: activeQrUri }} style={styles.qrFull} resizeMode="contain" />}
+            </View>
+            <View style={styles.qrFullFooter}>
+              <Text style={styles.qrFullAmount}>₱{total.toFixed(2)}</Text>
+              <Text style={styles.qrFullHint}>Tap anywhere to close</Text>
+            </View>
           </TouchableOpacity>
         </Modal>
         {renderConfirmationModal()}
@@ -869,10 +873,12 @@ const styles = StyleSheet.create({
   },
   fullScreenBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.md },
 
-  qrFullOverlay: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  qrFull: { width: '80%', height: '60%' },
-  qrFullAmount: { color: '#111', fontSize: F.xxl, fontWeight: '800', marginTop: 16 },
-  qrFullHint: { color: '#888', fontSize: F.sm, marginTop: 8 },
+  qrFullOverlay: { flex: 1, backgroundColor: '#fff' },
+  qrFullImageWrap: { flex: 1, padding: 16, paddingTop: 48 },
+  qrFull: { flex: 1, width: '100%' },
+  qrFullFooter: { alignItems: 'center', paddingBottom: 40, paddingTop: 4, gap: 6 },
+  qrFullAmount: { color: '#111', fontSize: F.xxl, fontWeight: '800' },
+  qrFullHint: { color: '#888', fontSize: F.sm },
 
   refInput: {
     backgroundColor: C.surface,

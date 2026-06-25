@@ -1,17 +1,12 @@
 import type { Transaction } from '../db/transactions';
+import { csvCell } from './products-csv-format';
+
+export { csvCell };
 
 export const EXPORT_HEADER = [
   '#', 'Time', 'Item', 'Flavor', 'Qty', 'Item Total', 'Transaction Total',
   'Payment Method', 'Furbaby/IG Handle', 'Proof Photo', 'Status',
 ];
-
-export function csvCell(value: string | number | null | undefined): string {
-  const str = String(value ?? '');
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
 
 // Renders in the device's local timezone; the importer re-parses with the
 // same assumption, so export and import must happen on devices in the same zone.

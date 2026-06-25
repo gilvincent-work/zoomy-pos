@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   SafeAreaView, Platform,
@@ -24,22 +24,9 @@ export default function ScanModal() {
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [results, setResults] = useState<DetectionResult[]>([]);
 
-  // Web-only gate
-  if (Platform.OS !== 'web') {
-    return (
-      <SafeAreaView style={styles.fallback}>
-        <Ionicons name="phone-portrait-outline" size={48} color={C.textMuted} />
-        <Text style={styles.fallbackTitle}>Mobile Web Only</Text>
-        <Text style={styles.fallbackBody}>
-          Open zoomy-pos in your mobile browser (Safari or Chrome) and use{' '}
-          <Text style={styles.fallbackBold}>Add to Home Screen</Text> to access product scanning.
-        </Text>
-      </SafeAreaView>
-    );
-  }
-
   // Load the TF.js model on first render
   React.useEffect(() => {
+    if (Platform.OS !== 'web') return;
     loadClassifier()
       .then(() => {
         if (!permission?.granted) {
@@ -55,10 +42,25 @@ export default function ScanModal() {
   }, []);
 
   React.useEffect(() => {
+    if (Platform.OS !== 'web') return;
     if (permission?.granted && phase === 'permission') {
       setPhase('capture');
     }
   }, [permission, phase]);
+
+  // Web-only gate — must come AFTER all hooks
+  if (Platform.OS !== 'web') {
+    return (
+      <SafeAreaView style={styles.fallback}>
+        <Ionicons name="phone-portrait-outline" size={48} color={C.textMuted} />
+        <Text style={styles.fallbackTitle}>Mobile Web Only</Text>
+        <Text style={styles.fallbackBody}>
+          Open zoomy-pos in your mobile browser (Safari or Chrome) and use{' '}
+          <Text style={styles.fallbackBold}>Add to Home Screen</Text> to access product scanning.
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   async function handleCapture() {
     if (!cameraRef.current) return;

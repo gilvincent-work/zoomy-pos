@@ -13,6 +13,8 @@ export function csvCell(value: string | number | null | undefined): string {
   return str;
 }
 
+// Renders in the device's local timezone; the importer re-parses with the
+// same assumption, so export and import must happen on devices in the same zone.
 export function formatTime(isoString: string): string {
   const d = new Date(isoString);
   const date = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });

@@ -80,7 +80,7 @@ export async function importTransaction(data: {
   isBundle?: boolean;
   status: 'completed' | 'voided';
   createdAt: string;
-  items: { productName: string; quantity: number }[];
+  items: { productName: string; quantity: number; variantName?: string | null; price?: number }[];
 }): Promise<number> {
   const db = await getDatabase();
 
@@ -94,7 +94,7 @@ export async function importTransaction(data: {
   for (const item of data.items) {
     await db.runAsync(
       'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [transactionId, 0, item.productName, 0, item.quantity, null, null]
+      [transactionId, 0, item.productName, item.price ?? 0, item.quantity, null, item.variantName ?? null]
     );
   }
 

@@ -50,6 +50,7 @@ generateSW({
     'manifest.json',
     'favicon.ico',
     'assets/icon.png',
+    'ml-model/**',
   ],
   // Workbox ignores node_modules by default — clear it so we can runtime-cache those assets
   globIgnores: [],

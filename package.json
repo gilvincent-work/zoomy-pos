@@ -12,7 +12,10 @@
   "dependencies": {
     "@expo/metro-runtime": "^55.0.10",
     "@expo/vector-icons": "^15.0.3",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.22.0",
     "expo": "~54.0.33",
+    "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-crypto": "~15.0.8",
     "expo-document-picker": "~14.0.8",

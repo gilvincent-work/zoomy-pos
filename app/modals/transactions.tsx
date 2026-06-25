@@ -26,7 +26,7 @@ const DATE_FILTERS: { key: DateFilter; label: string }[] = [
 ];
 
 const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: 'All methods', iconName: 'wallet-outline' },
   { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
   { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
   { key: 'maya', label: 'Maya', iconName: 'phone-portrait-outline' },
@@ -85,6 +85,75 @@ function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void
         <Text style={styles.photoHint}>{zoomed ? 'Tap to zoom out' : 'Tap to zoom in · Pinch to zoom'}</Text>
       </View>
     </Modal>
+  );
+}
+
+type DropdownOption<T extends string> = {
+  key: T;
+  label: string;
+  iconName?: keyof typeof Ionicons.glyphMap;
+};
+
+function Dropdown<T extends string>({
+  options,
+  selectedKey,
+  displayLabel,
+  leadingIcon,
+  onSelect,
+}: {
+  options: DropdownOption<T>[];
+  selectedKey: T;
+  displayLabel: string;
+  leadingIcon?: keyof typeof Ionicons.glyphMap;
+  onSelect: (key: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<View>(null);
+  const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  function handleOpen() {
+    triggerRef.current?.measureInWindow((x, y, width, height) => {
+      setAnchor({ left: x, top: y + height + 4, width });
+      setOpen(true);
+    });
+  }
+
+  return (
+    <View style={styles.ddWrap}>
+      <TouchableOpacity ref={triggerRef} style={styles.ddTrigger} onPress={handleOpen} activeOpacity={0.7}>
+        {leadingIcon && <Ionicons name={leadingIcon} size={F.sm} color={C.textSecondary} />}
+        <Text style={styles.ddTriggerText} numberOfLines={1}>{displayLabel}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={F.sm} color={C.textMuted} />
+      </TouchableOpacity>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
+          {anchor && (
+            <View style={[styles.ddMenu, { left: anchor.left, top: anchor.top, width: anchor.width }]}>
+              {options.map((opt) => {
+                const active = opt.key === selectedKey;
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.ddItem, active && styles.ddItemActive]}
+                    onPress={() => { setOpen(false); onSelect(opt.key); }}
+                    activeOpacity={0.7}
+                  >
+                    {opt.iconName && (
+                      <Ionicons name={opt.iconName} size={F.sm} color={active ? C.pink : C.textMuted} />
+                    )}
+                    <Text style={[styles.ddItemText, active && styles.ddItemTextActive]} numberOfLines={1}>
+                      {opt.label}
+                    </Text>
+                    {active && <Ionicons name="checkmark" size={F.sm} color={C.pink} style={styles.ddCheck} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </TouchableOpacity>
+      </Modal>
+    </View>
   );
 }
 
@@ -218,34 +287,24 @@ export default function TransactionsModal() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.filterRow}>
-        {DATE_FILTERS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterBtn, dateFilter === f.key && styles.filterBtnActive]}
-            onPress={() => handleDateFilterPress(f.key)}
-          >
-            <Text style={[styles.filterText, dateFilter === f.key && styles.filterTextActive]} numberOfLines={1}>
-              {f.key === 'custom' && dateFilter === 'custom' && customRange
-                ? formatRangeLabel(customRange)
-                : f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={styles.methodRow}>
-        {METHOD_FILTERS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.methodBtn, methodFilter === f.key && styles.methodBtnActive]}
-            onPress={() => setMethodFilter(f.key)}
-          >
-            <Text style={[styles.methodText, methodFilter === f.key && styles.methodTextActive]}>
-              {f.iconName && <Ionicons name={f.iconName} size={F.xs} color={methodFilter === f.key ? C.textPrimary : C.textMuted} />}
-              {f.iconName ? ' ' : ''}{f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <Dropdown
+          options={DATE_FILTERS}
+          selectedKey={dateFilter}
+          leadingIcon="calendar-outline"
+          displayLabel={
+            dateFilter === 'custom' && customRange
+              ? formatRangeLabel(customRange)
+              : DATE_FILTERS.find((f) => f.key === dateFilter)?.label ?? 'Today'
+          }
+          onSelect={handleDateFilterPress}
+        />
+        <Dropdown
+          options={METHOD_FILTERS}
+          selectedKey={methodFilter}
+          leadingIcon={METHOD_FILTERS.find((f) => f.key === methodFilter)?.iconName ?? 'wallet-outline'}
+          displayLabel={METHOD_FILTERS.find((f) => f.key === methodFilter)?.label ?? 'All methods'}
+          onSelect={setMethodFilter}
+        />
       </View>
 
       <View style={styles.summaryBar}>
@@ -477,28 +536,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
   filterRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4,
+    flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
   },
-  filterBtn: {
-    flex: 1, paddingVertical: 9, borderRadius: R.sm,
-    backgroundColor: C.elevated, alignItems: 'center',
-    borderWidth: 1, borderColor: C.borderDark,
-  },
-  filterBtnActive: { backgroundColor: C.pink, borderColor: C.pink },
-  filterText: { color: C.textMuted, fontSize: F.sm, fontWeight: '700' },
-  filterTextActive: { color: '#fff' },
 
-  methodRow: {
-    flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4,
+  ddWrap: { flex: 1 },
+  ddTrigger: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 11, paddingHorizontal: 12, borderRadius: R.sm,
+    backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border,
   },
-  methodBtn: {
-    flex: 1, paddingVertical: 7, borderRadius: R.sm,
-    backgroundColor: C.surface, alignItems: 'center',
-    borderWidth: 1, borderColor: C.borderDark,
+  ddTriggerText: { flex: 1, color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  ddOverlay: { flex: 1 },
+  ddMenu: {
+    position: 'absolute',
+    backgroundColor: C.surface,
+    borderRadius: R.md, borderWidth: 1, borderColor: C.border,
+    paddingVertical: 4,
+    shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  methodBtnActive: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
-  methodText: { color: C.textMuted, fontSize: F.xs, fontWeight: '700' },
-  methodTextActive: { color: C.textPrimary },
+  ddItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 11, paddingHorizontal: 12,
+  },
+  ddItemActive: { backgroundColor: C.pinkSubtle },
+  ddItemText: { flex: 1, color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
+  ddItemTextActive: { color: C.textPrimary, fontWeight: '700' },
+  ddCheck: { marginLeft: 'auto' },
 
   summaryBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

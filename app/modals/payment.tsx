@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, Image,
   StyleSheet, SafeAreaView, Alert, Modal,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
@@ -64,9 +64,9 @@ export default function PaymentModal() {
 
   const canConfirmCash = tendered >= total && hasCartContent;
 
-  useEffect(() => {
-    getAllQrUris().then(setQrUris);
-  }, []);
+  useFocusEffect(
+    useCallback(() => { getAllQrUris().then(setQrUris); }, [])
+  );
 
   function handleMethodChange(m: PaymentMethod) {
     setMethod(m);

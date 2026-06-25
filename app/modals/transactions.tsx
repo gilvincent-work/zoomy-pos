@@ -5,43 +5,24 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
+import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
+import {
+  DateFilter, DateRange, getFilterRange, formatRangeLabel, formatRangeForFilename,
+} from '../../utils/date-range';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 
-type DateFilter = 'today' | 'week' | 'month' | 'all';
 type MethodFilter = 'all' | PaymentMethod;
-
-function getFilterStart(filter: DateFilter): Date | null {
-  const now = new Date();
-  switch (filter) {
-    case 'today': {
-      const d = new Date(now);
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
-    case 'week': {
-      const d = new Date(now);
-      d.setDate(d.getDate() - d.getDay());
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
-    case 'month': {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return d;
-    }
-    case 'all':
-      return null;
-  }
-}
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'week', label: 'Week' },
   { key: 'month', label: 'Month' },
   { key: 'all', label: 'All' },
+  { key: 'custom', label: 'Custom' },
 ];
 
 const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeof Ionicons.glyphMap }[] = [
@@ -111,6 +92,8 @@ export default function TransactionsModal() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
+  const [calendarVisible, setCalendarVisible] = useState(false);
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('all');
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
@@ -131,15 +114,18 @@ export default function TransactionsModal() {
 
   const filtered = useMemo(() => {
     let result = transactions;
-    const start = getFilterStart(dateFilter);
+    const { start, end } = getFilterRange(dateFilter, customRange);
     if (start) {
       result = result.filter((t) => new Date(t.created_at) >= start);
+    }
+    if (end) {
+      result = result.filter((t) => new Date(t.created_at) <= end);
     }
     if (methodFilter !== 'all') {
       result = result.filter((t) => t.payment_method === methodFilter);
     }
     return result;
-  }, [transactions, dateFilter, methodFilter]);
+  }, [transactions, dateFilter, customRange, methodFilter]);
 
   const filteredTotal = useMemo(
     () => filtered.filter((t) => t.status === 'completed').reduce((sum, t) => sum + t.total, 0),
@@ -152,11 +138,21 @@ export default function TransactionsModal() {
       return;
     }
     try {
-      const label = dateFilter === 'all' ? 'all' : dateFilter;
+      const label = dateFilter === 'custom' && customRange
+        ? formatRangeForFilename(customRange)
+        : dateFilter === 'all' ? 'all' : dateFilter;
       await exportTransactionsZip(filtered, label);
     } catch {
       Alert.alert('Export failed', 'Could not export transactions. Please try again.');
     }
+  }
+
+  function handleDateFilterPress(key: DateFilter) {
+    if (key === 'custom') {
+      setCalendarVisible(true);
+      return;
+    }
+    setDateFilter(key);
   }
 
   async function handleImport() {
@@ -226,10 +222,12 @@ export default function TransactionsModal() {
           <TouchableOpacity
             key={f.key}
             style={[styles.filterBtn, dateFilter === f.key && styles.filterBtnActive]}
-            onPress={() => setDateFilter(f.key)}
+            onPress={() => handleDateFilterPress(f.key)}
           >
-            <Text style={[styles.filterText, dateFilter === f.key && styles.filterTextActive]}>
-              {f.label}
+            <Text style={[styles.filterText, dateFilter === f.key && styles.filterTextActive]} numberOfLines={1}>
+              {f.key === 'custom' && dateFilter === 'custom' && customRange
+                ? formatRangeLabel(customRange)
+                : f.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -460,6 +458,17 @@ export default function TransactionsModal() {
           </View>
         </Modal>
       </Modal>
+
+      <CalendarRangeModal
+        visible={calendarVisible}
+        initialRange={customRange}
+        onApply={(range) => {
+          setCustomRange(range);
+          setDateFilter('custom');
+          setCalendarVisible(false);
+        }}
+        onClose={() => setCalendarVisible(false)}
+      />
     </SafeAreaView>
   );
 }

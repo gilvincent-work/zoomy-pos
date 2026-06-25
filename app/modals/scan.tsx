@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  SafeAreaView, Platform,
+  SafeAreaView, Platform, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -23,6 +23,7 @@ export default function ScanModal() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [results, setResults] = useState<DetectionResult[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   // Load the TF.js model on first render
   React.useEffect(() => {
@@ -64,6 +65,7 @@ export default function ScanModal() {
 
   async function handleCapture() {
     if (!cameraRef.current) return;
+    setScanError(null);
     setPhase('detecting');
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.8 });
@@ -87,6 +89,7 @@ export default function ScanModal() {
       setPhase('results');
     } catch (err) {
       console.error('Scan error:', err);
+      setScanError('Scan failed — please try again.');
       setPhase('capture');
     }
   }
@@ -94,12 +97,12 @@ export default function ScanModal() {
   async function handleConfirm(label: ScanLabel, quantity: number) {
     const product = await getProductByName(label.productName);
     if (!product) {
-      alert(`Product "${label.productName}" not found in catalog. Please add it first.`);
+      Alert.alert('Error', `Product "${label.productName}" not found in catalog. Please add it first.`);
       return;
     }
     const variant = await getVariantByProductIdAndName(product.id, label.variantName);
     if (!variant) {
-      alert(`Variant "${label.variantName}" not found for "${label.productName}". Please check the catalog.`);
+      Alert.alert('Error', `Variant "${label.variantName}" not found for "${label.productName}". Please check the catalog.`);
       return;
     }
     for (let i = 0; i < quantity; i++) {
@@ -168,6 +171,10 @@ export default function ScanModal() {
           <Text style={styles.hint}>
             Point at one product and tap the button
           </Text>
+
+          {scanError != null && (
+            <Text style={styles.scanErrorText}>{scanError}</Text>
+          )}
 
           {phase === 'detecting' ? (
             <View style={styles.captureArea}>
@@ -241,6 +248,7 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   loadingText: { color: C.textMuted, fontSize: F.sm },
+  scanErrorText: { color: C.textMuted, fontSize: F.xs, textAlign: 'center' },
   fallback: {
     flex: 1,
     backgroundColor: C.bg,

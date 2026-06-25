@@ -33,16 +33,6 @@ export function parseCSVRow(line: string): string[] {
   return cells;
 }
 
-export function parseItems(itemsStr: string): { productName: string; quantity: number }[] {
-  const results: { productName: string; quantity: number }[] = [];
-  const regex = /(\d+)\s+(.+?)(?=,\s+\d+|$)/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(itemsStr)) !== null) {
-    results.push({ quantity: parseInt(match[1], 10), productName: match[2].trim() });
-  }
-  return results;
-}
-
 export function parsePaymentMethod(methodStr: string): {
   paymentMethod: PaymentMethod;
   refNumber: string | null;
@@ -65,6 +55,55 @@ export function parsePaymentMethod(methodStr: string): {
   return { paymentMethod: methodMap[label] ?? 'cash', refNumber, isBundle };
 }
 
+export type ParsedItemRow = {
+  transactionNumber: string;
+  time: string;
+  productName: string;
+  variantName: string | null;
+  quantity: number;
+  itemTotal: number;
+  transactionTotal: number;
+  paymentMethod: string;
+  customerHandle: string;
+  proofPhoto: string;
+  status: string;
+};
+
+export function parseItemRow(cells: string[]): ParsedItemRow {
+  const [num, time, item, flavor, qty, itemTotal, txnTotal, method, handle, photo, status] = cells;
+  return {
+    transactionNumber: num,
+    time,
+    productName: item,
+    variantName: flavor.trim() ? flavor : null,
+    quantity: parseInt(qty, 10),
+    itemTotal: parseFloat(itemTotal.replace('₱', '')),
+    transactionTotal: parseFloat(txnTotal.replace('₱', '')),
+    paymentMethod: method,
+    customerHandle: handle,
+    proofPhoto: photo,
+    status,
+  };
+}
+
+export function groupRowsByTransaction(rows: ParsedItemRow[]): ParsedItemRow[][] {
+  const groups: ParsedItemRow[][] = [];
+  let current: ParsedItemRow[] = [];
+  let currentNumber: string | null = null;
+
+  for (const row of rows) {
+    if (row.transactionNumber !== currentNumber) {
+      if (current.length) groups.push(current);
+      current = [];
+      currentNumber = row.transactionNumber;
+    }
+    current.push(row);
+  }
+  if (current.length) groups.push(current);
+
+  return groups;
+}
+
 export async function processCSV(csvText: string, zip: JSZip): Promise<ImportResult> {
   const lines = csvText.split('\n').filter((l) => l.trim());
   const [header, ...dataLines] = lines;
@@ -73,29 +112,41 @@ export async function processCSV(csvText: string, zip: JSZip): Promise<ImportRes
 
   let imported = 0, skipped = 0, failed = 0, photosMissing = 0;
 
+  const parsedRows: ParsedItemRow[] = [];
   for (const line of dataLines) {
+    const cells = parseCSVRow(line);
+    if (cells.length < 11) { failed++; continue; }
+    parsedRows.push(parseItemRow(cells));
+  }
+
+  const groups = groupRowsByTransaction(parsedRows);
+
+  for (const group of groups) {
     try {
-      const cells = parseCSVRow(line);
-      if (cells.length < 8) { failed++; continue; }
-
-      const [, timeStr, itemsStr, totalStr, methodStr, handleStr, photoFilename, statusStr] = cells;
-
-      const total = parseFloat(totalStr.replace('₱', ''));
+      const first = group[0];
+      const total = first.transactionTotal;
       if (isNaN(total)) { failed++; continue; }
 
-      const createdAt = new Date(timeStr).toISOString();
+      const createdAt = new Date(first.time).toISOString();
       const createdAtMinute = createdAt.slice(0, 16);
 
       if (await transactionExists(createdAtMinute, total)) { skipped++; continue; }
 
-      const items = parseItems(itemsStr);
-      const { paymentMethod, refNumber, isBundle } = parsePaymentMethod(methodStr);
-      const customerHandle = handleStr.trim() || null;
-      const status: 'completed' | 'voided' = statusStr.trim() === 'VOIDED' ? 'voided' : 'completed';
+      const items = group.map((row) => ({
+        productName: row.productName,
+        variantName: row.variantName,
+        quantity: row.quantity,
+        price: row.quantity > 0 ? row.itemTotal / row.quantity : 0,
+      }));
+
+      const { paymentMethod, refNumber, isBundle } = parsePaymentMethod(first.paymentMethod);
+      const customerHandle = first.customerHandle.trim() || null;
+      const status: 'completed' | 'voided' = first.status.trim() === 'VOIDED' ? 'voided' : 'completed';
 
       let proofPhotoUri: string | undefined;
-      if (photoFilename.trim()) {
-        const photoFile = zip.file(photoFilename.trim());
+      const photoFilename = first.proofPhoto.trim();
+      if (photoFilename) {
+        const photoFile = zip.file(photoFilename);
         if (photoFile) {
           const base64 = await photoFile.async('base64');
           proofPhotoUri = `data:image/jpeg;base64,${base64}`;

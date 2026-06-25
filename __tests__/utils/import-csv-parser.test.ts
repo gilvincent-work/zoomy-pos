@@ -1,4 +1,4 @@
-import { parseCSVRow, parseItems, parsePaymentMethod, processCSV } from '../../utils/import-csv-parser';
+import { parseCSVRow, parsePaymentMethod, parseItemRow, groupRowsByTransaction, processCSV } from '../../utils/import-csv-parser';
 
 jest.mock('../../db/transactions', () => ({
   importTransaction: jest.fn().mockResolvedValue(1),
@@ -32,27 +32,6 @@ describe('parseCSVRow', () => {
   });
 });
 
-describe('parseItems', () => {
-  it('parses a single item', () => {
-    expect(parseItems('1 jerky treats')).toEqual([
-      { quantity: 1, productName: 'jerky treats' },
-    ]);
-  });
-
-  it('parses multiple items', () => {
-    expect(parseItems('2 dog food, 1 cat toy')).toEqual([
-      { quantity: 2, productName: 'dog food' },
-      { quantity: 1, productName: 'cat toy' },
-    ]);
-  });
-
-  it('handles product names with numbers', () => {
-    expect(parseItems('1 2kg dog food')).toEqual([
-      { quantity: 1, productName: '2kg dog food' },
-    ]);
-  });
-});
-
 describe('parsePaymentMethod', () => {
   it('maps GCash label to gcash', () => {
     expect(parsePaymentMethod('GCash')).toMatchObject({ paymentMethod: 'gcash', refNumber: null, isBundle: false });
@@ -83,25 +62,91 @@ describe('parsePaymentMethod', () => {
   });
 });
 
+describe('parseItemRow', () => {
+  it('parses a row with a flavor', () => {
+    const cells = ['1', 'Apr 24, 2026 03:36 PM', 'Jerky Treats', 'Chicken', '2', '₱200.00', '₱200.00', 'GCash', '@zoomypets', 'proof_txn_1.jpg', ''];
+    expect(parseItemRow(cells)).toEqual({
+      transactionNumber: '1',
+      time: 'Apr 24, 2026 03:36 PM',
+      productName: 'Jerky Treats',
+      variantName: 'Chicken',
+      quantity: 2,
+      itemTotal: 200,
+      transactionTotal: 200,
+      paymentMethod: 'GCash',
+      customerHandle: '@zoomypets',
+      proofPhoto: 'proof_txn_1.jpg',
+      status: '',
+    });
+  });
+
+  it('treats a blank Flavor cell as null', () => {
+    const cells = ['1', 'Apr 24, 2026 03:36 PM', 'Mango Juice', '', '1', '₱40.00', '₱40.00', 'Cash', '', '', ''];
+    expect(parseItemRow(cells).variantName).toBeNull();
+  });
+});
+
+describe('groupRowsByTransaction', () => {
+  it('groups consecutive rows sharing the same transaction number', () => {
+    const rows = [
+      parseItemRow(['1', 't', 'A', '', '1', '₱10.00', '₱50.00', 'Cash', '', '', '']),
+      parseItemRow(['1', 't', 'B', '', '1', '₱40.00', '₱50.00', 'Cash', '', '', '']),
+      parseItemRow(['2', 't', 'C', '', '1', '₱10.00', '₱10.00', 'Cash', '', '', '']),
+    ];
+    const groups = groupRowsByTransaction(rows);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toHaveLength(2);
+    expect(groups[1]).toHaveLength(1);
+  });
+});
+
 describe('processCSV', () => {
   const mockZip = {
     file: jest.fn().mockReturnValue({
       async: jest.fn().mockResolvedValue('base64photodata'),
     }),
   };
+  const header = '#,Time,Item,Flavor,Qty,Item Total,Transaction Total,Payment Method,Furbaby/IG Handle,Proof Photo,Status';
 
   const sampleCSV = [
-    '#,Time,Qty. & Items,Total Sales,Payment Method,Furbaby/IG Handle,Proof Photo,Status',
-    '1,"Apr 24, 2026 03:36 PM",1 jerky treats,₱140.00,GCash,,proof_txn_1.jpg,',
+    header,
+    '1,"Apr 24, 2026 03:36 PM",jerky treats,,1,₱140.00,₱140.00,GCash,,proof_txn_1.jpg,',
   ].join('\n');
 
   it('imports one transaction and returns correct counts', async () => {
     const result = await processCSV(sampleCSV, mockZip as any);
     expect(result).toEqual({ imported: 1, skipped: 0, failed: 0, photosMissing: 0 });
     expect(mockImport).toHaveBeenCalledTimes(1);
+    expect(mockImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        total: 140,
+        items: [{ productName: 'jerky treats', variantName: null, quantity: 1, price: 140 }],
+      })
+    );
   });
 
-  it('skips duplicate transactions', async () => {
+  it('groups a multi-item transaction into a single import call with both items', async () => {
+    const multiItemCSV = [
+      header,
+      '1,"Apr 24, 2026 03:36 PM",Jerky Treats,Chicken,1,₱100.00,₱140.00,GCash,,,',
+      '1,"Apr 24, 2026 03:36 PM",Mango Juice,,1,₱40.00,₱140.00,GCash,,,',
+    ].join('\n');
+
+    const result = await processCSV(multiItemCSV, mockZip as any);
+    expect(result.imported).toBe(1);
+    expect(mockImport).toHaveBeenCalledTimes(1);
+    expect(mockImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        total: 140,
+        items: [
+          { productName: 'Jerky Treats', variantName: 'Chicken', quantity: 1, price: 100 },
+          { productName: 'Mango Juice', variantName: null, quantity: 1, price: 40 },
+        ],
+      })
+    );
+  });
+
+  it('skips duplicate transactions using the Transaction Total column', async () => {
     mockExists.mockResolvedValueOnce(true);
     const result = await processCSV(sampleCSV, mockZip as any);
     expect(result).toEqual({ imported: 0, skipped: 1, failed: 0, photosMissing: 0 });
@@ -120,8 +165,8 @@ describe('processCSV', () => {
 
   it('imports voided transactions correctly', async () => {
     const voidedCSV = [
-      '#,Time,Qty. & Items,Total Sales,Payment Method,Furbaby/IG Handle,Proof Photo,Status',
-      '1,"Apr 24, 2026 03:36 PM",1 jerky treats,₱140.00,Cash,,,VOIDED',
+      header,
+      '1,"Apr 24, 2026 03:36 PM",jerky treats,,1,₱140.00,₱140.00,Cash,,,VOIDED',
     ].join('\n');
     await processCSV(voidedCSV, mockZip as any);
     expect(mockImport).toHaveBeenCalledWith(
@@ -129,11 +174,8 @@ describe('processCSV', () => {
     );
   });
 
-  it('counts failed for unparseable rows', async () => {
-    const badCSV = [
-      '#,Time,Qty. & Items,Total Sales,Payment Method,Furbaby/IG Handle,Proof Photo,Status',
-      'not,enough,cells',
-    ].join('\n');
+  it('counts failed for rows with too few cells', async () => {
+    const badCSV = [header, 'not,enough,cells'].join('\n');
     const result = await processCSV(badCSV, mockZip as any);
     expect(result).toMatchObject({ imported: 0, failed: 1 });
   });

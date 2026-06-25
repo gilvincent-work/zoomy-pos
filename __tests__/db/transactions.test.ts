@@ -172,6 +172,28 @@ describe('importTransaction', () => {
     );
   });
 
+  it('inserts the provided price and variant_name when given', async () => {
+    mockDb.runAsync
+      .mockResolvedValueOnce({ lastInsertRowId: 42, changes: 1 })
+      .mockResolvedValue({ lastInsertRowId: 99, changes: 1 });
+
+    await importTransaction({
+      total: 140,
+      cashTendered: 140,
+      change: 0,
+      paymentMethod: 'gcash',
+      status: 'completed',
+      createdAt: '2026-04-24T07:36:00.000Z',
+      items: [{ productName: 'jerky treats', quantity: 1, variantName: 'Chicken', price: 140 }],
+    });
+
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [42, 0, 'jerky treats', 140, 1, null, 'Chicken']
+    );
+  });
+
   it('stores voided status correctly', async () => {
     mockDb.runAsync.mockResolvedValue({ lastInsertRowId: 1, changes: 1 });
 

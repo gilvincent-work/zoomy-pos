@@ -8,5 +8,7 @@ module.exports = {
     '^expo-sqlite$': '<rootDir>/__mocks__/expo-sqlite.ts',
     '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.ts',
     '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system/legacy.ts',
+    '^expo-font$': '<rootDir>/__mocks__/expo-font.ts',
+    '^@expo/vector-icons/Ionicons$': '<rootDir>/__mocks__/ionicons.ts',
   },
 };

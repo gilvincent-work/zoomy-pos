@@ -10,5 +10,7 @@ module.exports = {
     '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system/legacy.ts',
     '^expo-font$': '<rootDir>/__mocks__/expo-font.ts',
     '^@expo/vector-icons/Ionicons$': '<rootDir>/__mocks__/ionicons.ts',
+    '^@tensorflow/tfjs$': '<rootDir>/__mocks__/@tensorflow/tfjs.ts',
+    '^@tensorflow/tfjs-backend-webgl$': '<rootDir>/__mocks__/@tensorflow/tfjs-backend-webgl.ts',
   },
 };

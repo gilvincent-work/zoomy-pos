@@ -42,6 +42,44 @@ class HardSilu extends tf.serialization.Serializable {
 }
 tf.serialization.registerClass(HardSilu);
 
+// MobileNetV3's SE hard_sigmoid decomposes as (x+3) then (relu6/6).
+// Keras 3 serializes these as Add/Multiply with a scalar second arg, which
+// TF.js's merge layers can't handle. We rename them ScalarAdd/ScalarMultiply
+// in model.json and register them here.
+class ScalarAdd extends tf.layers.Layer {
+  private readonly scalar: number;
+  constructor(config: { scalar: number; [k: string]: unknown }) {
+    super(config as tf.serialization.ConfigDict);
+    this.scalar = config.scalar as number;
+  }
+  call(inputs: tf.Tensor | tf.Tensor[]): tf.Tensor {
+    const x = Array.isArray(inputs) ? inputs[0] : inputs;
+    return tf.add(x, this.scalar);
+  }
+  getConfig(): tf.serialization.ConfigDict {
+    return { ...super.getConfig(), scalar: this.scalar };
+  }
+  static get className(): string { return 'ScalarAdd'; }
+}
+tf.serialization.registerClass(ScalarAdd);
+
+class ScalarMultiply extends tf.layers.Layer {
+  private readonly scalar: number;
+  constructor(config: { scalar: number; [k: string]: unknown }) {
+    super(config as tf.serialization.ConfigDict);
+    this.scalar = config.scalar as number;
+  }
+  call(inputs: tf.Tensor | tf.Tensor[]): tf.Tensor {
+    const x = Array.isArray(inputs) ? inputs[0] : inputs;
+    return tf.mul(x, this.scalar);
+  }
+  getConfig(): tf.serialization.ConfigDict {
+    return { ...super.getConfig(), scalar: this.scalar };
+  }
+  static get className(): string { return 'ScalarMultiply'; }
+}
+tf.serialization.registerClass(ScalarMultiply);
+
 // TF.js 4.22's GlobalAveragePooling2D ignores keepdims=True, always outputting
 // a 2D tensor. MobileNetV3's Squeeze-and-Excite blocks need keepdims=True so
 // the output stays 4D ([batch,1,1,C]) for the subsequent Conv2D. We overwrite

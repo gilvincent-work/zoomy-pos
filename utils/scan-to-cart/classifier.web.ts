@@ -125,10 +125,30 @@ tf.serialization.registerClass(GlobalAveragePooling2DKeepdims);
 
 let model: tf.LayersModel | null = null;
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms),
+    ),
+  ]);
+}
+
 export async function loadClassifier(): Promise<void> {
   if (model) return;
-  await tf.ready();
-  model = await tf.loadLayersModel('/ml-model/model.json');
+
+  console.log('[classifier] step 1: tf.ready()…');
+  await withTimeout(tf.ready(), 15_000, 'tf.ready()');
+
+  console.log('[classifier] step 2: tf.loadLayersModel…');
+  const loaded = await withTimeout(
+    tf.loadLayersModel('/ml-model/model.json'),
+    60_000,
+    'tf.loadLayersModel',
+  );
+
+  console.log('[classifier] model loaded:', loaded.name);
+  model = loaded;
 }
 
 export async function classifyImage(canvas: HTMLCanvasElement): Promise<DetectionResult[]> {

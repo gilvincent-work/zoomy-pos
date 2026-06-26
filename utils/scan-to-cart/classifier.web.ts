@@ -25,9 +25,22 @@ class RescalingLayer extends tf.layers.Layer {
   getConfig(): tf.serialization.ConfigDict {
     return { ...super.getConfig(), scale: this.scaleVal, offset: this.offsetVal };
   }
-  static override get className() { return 'Rescaling'; }
+  static get className() { return 'Rescaling'; }
 }
 tf.serialization.registerClass(RescalingLayer);
+
+// MobileNetV3's hard_swish activation. Keras 3 serializes it as 'hard_silu',
+// which TF.js camelCases to 'hardSilu' during deserialization. TF.js 4.22
+// does not ship this activation, so we register it manually.
+// Formula: x * clip(x + 3, 0, 6) / 6
+class HardSilu extends tf.serialization.Serializable {
+  apply(x: tf.Tensor): tf.Tensor {
+    return tf.tidy(() => tf.mul(x, tf.div(tf.clipByValue(tf.add(x, 3), 0, 6), 6)));
+  }
+  getConfig(): tf.serialization.ConfigDict { return {}; }
+  static get className(): string { return 'hardSilu'; }
+}
+tf.serialization.registerClass(HardSilu);
 
 let model: tf.LayersModel | null = null;
 

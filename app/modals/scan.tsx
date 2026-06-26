@@ -37,7 +37,7 @@ export default function ScanModal() {
         }
       })
       .catch((err) => {
-        setLoadError(err.message);
+        setLoadError(err.message || 'Model failed to load');
         setPhase('loading');
       });
   }, []);
@@ -111,7 +111,7 @@ export default function ScanModal() {
     router.back();
   }
 
-  if (loadError) {
+  if (loadError != null) {
     return (
       <SafeAreaView style={styles.fallback}>
         <Ionicons name="warning-outline" size={40} color={C.textMuted} />

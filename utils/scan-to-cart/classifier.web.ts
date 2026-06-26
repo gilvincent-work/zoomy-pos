@@ -137,45 +137,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 export async function loadClassifier(): Promise<void> {
   if (model) return;
 
-  console.log('[classifier] step 1: tf.ready()…');
   await withTimeout(tf.ready(), 15_000, 'tf.ready()');
 
-  // Split network fetch from model-build to pin down where the hang is.
-  console.log('[classifier] step 2a: fetching model artifacts (JSON + weights)…');
   const ioHandler = tf.io.http('/ml-model/model.json');
   const artifacts = await withTimeout(
     (ioHandler as { load: () => Promise<tf.io.ModelArtifacts> }).load(),
     60_000,
     'artifact fetch',
   );
-  console.log(
-    '[classifier] step 2a done — weightData byteLength:',
-    artifacts.weightData instanceof ArrayBuffer
-      ? artifacts.weightData.byteLength
-      : (artifacts.weightData as unknown as { byteLength?: number })?.byteLength ?? 'n/a',
-  );
 
-  // Step 2b-topology: build model graph without weights (fastWeightInit=false, no weight loading).
-  // This isolates topology-build from weight-decode so we know which phase hangs.
-  console.log('[classifier] step 2b-topology: building topology (no weights)…');
-  const noWeightsArtifacts = { ...artifacts, weightData: null as unknown, weightSpecs: undefined } as tf.io.ModelArtifacts;
-  const topologyModel = await withTimeout(
-    tf.loadLayersModel(tf.io.fromMemory(noWeightsArtifacts)),
-    30_000,
-    'topology build',
-  );
-  console.log('[classifier] step 2b-topology done, layers:', topologyModel.layers.length);
-  topologyModel.dispose();
-
-  // Step 2b-weights: build model + decode + load weights.
-  console.log('[classifier] step 2b-weights: full model build with weights…');
   const loaded = await withTimeout(
     tf.loadLayersModel(tf.io.fromMemory(artifacts)),
     60_000,
-    'model build with weights',
+    'model build',
   );
 
-  console.log('[classifier] model loaded:', loaded.name);
   model = loaded;
 }
 

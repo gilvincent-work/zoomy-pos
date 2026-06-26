@@ -155,11 +155,24 @@ export async function loadClassifier(): Promise<void> {
       : (artifacts.weightData as unknown as { byteLength?: number })?.byteLength ?? 'n/a',
   );
 
-  console.log('[classifier] step 2b: deserializing topology + loading weights…');
+  // Step 2b-topology: build model graph without weights (fastWeightInit=false, no weight loading).
+  // This isolates topology-build from weight-decode so we know which phase hangs.
+  console.log('[classifier] step 2b-topology: building topology (no weights)…');
+  const noWeightsArtifacts = { ...artifacts, weightData: null as unknown, weightSpecs: undefined } as tf.io.ModelArtifacts;
+  const topologyModel = await withTimeout(
+    tf.loadLayersModel(tf.io.fromMemory(noWeightsArtifacts)),
+    30_000,
+    'topology build',
+  );
+  console.log('[classifier] step 2b-topology done, layers:', topologyModel.layers.length);
+  topologyModel.dispose();
+
+  // Step 2b-weights: build model + decode + load weights.
+  console.log('[classifier] step 2b-weights: full model build with weights…');
   const loaded = await withTimeout(
     tf.loadLayersModel(tf.io.fromMemory(artifacts)),
     60_000,
-    'model build',
+    'model build with weights',
   );
 
   console.log('[classifier] model loaded:', loaded.name);

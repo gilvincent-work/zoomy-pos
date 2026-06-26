@@ -42,6 +42,49 @@ class HardSilu extends tf.serialization.Serializable {
 }
 tf.serialization.registerClass(HardSilu);
 
+// TF.js 4.22's GlobalAveragePooling2D ignores keepdims=True, always outputting
+// a 2D tensor. MobileNetV3's Squeeze-and-Excite blocks need keepdims=True so
+// the output stays 4D ([batch,1,1,C]) for the subsequent Conv2D. We overwrite
+// the built-in registration — tf.serialization.registerClass silently replaces
+// any previously registered class with the same className.
+class GlobalAveragePooling2DKeepdims extends tf.layers.Layer {
+  private readonly keepdims: boolean;
+  private readonly dataFmt: string;
+
+  constructor(config: { keepdims?: boolean; data_format?: string; [k: string]: unknown }) {
+    super(config as tf.serialization.ConfigDict);
+    this.keepdims = (config.keepdims as boolean) ?? false;
+    this.dataFmt = (config.data_format as string) ?? 'channels_last';
+  }
+
+  computeOutputShape(inputShape: tf.Shape | tf.Shape[]): tf.Shape | tf.Shape[] {
+    const s = inputShape as tf.Shape;
+    if (this.keepdims) {
+      return this.dataFmt === 'channels_last'
+        ? [s[0], 1, 1, s[3]]
+        : [s[0], s[1], 1, 1];
+    }
+    return this.dataFmt === 'channels_last'
+      ? [s[0], s[3]]
+      : [s[0], s[1]];
+  }
+
+  call(inputs: tf.Tensor | tf.Tensor[]): tf.Tensor {
+    return tf.tidy(() => {
+      const x = (Array.isArray(inputs) ? inputs[0] : inputs) as tf.Tensor4D;
+      const axes = this.dataFmt === 'channels_last' ? [1, 2] : [2, 3];
+      return tf.mean(x, axes, this.keepdims);
+    });
+  }
+
+  getConfig(): tf.serialization.ConfigDict {
+    return { ...super.getConfig(), keepdims: this.keepdims, data_format: this.dataFmt };
+  }
+
+  static get className(): string { return 'GlobalAveragePooling2D'; }
+}
+tf.serialization.registerClass(GlobalAveragePooling2DKeepdims);
+
 let model: tf.LayersModel | null = null;
 
 export async function loadClassifier(): Promise<void> {

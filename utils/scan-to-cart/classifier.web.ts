@@ -140,11 +140,26 @@ export async function loadClassifier(): Promise<void> {
   console.log('[classifier] step 1: tf.ready()…');
   await withTimeout(tf.ready(), 15_000, 'tf.ready()');
 
-  console.log('[classifier] step 2: tf.loadLayersModel…');
-  const loaded = await withTimeout(
-    tf.loadLayersModel('/ml-model/model.json'),
+  // Split network fetch from model-build to pin down where the hang is.
+  console.log('[classifier] step 2a: fetching model artifacts (JSON + weights)…');
+  const ioHandler = tf.io.http('/ml-model/model.json');
+  const artifacts = await withTimeout(
+    (ioHandler as { load: () => Promise<tf.io.ModelArtifacts> }).load(),
     60_000,
-    'tf.loadLayersModel',
+    'artifact fetch',
+  );
+  console.log(
+    '[classifier] step 2a done — weightData byteLength:',
+    artifacts.weightData instanceof ArrayBuffer
+      ? artifacts.weightData.byteLength
+      : (artifacts.weightData as unknown as { byteLength?: number })?.byteLength ?? 'n/a',
+  );
+
+  console.log('[classifier] step 2b: deserializing topology + loading weights…');
+  const loaded = await withTimeout(
+    tf.loadLayersModel(tf.io.fromMemory(artifacts)),
+    60_000,
+    'model build',
   );
 
   console.log('[classifier] model loaded:', loaded.name);

@@ -122,14 +122,15 @@ export function DetectionResultsSheet({
                   </TouchableOpacity>
                 ) : (
                   <View style={styles.cardActions}>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(i, -1)}>
+                    <TouchableOpacity testID="qty-decrement" style={styles.qtyBtn} onPress={() => updateQty(i, -1)}>
                       <Ionicons name="remove" size={15} color={C.textPrimary} />
                     </TouchableOpacity>
-                    <Text style={styles.qtyValue}>{qty}</Text>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(i, 1)}>
+                    <Text testID="qty-value" style={styles.qtyValue}>{qty}</Text>
+                    <TouchableOpacity testID="qty-increment" style={styles.qtyBtn} onPress={() => updateQty(i, 1)}>
                       <Ionicons name="add" size={15} color={C.textPrimary} />
                     </TouchableOpacity>
                     <TouchableOpacity
+                      testID="remove-btn"
                       style={styles.removeBtn}
                       onPress={() => updateQty(i, -qty)}
                     >

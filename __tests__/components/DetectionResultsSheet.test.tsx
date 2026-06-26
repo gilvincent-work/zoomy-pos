@@ -2,12 +2,19 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { DetectionResultsSheet } from '../../components/DetectionResultsSheet';
 import { SCAN_LABELS } from '../../utils/scan-to-cart/labels';
-import type { DetectionResult } from '../../utils/scan-to-cart/classifier';
+import type { DetectedProduct } from '../../utils/scan-to-cart/detector';
 
-const makeResults = (): DetectionResult[] => [
-  { label: SCAN_LABELS[6],  confidence: 0.92, classIndex: 6  },
-  { label: SCAN_LABELS[2],  confidence: 0.05, classIndex: 2  },
-  { label: SCAN_LABELS[10], confidence: 0.02, classIndex: 10 },
+const makeDet = (classIndex: number, confidence = 0.9): DetectedProduct => ({
+  bbox: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 },
+  classIndex,
+  label: SCAN_LABELS[classIndex],
+  confidence,
+});
+
+const makeResults = (): DetectedProduct[] => [
+  makeDet(6,  0.92),   // Freeze-Dried Munchies — Salmon
+  makeDet(2,  0.75),   // Freeze-Dried Munchies — Chicken Breast
+  makeDet(10, 0.60),   // Meaty Treats — Duck Strips
 ];
 
 const baseProps = {
@@ -21,7 +28,7 @@ const baseProps = {
 describe('DetectionResultsSheet', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('renders top-3 result cards', () => {
+  it('renders a card for each detected product', () => {
     const { getByText } = render(<DetectionResultsSheet {...baseProps} />);
     expect(getByText('Freeze-Dried Munchies — Salmon')).toBeTruthy();
     expect(getByText('Freeze-Dried Munchies — Chicken Breast')).toBeTruthy();
@@ -30,47 +37,79 @@ describe('DetectionResultsSheet', () => {
 
   it('shows confidence percentage on each card', () => {
     const { getByText } = render(<DetectionResultsSheet {...baseProps} />);
-    expect(getByText('92%')).toBeTruthy();
+    expect(getByText('92% confidence')).toBeTruthy();
+    expect(getByText('75% confidence')).toBeTruthy();
   });
 
-  it('top result is selected by default', () => {
-    const { getByTestId } = render(<DetectionResultsSheet {...baseProps} />);
-    expect(getByTestId('result-card-0').props.accessibilityState?.selected).toBe(true);
-    expect(getByTestId('result-card-1').props.accessibilityState?.selected).toBe(false);
+  it('all cards start with quantity 1', () => {
+    const { getAllByTestId } = render(<DetectionResultsSheet {...baseProps} />);
+    const qtyValues = getAllByTestId('qty-value');
+    expect(qtyValues.length).toBe(3);
+    qtyValues.forEach(v => expect(v.props.children).toBe(1));
   });
 
-  it('tapping a different card selects it', () => {
-    const { getByTestId } = render(<DetectionResultsSheet {...baseProps} />);
-    fireEvent.press(getByTestId('result-card-1'));
-    expect(getByTestId('result-card-1').props.accessibilityState?.selected).toBe(true);
-    expect(getByTestId('result-card-0').props.accessibilityState?.selected).toBe(false);
+  it('increment button increases quantity for that card', () => {
+    const { getAllByTestId } = render(<DetectionResultsSheet {...baseProps} />);
+    fireEvent.press(getAllByTestId('qty-increment')[0]);
+    const qtyValues = getAllByTestId('qty-value');
+    expect(qtyValues[0].props.children).toBe(2);
+    expect(qtyValues[1].props.children).toBe(1);
   });
 
-  it('quantity starts at 1 and increments/decrements', () => {
-    const { getByTestId, getByText } = render(<DetectionResultsSheet {...baseProps} />);
-    expect(getByText('1')).toBeTruthy();
-    fireEvent.press(getByTestId('qty-increment'));
-    expect(getByText('2')).toBeTruthy();
-    fireEvent.press(getByTestId('qty-decrement'));
-    expect(getByText('1')).toBeTruthy();
+  it('decrement button decreases quantity but minimum is 0 (removes the card)', () => {
+    const { getAllByTestId } = render(<DetectionResultsSheet {...baseProps} />);
+    fireEvent.press(getAllByTestId('qty-decrement')[0]);
+    // qty 1 → 0: card 0 is removed, cards 1 and 2 still show qty-value
+    const qtyValues = getAllByTestId('qty-value');
+    expect(qtyValues.length).toBe(2);
+    expect(qtyValues[0].props.children).toBe(1);
   });
 
-  it('decrement does not go below 1', () => {
-    const { getByTestId, getByText } = render(<DetectionResultsSheet {...baseProps} />);
-    fireEvent.press(getByTestId('qty-decrement'));
-    expect(getByText('1')).toBeTruthy();
+  it('remove button sets quantity to 0 and shows Undo', () => {
+    const { getAllByTestId, getAllByText } = render(<DetectionResultsSheet {...baseProps} />);
+    const removeButtons = getAllByTestId('remove-btn');
+    fireEvent.press(removeButtons[0]);
+    expect(getAllByText('Undo').length).toBe(1);
   });
 
-  it('Add to Cart calls onConfirm with selected label and quantity', () => {
-    const { getByTestId, getByText } = render(<DetectionResultsSheet {...baseProps} />);
-    fireEvent.press(getByTestId('qty-increment'));
+  it('Undo restores a removed item to quantity 1', () => {
+    const { getAllByTestId, getByText, queryAllByText } = render(<DetectionResultsSheet {...baseProps} />);
+    fireEvent.press(getAllByTestId('remove-btn')[0]);
+    expect(queryAllByText('Undo').length).toBe(1);
+    fireEvent.press(getByText('Undo'));
+    expect(queryAllByText('Undo').length).toBe(0);
+  });
+
+  it('Add to Cart calls onConfirm with batch items', () => {
+    const { getAllByTestId, getByText } = render(<DetectionResultsSheet {...baseProps} />);
+    // Increment first card to qty 2
+    fireEvent.press(getAllByTestId('qty-increment')[0]);
+    fireEvent.press(getByText('Add 3 to Cart'));
+    expect(baseProps.onConfirm).toHaveBeenCalledWith([
+      { label: SCAN_LABELS[6],  quantity: 2 },
+      { label: SCAN_LABELS[2],  quantity: 1 },
+      { label: SCAN_LABELS[10], quantity: 1 },
+    ]);
+  });
+
+  it('Add to Cart is disabled when all items are removed', () => {
+    const { getAllByTestId, getByText } = render(<DetectionResultsSheet {...baseProps} />);
+    const removeButtons = getAllByTestId('remove-btn');
+    removeButtons.forEach(btn => fireEvent.press(btn));
     fireEvent.press(getByText('Add to Cart'));
-    expect(baseProps.onConfirm).toHaveBeenCalledWith(SCAN_LABELS[6], 2);
+    expect(baseProps.onConfirm).not.toHaveBeenCalled();
   });
 
   it('Scan Again calls onScanAgain', () => {
     const { getByText } = render(<DetectionResultsSheet {...baseProps} />);
     fireEvent.press(getByText('Scan Again'));
     expect(baseProps.onScanAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows empty state when no products detected', () => {
+    const { getByText } = render(
+      <DetectionResultsSheet {...baseProps} results={[]} />,
+    );
+    expect(getByText('No products detected')).toBeTruthy();
   });
 });

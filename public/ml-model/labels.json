@@ -1,0 +1,146 @@
+[
+  {
+    "classIndex": 0,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Beef Liver",
+    "displayName": "Freeze-Dried Munchies \u2014 Beef Liver"
+  },
+  {
+    "classIndex": 1,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Capelin",
+    "displayName": "Freeze-Dried Munchies \u2014 Capelin"
+  },
+  {
+    "classIndex": 2,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Chicken Breast",
+    "displayName": "Freeze-Dried Munchies \u2014 Chicken Breast"
+  },
+  {
+    "classIndex": 3,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Chicken Egg",
+    "displayName": "Freeze-Dried Munchies \u2014 Chicken Egg"
+  },
+  {
+    "classIndex": 4,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Chicken Liver",
+    "displayName": "Freeze-Dried Munchies \u2014 Chicken Liver"
+  },
+  {
+    "classIndex": 5,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Duck Breast",
+    "displayName": "Freeze-Dried Munchies \u2014 Duck Breast"
+  },
+  {
+    "classIndex": 6,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Salmon",
+    "displayName": "Freeze-Dried Munchies \u2014 Salmon"
+  },
+  {
+    "classIndex": 7,
+    "productName": "Freeze-Dried Munchies",
+    "variantName": "Trio Pack",
+    "displayName": "Freeze-Dried Munchies \u2014 Trio Pack"
+  },
+  {
+    "classIndex": 8,
+    "productName": "Meaty Treats",
+    "variantName": "Beef Slices",
+    "displayName": "Meaty Treats \u2014 Beef Slices"
+  },
+  {
+    "classIndex": 9,
+    "productName": "Meaty Treats",
+    "variantName": "Chicken Slices",
+    "displayName": "Meaty Treats \u2014 Chicken Slices"
+  },
+  {
+    "classIndex": 10,
+    "productName": "Meaty Treats",
+    "variantName": "Duck Strips",
+    "displayName": "Meaty Treats \u2014 Duck Strips"
+  },
+  {
+    "classIndex": 11,
+    "productName": "Meaty Treats",
+    "variantName": "Salmon Cubes",
+    "displayName": "Meaty Treats \u2014 Salmon Cubes"
+  },
+  {
+    "classIndex": 12,
+    "productName": "Multivitamin Treats",
+    "variantName": "Beef",
+    "displayName": "Multivitamin Treats \u2014 Beef"
+  },
+  {
+    "classIndex": 13,
+    "productName": "Multivitamin Treats",
+    "variantName": "Chicken",
+    "displayName": "Multivitamin Treats \u2014 Chicken"
+  },
+  {
+    "classIndex": 14,
+    "productName": "Multivitamin Treats",
+    "variantName": "Duck",
+    "displayName": "Multivitamin Treats \u2014 Duck"
+  },
+  {
+    "classIndex": 15,
+    "productName": "Munchies Superfood",
+    "variantName": "Beef & Blueberry",
+    "displayName": "Munchies Superfood \u2014 Beef & Blueberry"
+  },
+  {
+    "classIndex": 16,
+    "productName": "Munchies Superfood",
+    "variantName": "Cat Grass",
+    "displayName": "Munchies Superfood \u2014 Cat Grass"
+  },
+  {
+    "classIndex": 17,
+    "productName": "Munchies Superfood",
+    "variantName": "Cat Grass (Makapal)",
+    "displayName": "Munchies Superfood \u2014 Cat Grass (Makapal)"
+  },
+  {
+    "classIndex": 18,
+    "productName": "Munchies Superfood",
+    "variantName": "Chicken & Cranberry",
+    "displayName": "Munchies Superfood \u2014 Chicken & Cranberry"
+  },
+  {
+    "classIndex": 19,
+    "productName": "Munchies Superfood",
+    "variantName": "Chicken & Pumpkin",
+    "displayName": "Munchies Superfood \u2014 Chicken & Pumpkin"
+  },
+  {
+    "classIndex": 20,
+    "productName": "Munchies Superfood",
+    "variantName": "Duck & Apple",
+    "displayName": "Munchies Superfood \u2014 Duck & Apple"
+  },
+  {
+    "classIndex": 21,
+    "productName": "Munchies Superfood",
+    "variantName": "Duck & Pear",
+    "displayName": "Munchies Superfood \u2014 Duck & Pear"
+  },
+  {
+    "classIndex": 22,
+    "productName": "Tasty Treats",
+    "variantName": "Chicken Jerky",
+    "displayName": "Tasty Treats \u2014 Chicken Jerky"
+  },
+  {
+    "classIndex": 23,
+    "productName": "Tasty Treats",
+    "variantName": "Duck Jerky",
+    "displayName": "Tasty Treats \u2014 Duck Jerky"
+  }
+]

@@ -8,6 +8,27 @@ export type DetectionResult = {
   classIndex: number;
 };
 
+// Keras 3 exports a Rescaling layer that TF.js doesn't register by default.
+// Model was trained with Rescaling(scale=2.0, offset=-1.0) to convert [0,1]→[-1,1].
+class RescalingLayer extends tf.layers.Layer {
+  private readonly scaleVal: number;
+  private readonly offsetVal: number;
+  constructor(config: { scale: number; offset: number; name?: string }) {
+    super(config as tf.serialization.ConfigDict);
+    this.scaleVal = config.scale;
+    this.offsetVal = config.offset;
+  }
+  call(inputs: tf.Tensor | tf.Tensor[]): tf.Tensor {
+    const x = Array.isArray(inputs) ? inputs[0] : inputs;
+    return x.mul(this.scaleVal).add(this.offsetVal);
+  }
+  getConfig(): tf.serialization.ConfigDict {
+    return { ...super.getConfig(), scale: this.scaleVal, offset: this.offsetVal };
+  }
+  static override get className() { return 'Rescaling'; }
+}
+tf.serialization.registerClass(RescalingLayer);
+
 let model: tf.LayersModel | null = null;
 
 export async function loadClassifier(): Promise<void> {

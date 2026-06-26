@@ -66,59 +66,66 @@ export async function detectProducts(
   const classIds  = classScores.argMax(1) as tf.Tensor1D; // [8400]
   classScores.dispose();
 
-  // Convert cx,cy,w,h (pixels) → [y1, x1, y2, x2] normalized for tf.image.nonMaxSuppression
-  const nmsBoxes = tf.tidy((): tf.Tensor2D => {
-    const s  = MODEL_INPUT_SIZE;
-    const cx = rawBoxes.slice([0, 0], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
-    const cy = rawBoxes.slice([0, 1], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
-    const bw = rawBoxes.slice([0, 2], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
-    const bh = rawBoxes.slice([0, 3], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
-    return tf.stack(
-      [cy.sub(bh.div(2)), cx.sub(bw.div(2)), cy.add(bh.div(2)), cx.add(bw.div(2))],
-      1,
-    ) as tf.Tensor2D;
-  });
+  try {
+    // Convert cx,cy,w,h (pixels) → [y1, x1, y2, x2] normalized for tf.image.nonMaxSuppression
+    const nmsBoxes = tf.tidy((): tf.Tensor2D => {
+      const s  = MODEL_INPUT_SIZE;
+      const cx = rawBoxes.slice([0, 0], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
+      const cy = rawBoxes.slice([0, 1], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
+      const bw = rawBoxes.slice([0, 2], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
+      const bh = rawBoxes.slice([0, 3], [-1, 1]).squeeze([1]).div(s) as tf.Tensor1D;
+      return tf.stack(
+        [cy.sub(bh.div(2)), cx.sub(bw.div(2)), cy.add(bh.div(2)), cx.add(bw.div(2))],
+        1,
+      ) as tf.Tensor2D;
+    });
 
-  const selectedIdx = await tf.image.nonMaxSuppressionAsync(
-    nmsBoxes,
-    maxScores,
-    MAX_DETECTIONS,
-    IOU_THRESHOLD,
-    CONF_THRESHOLD,
-  );
-  nmsBoxes.dispose();
+    const selectedIdx = await tf.image.nonMaxSuppressionAsync(
+      nmsBoxes,
+      maxScores,
+      MAX_DETECTIONS,
+      IOU_THRESHOLD,
+      CONF_THRESHOLD,
+    );
+    nmsBoxes.dispose();
 
-  const gatheredBoxes   = rawBoxes.gather(selectedIdx);
-  const gatheredScores  = maxScores.gather(selectedIdx);
-  const gatheredClasses = classIds.gather(selectedIdx);
+    const gatheredBoxes   = rawBoxes.gather(selectedIdx);
+    const gatheredScores  = maxScores.gather(selectedIdx);
+    const gatheredClasses = classIds.gather(selectedIdx);
 
-  const [boxData, scoreData, classData] = await Promise.all([
-    gatheredBoxes.array()   as Promise<number[][]>,
-    gatheredScores.array()  as Promise<number[]>,
-    gatheredClasses.array() as Promise<number[]>,
-  ]);
+    const [boxData, scoreData, classData] = await Promise.all([
+      gatheredBoxes.array()   as Promise<number[][]>,
+      gatheredScores.array()  as Promise<number[]>,
+      gatheredClasses.array() as Promise<number[]>,
+    ]);
 
-  gatheredBoxes.dispose();
-  gatheredScores.dispose();
-  gatheredClasses.dispose();
-  rawBoxes.dispose();
-  maxScores.dispose();
-  classIds.dispose();
-  selectedIdx.dispose();
+    gatheredBoxes.dispose();
+    gatheredScores.dispose();
+    gatheredClasses.dispose();
+    selectedIdx.dispose();
 
-  const s = MODEL_INPUT_SIZE;
-  return scoreData.map((confidence, i) => {
-    const [cxPx, cyPx, wPx, hPx] = boxData[i];
-    return {
-      bbox: {
-        x: (cxPx - wPx / 2) / s,
-        y: (cyPx - hPx / 2) / s,
-        w: wPx / s,
-        h: hPx / s,
-      },
-      classIndex: classData[i],
-      label: SCAN_LABELS[classData[i]],
-      confidence,
-    };
-  });
+    const s = MODEL_INPUT_SIZE;
+    return scoreData
+      .map((confidence, i): DetectedProduct | null => {
+        const label = SCAN_LABELS[classData[i]];
+        if (!label) return null;
+        const [cxPx, cyPx, wPx, hPx] = boxData[i];
+        return {
+          bbox: {
+            x: (cxPx - wPx / 2) / s,
+            y: (cyPx - hPx / 2) / s,
+            w: wPx / s,
+            h: hPx / s,
+          },
+          classIndex: classData[i],
+          label,
+          confidence,
+        };
+      })
+      .filter((d): d is DetectedProduct => d !== null);
+  } finally {
+    rawBoxes.dispose();
+    maxScores.dispose();
+    classIds.dispose();
+  }
 }

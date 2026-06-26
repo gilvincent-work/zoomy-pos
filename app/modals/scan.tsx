@@ -42,6 +42,12 @@ export default function ScanModal() {
     if (permission?.granted && phase === 'permission') setPhase('capture');
   }, [permission, phase]);
 
+  React.useEffect(() => {
+    return () => {
+      if (capturedUri) URL.revokeObjectURL(capturedUri);
+    };
+  }, [capturedUri]);
+
   if (Platform.OS !== 'web') {
     return (
       <SafeAreaView style={styles.fallback}>
@@ -79,13 +85,14 @@ export default function ScanModal() {
       setResults(detections);
       setPhase('results');
     } catch (err) {
-      console.error('Scan error:', err);
+      console.warn('Scan error:', err);
       setScanError('Scan failed — please try again.');
       setPhase('capture');
     }
   }
 
   async function handleConfirm(items: Array<{ label: ScanLabel; quantity: number }>) {
+    let anyAdded = false;
     for (const { label, quantity } of items) {
       const product = await getProductByName(label.productName);
       if (!product) {
@@ -106,8 +113,9 @@ export default function ScanModal() {
           variantName: variant.name,
         });
       }
+      anyAdded = true;
     }
-    router.back();
+    if (anyAdded) router.back();
   }
 
   if (loadError != null) {

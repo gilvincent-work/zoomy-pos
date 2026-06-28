@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
-import { loadClassifier, classifyImage, DetectionResult } from '../../utils/scan-to-cart/classifier';
+import { loadDetector, detectProducts, DetectedProduct } from '../../utils/scan-to-cart/detector';
 import { DetectionResultsSheet } from '../../components/DetectionResultsSheet';
 import { getProductByName, getVariantByProductIdAndName } from '../../db/products';
 import { useCart } from '../../context/CartContext';
@@ -22,19 +22,14 @@ export default function ScanModal() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
-  const [results, setResults] = useState<DetectionResult[]>([]);
+  const [results, setResults] = useState<DetectedProduct[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Load the TF.js model on first render
   React.useEffect(() => {
     if (Platform.OS !== 'web') return;
-    loadClassifier()
+    loadDetector()
       .then(() => {
-        if (!permission?.granted) {
-          setPhase('permission');
-        } else {
-          setPhase('capture');
-        }
+        setPhase(permission?.granted ? 'capture' : 'permission');
       })
       .catch((err) => {
         setLoadError(err.message || 'Model failed to load');
@@ -44,12 +39,15 @@ export default function ScanModal() {
 
   React.useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (permission?.granted && phase === 'permission') {
-      setPhase('capture');
-    }
+    if (permission?.granted && phase === 'permission') setPhase('capture');
   }, [permission, phase]);
 
-  // Web-only gate — must come AFTER all hooks
+  React.useEffect(() => {
+    return () => {
+      if (capturedUri) URL.revokeObjectURL(capturedUri);
+    };
+  }, [capturedUri]);
+
   if (Platform.OS !== 'web') {
     return (
       <SafeAreaView style={styles.fallback}>
@@ -68,47 +66,56 @@ export default function ScanModal() {
     setScanError(null);
     setPhase('detecting');
     try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.8 });
+      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.9 });
       setCapturedUri(photo.uri);
 
-      // Draw to canvas for TF.js inference
       const img = document.createElement('img');
       img.src = photo.uri;
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error('Failed to load captured image'));
       });
-      const canvas = document.createElement('canvas');
-      canvas.width = 224;
-      canvas.height = 224;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, 224, 224);
 
-      const detections = await classifyImage(canvas);
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 640;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, 640, 640);
+
+      const detections = await detectProducts(canvas);
       setResults(detections);
       setPhase('results');
     } catch (err) {
-      console.error('Scan error:', err);
+      console.warn('Scan error:', err);
       setScanError('Scan failed — please try again.');
       setPhase('capture');
     }
   }
 
-  async function handleConfirm(label: ScanLabel, quantity: number) {
-    const product = await getProductByName(label.productName);
-    if (!product) {
-      Alert.alert('Error', `Product "${label.productName}" not found in catalog. Please add it first.`);
-      return;
+  async function handleConfirm(items: Array<{ label: ScanLabel; quantity: number }>) {
+    let anyAdded = false;
+    for (const { label, quantity } of items) {
+      const product = await getProductByName(label.productName);
+      if (!product) {
+        Alert.alert('Error', `"${label.productName}" not found in catalog.`);
+        continue;
+      }
+      const variant = await getVariantByProductIdAndName(product.id, label.variantName);
+      if (!variant) {
+        Alert.alert('Error', `Variant "${label.variantName}" not found for "${label.productName}".`);
+        continue;
+      }
+      for (let i = 0; i < quantity; i++) {
+        addItem({
+          id: product.id,
+          name: product.name,
+          price: variant.price,
+          variantId: variant.id,
+          variantName: variant.name,
+        });
+      }
+      anyAdded = true;
     }
-    const variant = await getVariantByProductIdAndName(product.id, label.variantName);
-    if (!variant) {
-      Alert.alert('Error', `Variant "${label.variantName}" not found for "${label.productName}". Please check the catalog.`);
-      return;
-    }
-    for (let i = 0; i < quantity; i++) {
-      addItem({ id: product.id, name: product.name, price: variant.price, variantId: variant.id, variantName: variant.name });
-    }
-    router.back();
+    if (anyAdded) router.back();
   }
 
   if (loadError != null) {
@@ -168,9 +175,7 @@ export default function ScanModal() {
 
           <View style={styles.viewfinder} />
 
-          <Text style={styles.hint}>
-            Point at one product and tap the button
-          </Text>
+          <Text style={styles.hint}>Lay products flat and tap the button</Text>
 
           {scanError != null && (
             <Text style={styles.scanErrorText}>{scanError}</Text>
@@ -193,79 +198,45 @@ export default function ScanModal() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  camera: { flex: 1 },
+  container:   { flex: 1, backgroundColor: '#000' },
+  camera:      { flex: 1 },
   cameraOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 24,
-    paddingHorizontal: 20,
+    flex: 1, alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 24, paddingHorizontal: 20,
   },
   closeBtn: {
-    alignSelf: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 8,
+    alignSelf: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20, padding: 8,
   },
   viewfinder: {
-    width: 260,
-    height: 260,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.6)',
-    borderRadius: R.lg,
+    width: 280, height: 280, borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.6)', borderRadius: R.lg,
     backgroundColor: 'transparent',
   },
-  hint: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: F.sm,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  captureArea: { alignItems: 'center', gap: 10 },
-  detectingText: { color: '#fff', fontSize: F.sm, fontWeight: '700' },
+  hint:         { color: 'rgba(255,255,255,0.8)', fontSize: F.sm, fontWeight: '600', textAlign: 'center' },
+  captureArea:  { alignItems: 'center', gap: 10 },
+  detectingText:{ color: '#fff', fontSize: F.sm, fontWeight: '700' },
   captureBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 4,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 72, height: 72, borderRadius: 36, borderWidth: 4,
+    borderColor: '#fff', alignItems: 'center', justifyContent: 'center',
   },
-  captureBtnInner: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#fff',
-  },
+  captureBtnInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
+  scanErrorText: { color: C.textMuted, fontSize: F.xs, textAlign: 'center' },
   centered: {
-    flex: 1,
-    backgroundColor: C.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    padding: 32,
+    flex: 1, backgroundColor: C.bg, alignItems: 'center',
+    justifyContent: 'center', gap: 16, padding: 32,
   },
   loadingText: { color: C.textMuted, fontSize: F.sm },
-  scanErrorText: { color: C.textMuted, fontSize: F.xs, textAlign: 'center' },
   fallback: {
-    flex: 1,
-    backgroundColor: C.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 32,
+    flex: 1, backgroundColor: C.bg, alignItems: 'center',
+    justifyContent: 'center', gap: 12, padding: 32,
   },
   fallbackTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', textAlign: 'center' },
-  fallbackBody: { color: C.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 20 },
-  fallbackBold: { color: C.textSecondary, fontWeight: '700' },
+  fallbackBody:  { color: C.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 20 },
+  fallbackBold:  { color: C.textSecondary, fontWeight: '700' },
   permissionBtn: {
-    backgroundColor: C.pink,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: R.sm,
-    marginTop: 8,
+    backgroundColor: C.pink, paddingVertical: 14, paddingHorizontal: 32,
+    borderRadius: R.sm, marginTop: 8,
   },
   permissionBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

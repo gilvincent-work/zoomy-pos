@@ -4,6 +4,15 @@ Mobile POS for pet-treat bazaar sales. Expo / React Native + SQLite. Optimized f
 
 The principles below apply to **all sessions** on this project.
 
+# Context Gathering (do this first)
+
+- **A prebuilt knowledge graph lives in `graphify-out/`.** Before reading files broadly to answer a question about the codebase (architecture, "what calls X", "where does the scan flow cross into the cart", "which module owns Y"), use it instead of grepping and reading whole files. This saves tokens. What's in the folder:
+  - `graph.json` — the graph data. Query it with `graphify query "<question>"`; also `graphify explain "<symbol>"` and `graphify path "<A>" "<B>"`. It returns nodes, edges, and `source_location`s so you can jump straight to the right file/line.
+  - `GRAPH_REPORT.md` — god nodes, community labels, surprising connections, and known integrity notes.
+  - `graph.html` — interactive graph, open in a browser.
+- **Rebuild when code drifts:** `graphify . --update` re-extracts only changed files. Do this after substantial edits so the graph stays accurate; a stale graph is worse than none for a specific claim.
+- Use the graph to *locate*, then read the actual file to *act*. Don't quote the graph as ground truth for code you're about to change without confirming against the source.
+
 # Developer Best Practices
 
 - **YAGNI (You Aren't Gonna Need It)** — Build only what the current requirement needs. Don't add speculative abstractions, config options, or generality for hypothetical future cases.

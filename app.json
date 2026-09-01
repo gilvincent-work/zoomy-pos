@@ -71,6 +71,9 @@
         }
       ]
     ],
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
       "router": {},
       "eas": {

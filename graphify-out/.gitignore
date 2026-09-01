@@ -1,0 +1,4 @@
+# Machine-specific graphify state (absolute local paths / caches) — do not commit.
+.graphify_python
+.graphify_root
+cache/

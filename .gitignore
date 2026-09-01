@@ -42,3 +42,7 @@ yarn-error.*
 
 # superpowers
 .superpowers/
+
+# Vercel CLI
+.vercel
+.env*

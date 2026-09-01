@@ -14,6 +14,10 @@ concurrency:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Durable hostname for the staging branch. CLI deploys don't get the
+  # *-git-<branch>-* aliases the Vercel Git integration used to create, so we
+  # assign one ourselves.
+  STAGING_ALIAS: zoomy-pos-staging.vercel.app
 
 jobs:
   deploy:
@@ -64,6 +68,16 @@ jobs:
             echo ""
             echo "$url"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Point a fixed hostname at the newest staging build, so testers have one
+      # URL instead of a new random preview URL on every push.
+      - name: Alias staging deployment
+        if: github.ref == 'refs/heads/staging'
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          vercel alias set "$URL" "$STAGING_ALIAS" --token=${{ secrets.VERCEL_TOKEN }}
+          echo "Staging is live at https://$STAGING_ALIAS" >> "$GITHUB_STEP_SUMMARY"
 
       # Replaces the preview link the Vercel bot used to leave on PRs.
       - name: Comment deployment URL on the open pull request

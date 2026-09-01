@@ -42,6 +42,7 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
     animateTo(sheetHeight, () => setExpanded(false));
   };
 
+  // Drag-down-to-close on the expanded sheet's handle.
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
@@ -55,10 +56,26 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
     })
   ).current;
 
+  // Drag-up-to-open on the collapsed peek bar. The sheet follows the finger as
+  // it is pulled up, then settles open or back closed on release.
+  const peekPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy < -6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => setExpanded(true),
+      onPanResponderMove: (_, g) => {
+        translateY.setValue(Math.max(0, Math.min(sheetHeight, sheetHeight + g.dy)));
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy < -sheetHeight * 0.25 || g.vy < -0.3) animateTo(0);
+        else close();
+      },
+    })
+  ).current;
+
   return (
     <>
       {/* Peek bar — always visible at the bottom in portrait */}
-      <View style={styles.peek}>
+      <View style={styles.peek} {...peekPan.panHandlers}>
         <View style={styles.grabber} />
         <View style={styles.peekRow}>
           <Pressable

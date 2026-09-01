@@ -5,9 +5,22 @@ const TILE_TARGET = 110;
 const GRID_PADDING = 24;
 const MIN_COLS = 3;
 
-export function useColumns() {
-  const { width } = useWindowDimensions();
-  const numColumns = Math.max(MIN_COLS, Math.floor((width - GRID_PADDING) / TILE_TARGET));
+/**
+ * Column count for the product grid.
+ *
+ * @param availableWidth Optional width of the area the grid actually occupies.
+ *   Pass the left-pane width in the Option H landscape split-view so columns are
+ *   sized to the pane, not the whole screen. Omit for full-width layouts
+ *   (existing behavior is preserved).
+ */
+export function useColumns(availableWidth?: number) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const effectiveWidth = availableWidth ?? width;
+  const numColumns = Math.max(
+    MIN_COLS,
+    Math.floor((effectiveWidth - GRID_PADDING) / TILE_TARGET)
+  );
   const tileMaxWidth = `${100 / numColumns}%` as DimensionValue;
-  return { numColumns, tileMaxWidth };
+  return { numColumns, tileMaxWidth, isLandscape };
 }

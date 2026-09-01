@@ -229,6 +229,9 @@ export default function POSScreen() {
               <Text style={styles.clearAllHeaderText}>Clear All</Text>
             </TouchableOpacity>
           )}
+          <TouchableOpacity onPress={() => router.push('/option-h')} style={styles.headerBtn} accessibilityLabel="Split view">
+            <Ionicons name="grid-outline" size={20} color={C.textPrimary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn}>
             <Ionicons name="cube-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>

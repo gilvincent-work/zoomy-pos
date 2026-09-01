@@ -54,3 +54,4 @@ The principles below apply to **all sessions** on this project.
 - **Atomic commits** — Each commit is one logical, self-contained change that builds and passes tests on its own. Split unrelated changes into separate commits; don't bundle a refactor with a feature.
 - **Do NOT add Claude as a co-author or author** in commits. Omit any `Co-Authored-By: Claude` trailer and any Claude attribution.
 - **Branch flow** — `feature branch → develop → staging → main`. Always ask before merging into `develop`, `staging`, or `main`.
+- **Merge commit messages** — Use git's standard format `Merge branch '<source>' into <target>` (e.g. `Merge branch 'develop' into staging`, `Merge branch 'staging' into main`). Keep merge commits (`--no-ff`) when promoting between `develop`, `staging`, and `main` so each promotion is a distinct, revertable point in history for versioning before shipping.

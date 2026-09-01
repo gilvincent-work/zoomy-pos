@@ -16,17 +16,15 @@ describe('seedDevProducts', () => {
     expect(mockDb.execAsync).not.toHaveBeenCalledWith('DELETE FROM products');
   });
 
-  it('leaves a manually imported catalog untouched (products present, no seed marker)', async () => {
-    mockDb.getFirstAsync.mockResolvedValueOnce(null); // no version marker
-    mockDb.getFirstAsync.mockResolvedValueOnce({ count: 12 }); // user has products
+  it('reseeds a pre-versioning database that has no seed marker', async () => {
+    mockDb.getFirstAsync.mockResolvedValueOnce(null); // no version marker (old seed)
     await seedDevProducts();
-    expect(productInserts()).toHaveLength(0);
-    expect(mockDb.execAsync).not.toHaveBeenCalledWith('DELETE FROM products');
+    expect(mockDb.execAsync).toHaveBeenCalledWith('DELETE FROM products');
+    expect(productInserts()).toHaveLength(25);
   });
 
-  it('seeds the real catalog into an empty database and records the version', async () => {
+  it('seeds the real catalog and records the version', async () => {
     mockDb.getFirstAsync.mockResolvedValueOnce(null); // no version marker
-    mockDb.getFirstAsync.mockResolvedValueOnce({ count: 0 }); // empty catalog
     await seedDevProducts();
 
     expect(mockDb.execAsync).toHaveBeenCalledWith('DELETE FROM products');
@@ -48,7 +46,6 @@ describe('seedDevProducts', () => {
 
   it('re-seeds when a previous, different seed version is present', async () => {
     mockDb.getFirstAsync.mockResolvedValueOnce({ value: 'old-version' }); // stale marker
-    mockDb.getFirstAsync.mockResolvedValueOnce({ count: 19 }); // old seed present
     await seedDevProducts();
     expect(mockDb.execAsync).toHaveBeenCalledWith('DELETE FROM products');
     expect(productInserts()).toHaveLength(25);

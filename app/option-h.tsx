@@ -28,21 +28,19 @@ import { C, F, R } from '../constants/theme';
 
 type Selection = { category: string | null; subcategory: string | null };
 
-type LayoutPref = 'horizontal' | 'vertical';
-
 export default function OptionHScreen() {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-
-  // Layout follows device rotation by default; the toggle overrides it.
-  const [forcedLayout, setForcedLayout] = useState<LayoutPref | null>(null);
-  const layoutPref: LayoutPref = forcedLayout ?? (isLandscape ? 'horizontal' : 'vertical');
-  const useSideCart = layoutPref === 'horizontal' && isLandscape;
-  const showRotateHint = layoutPref === 'horizontal' && !isLandscape;
+  // Layout follows device rotation: landscape pins a side cart, portrait uses a sheet.
+  const useSideCart = isLandscape;
 
   const cartWidth = useSideCart ? Math.min(Math.max(width * 0.36, 300), 400) : width;
   const productPaneWidth = useSideCart ? width - cartWidth : width;
-  const { numColumns, tileMaxWidth } = useColumns(useSideCart ? productPaneWidth : undefined);
+  // Bigger, mobile-friendly tiles: 2 columns in portrait, scaling up on wider panes.
+  const { numColumns, tileMaxWidth } = useColumns(
+    useSideCart ? productPaneWidth : undefined,
+    { tileTarget: 175, minCols: 2 }
+  );
 
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
@@ -223,29 +221,6 @@ export default function OptionHScreen() {
         </View>
       </View>
 
-      <View style={styles.subHeader}>
-        <View style={styles.toggle}>
-          <TouchableOpacity
-            style={[styles.toggleBtn, layoutPref === 'horizontal' && styles.toggleBtnActive]}
-            onPress={() => setForcedLayout('horizontal')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: layoutPref === 'horizontal' }}
-          >
-            <Ionicons name="phone-landscape-outline" size={15} color={layoutPref === 'horizontal' ? '#fff' : C.textSecondary} />
-            <Text style={[styles.toggleText, layoutPref === 'horizontal' && styles.toggleTextActive]}>Horizontal</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleBtn, layoutPref === 'vertical' && styles.toggleBtnActive]}
-            onPress={() => setForcedLayout('vertical')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: layoutPref === 'vertical' }}
-          >
-            <Ionicons name="phone-portrait-outline" size={15} color={layoutPref === 'vertical' ? '#fff' : C.textSecondary} />
-            <Text style={[styles.toggleText, layoutPref === 'vertical' && styles.toggleTextActive]}>Vertical</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
       {useSideCart ? (
         <View style={styles.landscape}>
           {productPane}
@@ -255,12 +230,6 @@ export default function OptionHScreen() {
         </View>
       ) : (
         <View style={styles.portrait}>
-          {showRotateHint && (
-            <View style={styles.rotateHint}>
-              <Ionicons name="sync-outline" size={16} color={C.pink} />
-              <Text style={styles.rotateHintText}>Rotate your phone to landscape for the side cart</Text>
-            </View>
-          )}
           {productPane}
           <CartSheet onCharge={handleInstantCash} onMorePayment={handleMorePayment} />
         </View>
@@ -304,46 +273,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.borderDark,
   },
-
-  subHeader: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    alignItems: 'flex-start',
-  },
-  toggle: {
-    flexDirection: 'row',
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.borderDark,
-    borderRadius: 999,
-    padding: 3,
-    gap: 2,
-  },
-  toggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-  },
-  toggleBtnActive: { backgroundColor: C.pink },
-  toggleText: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
-  toggleTextActive: { color: '#fff' },
-
-  rotateHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
-    marginTop: 10,
-    padding: 10,
-    backgroundColor: C.pinkSubtle,
-    borderWidth: 1,
-    borderColor: C.pinkDim,
-    borderRadius: R.md,
-  },
-  rotateHintText: { color: C.textPrimary, fontSize: F.xs, fontWeight: '600', flex: 1 },
 
   landscape: { flex: 1, flexDirection: 'row' },
   portrait: { flex: 1 },

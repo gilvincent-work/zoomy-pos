@@ -42,6 +42,7 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
     animateTo(sheetHeight, () => setExpanded(false));
   };
 
+  // Drag-down-to-close on the expanded sheet's handle.
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
@@ -55,33 +56,51 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
     })
   ).current;
 
+  // Drag-up-to-open on the collapsed peek bar. The sheet follows the finger as
+  // it is pulled up, then settles open or back closed on release.
+  const peekPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy < -6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => setExpanded(true),
+      onPanResponderMove: (_, g) => {
+        translateY.setValue(Math.max(0, Math.min(sheetHeight, sheetHeight + g.dy)));
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy < -sheetHeight * 0.25 || g.vy < -0.3) animateTo(0);
+        else close();
+      },
+    })
+  ).current;
+
   return (
     <>
       {/* Peek bar — always visible at the bottom in portrait */}
-      <View style={styles.peek}>
-        <Pressable
-          testID="cart-sheet-peek"
-          style={styles.peekLeft}
-          onPress={open}
-          accessibilityRole="button"
-          accessibilityLabel="Open current sale"
-        >
-          <View style={styles.grabber} />
-          <Text style={styles.peekCount}>
-            {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
-          </Text>
-          <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
-        </Pressable>
-        <TouchableOpacity
-          testID="cart-sheet-charge"
-          style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
-          disabled={cartCount === 0}
-          onPress={onCharge}
-          onLongPress={onMorePayment}
-          delayLongPress={350}
-        >
-          <Text style={styles.peekChargeText}>Cash · Paid</Text>
-        </TouchableOpacity>
+      <View style={styles.peek} {...peekPan.panHandlers}>
+        <View style={styles.grabber} />
+        <View style={styles.peekRow}>
+          <Pressable
+            testID="cart-sheet-peek"
+            style={styles.peekLeft}
+            onPress={open}
+            accessibilityRole="button"
+            accessibilityLabel="Open current sale"
+          >
+            <Text style={styles.peekCount}>
+              {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
+            </Text>
+            <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
+          </Pressable>
+          <TouchableOpacity
+            testID="cart-sheet-charge"
+            style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
+            disabled={cartCount === 0}
+            onPress={onCharge}
+            onLongPress={onMorePayment}
+            delayLongPress={350}
+          >
+            <Text style={styles.peekChargeText}>Cash · Paid</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Expanded sheet + backdrop */}
@@ -110,14 +129,17 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
 
 const styles = StyleSheet.create({
   peek: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
+  },
+  peekRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   peekLeft: { flex: 1, gap: 2 },
   grabber: {
@@ -125,7 +147,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: C.border,
-    marginBottom: 4,
+    alignSelf: 'center',
+    marginBottom: 10,
   },
   peekCount: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
   peekTotal: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },

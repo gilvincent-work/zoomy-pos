@@ -8,13 +8,14 @@ type Props = {
   price?: number | null;
   hasVariants?: boolean;
   imageUri?: string | null;
+  emoji?: string | null;
   badgeCount: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, price, hasVariants, imageUri, badgeCount, onPress, onLongPress, onMinus }: Props) {
+export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus }: Props) {
   const active = badgeCount > 0;
   return (
     <TouchableOpacity
@@ -32,6 +33,18 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, badgeCount
       {imageUri ? (
         <>
           <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
+          <View style={styles.textArea}>
+            <Text style={styles.name} numberOfLines={2}>{name}</Text>
+            {!hasVariants && price != null && (
+              <Text style={styles.price}>₱{price.toFixed(2)}</Text>
+            )}
+          </View>
+        </>
+      ) : emoji ? (
+        <>
+          <View style={styles.emojiThumb}>
+            <Text style={styles.emojiText}>{emoji}</Text>
+          </View>
           <View style={styles.textArea}>
             <Text style={styles.name} numberOfLines={2}>{name}</Text>
             {!hasVariants && price != null && (
@@ -84,6 +97,14 @@ const styles = StyleSheet.create({
     width: '100%',
     flex: 3,
   },
+  emojiThumb: {
+    width: '100%',
+    flex: 3,
+    backgroundColor: C.elevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emojiText: { fontSize: 40, lineHeight: 46 },
   textArea: {
     flex: 1,
     width: '100%',

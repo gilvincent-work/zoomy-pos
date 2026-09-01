@@ -7,8 +7,16 @@ export type Product = {
   emoji: string;
   image_uri: string | null;
   has_variants: number;
+  category: string | null;
+  subcategory: string | null;
   is_active: number;
   created_at: string;
+};
+
+/** A category and its (possibly empty) list of subcategories, both sorted alphabetically. */
+export type CategoryGroup = {
+  category: string;
+  subcategories: string[];
 };
 
 export type ProductVariant = {
@@ -25,6 +33,36 @@ export async function getActiveProducts(): Promise<Product[]> {
   return db.getAllAsync<Product>(
     'SELECT * FROM products WHERE is_active = 1 ORDER BY name ASC'
   );
+}
+
+export const UNCATEGORIZED = 'Uncategorized';
+
+/**
+ * Derives the tab structure for the Option H split-view from the active products:
+ * distinct categories (alphabetical), each with its distinct subcategories (alphabetical).
+ * Products with no category fall under an "Uncategorized" group so nothing is hidden.
+ */
+export async function getCategoriesWithSubcategories(): Promise<CategoryGroup[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ category: string | null; subcategory: string | null }>(
+    `SELECT DISTINCT category, subcategory FROM products WHERE is_active = 1`
+  );
+
+  const map = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const cat = row.category && row.category.trim() ? row.category : UNCATEGORIZED;
+    if (!map.has(cat)) map.set(cat, new Set());
+    if (row.subcategory && row.subcategory.trim()) {
+      map.get(cat)!.add(row.subcategory);
+    }
+  }
+
+  return Array.from(map.entries())
+    .map(([category, subs]) => ({
+      category,
+      subcategories: Array.from(subs).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => a.category.localeCompare(b.category));
 }
 
 type ProductWithCount = Product & { variant_count: number };
@@ -61,13 +99,16 @@ export async function createProduct(input: {
   price: number | null;
   has_variants: boolean;
   image_uri?: string | null;
+  emoji?: string;
+  category?: string | null;
+  subcategory?: string | null;
   variants?: { name: string; price: number }[];
 }): Promise<number> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, now]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji ?? '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, input.category ?? null, input.subcategory ?? null, now]
   );
   const productId = result.lastInsertRowId;
 
@@ -91,13 +132,15 @@ export async function updateProduct(
     has_variants: boolean;
     is_active: number;
     image_uri?: string | null;
+    category?: string | null;
+    subcategory?: string | null;
     variants?: { id?: number; name: string; price: number }[];
   }
 ): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ? WHERE id = ?',
-    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, id]
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ? WHERE id = ?',
+    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, id]
   );
 
   if (fields.has_variants && fields.variants) {
@@ -166,6 +209,8 @@ export type UpsertProductInput = {
   emoji: string;
   has_variants: number;
   image_uri?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
 };
 
 export type UpsertResult = { id: number; inserted: boolean };
@@ -177,20 +222,20 @@ export async function upsertProduct(input: UpsertProductInput): Promise<UpsertRe
   if (existing) {
     if (hasImageUri) {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, input.category ?? null, input.subcategory ?? null, existing.id]
       );
     } else {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.category ?? null, input.subcategory ?? null, existing.id]
       );
     }
     return { id: existing.id, inserted: false };
   }
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, input.category ?? null, input.subcategory ?? null, new Date().toISOString()]
   );
   return { id: result.lastInsertRowId, inserted: true };
 }

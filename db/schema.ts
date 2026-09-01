@@ -122,6 +122,15 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE products ADD COLUMN image_uri TEXT`
   ).catch(() => {});
 
+  // Option H — category / subcategory for the split-view filter tabs
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN category TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN subcategory TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN remarks TEXT`
   ).catch(() => {});

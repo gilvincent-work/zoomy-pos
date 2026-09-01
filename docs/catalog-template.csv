@@ -1,0 +1,26 @@
+type,name,price,emoji,has_variants,parent_product_name,bundle_items_json,image_filename,category,subcategory
+product,Salmon,142.5,🐟,0,,,,Meaty Treats,
+product,Beef,142.5,🥩,0,,,,Meaty Treats,
+product,Duck,142.5,🦆,0,,,,Meaty Treats,
+product,Chicken,142.5,🍗,0,,,,Meaty Treats,
+product,Chicken,275,🍗,0,,,,Tasty Treats,
+product,Duck,275,🦆,0,,,,Tasty Treats,
+product,Carrot Duck,275,🥕,0,,,,Super Duo Bites,
+product,Carrot Chicken,275,🥕,0,,,,Super Duo Bites,
+product,Duck Pear,275,🍐,0,,,,Super Duo Bites,
+product,Salmon Cubes,142.5,🐟,0,,,,Freeze Dried,Fish
+product,Capelin,142.5,🐟,0,,,,Freeze Dried,Fish
+product,Lamb Liver,142.5,🍖,0,,,,Freeze Dried,Meats
+product,Duck Breast Cubes,142.5,🦆,0,,,,Freeze Dried,Meats
+product,Chicken Breast Cubes,142.5,🍗,0,,,,Freeze Dried,Meats
+product,Chicken Liver,142.5,🍗,0,,,,Freeze Dried,Meats
+product,Beef Liver,142.5,🥩,0,,,,Freeze Dried,Meats
+product,Cat Grass Cubes,142.5,🌱,0,,,,Freeze Dried,Cat Grass / Yogurt
+product,Cat Grass Sticks,142.5,🌱,0,,,,Freeze Dried,Cat Grass / Yogurt
+product,Yogurt Cubes,142.5,🥛,0,,,,Freeze Dried,Cat Grass / Yogurt
+product,Duck Apple,142.5,🍎,0,,,,Freeze Dried,Super Food
+product,Duck Pear,142.5,🍐,0,,,,Freeze Dried,Super Food
+product,Chicken Cranberry,142.5,🍒,0,,,,Freeze Dried,Super Food
+product,Chicken Pumpkin,142.5,🎃,0,,,,Freeze Dried,Super Food
+product,Salmon Steak,142.5,🐟,0,,,,Freeze Dried,Super Food
+product,Chicken and Egg,142.5,🥚,0,,,,Freeze Dried,Super Food

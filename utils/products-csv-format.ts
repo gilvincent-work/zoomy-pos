@@ -10,6 +10,20 @@ export const CATALOG_CSV_HEADER = [
   'parent_product_name',
   'bundle_items_json',
   'image_filename',
+  'category',
+  'subcategory',
+] as const;
+
+// Header used before Option H added category/subcategory. Still accepted on import.
+export const LEGACY_CATALOG_CSV_HEADER = [
+  'type',
+  'name',
+  'price',
+  'emoji',
+  'has_variants',
+  'parent_product_name',
+  'bundle_items_json',
+  'image_filename',
 ] as const;
 
 export type ParsedProduct = {
@@ -18,6 +32,8 @@ export type ParsedProduct = {
   emoji: string;
   has_variants: number;
   image_filename: string | null;
+  category: string | null;
+  subcategory: string | null;
 };
 
 export const CATALOG_CSV_NAME = 'catalog.csv';
@@ -117,6 +133,8 @@ export function serializeCatalog(
       csvCell(''),
       csvCell(''),
       csvCell(productImageFilenames.get(p.id) ?? ''),
+      csvCell(p.category ?? ''),
+      csvCell(p.subcategory ?? ''),
     ]);
   }
 
@@ -130,6 +148,8 @@ export function serializeCatalog(
         csvCell(''),
         csvCell(''),
         csvCell(p.name),
+        csvCell(''),
+        csvCell(''),
         csvCell(''),
         csvCell(''),
       ]);
@@ -154,6 +174,8 @@ export function serializeCatalog(
       csvCell(''),
       csvCell(''),
       csvCell(JSON.stringify(itemsForCsv)),
+      csvCell(''),
+      csvCell(''),
       csvCell(''),
     ]);
   }
@@ -223,16 +245,19 @@ export function parseCatalog(text: string): ParsedCatalog {
   if (rawRows.length === 0) throw new ParseError('CSV is empty', 1);
 
   const header = rawRows[0].map((h) => h.trim());
-  const expected = [...CATALOG_CSV_HEADER];
-  const headerOk =
-    header.length === expected.length &&
-    header.every((h, idx) => h === expected[idx]);
-  if (!headerOk) {
+  const matches = (expectedHeader: readonly string[]) =>
+    header.length === expectedHeader.length &&
+    header.every((h, idx) => h === expectedHeader[idx]);
+
+  const isExtended = matches(CATALOG_CSV_HEADER);
+  const isLegacy = matches(LEGACY_CATALOG_CSV_HEADER);
+  if (!isExtended && !isLegacy) {
     throw new ParseError(
-      `Header must be exactly: ${expected.join(',')}`,
+      `Header must be exactly: ${CATALOG_CSV_HEADER.join(',')} (the legacy header without category,subcategory is also accepted)`,
       1
     );
   }
+  const expected = isExtended ? [...CATALOG_CSV_HEADER] : [...LEGACY_CATALOG_CSV_HEADER];
 
   const products: ParsedProduct[] = [];
   const variants: ParsedVariant[] = [];
@@ -247,7 +272,7 @@ export function parseCatalog(text: string): ParsedCatalog {
         r + 1
       );
     }
-    const [type, name, priceStr, emoji, hasVariantsStr, parentName, bundleJson, imageFilename] =
+    const [type, name, priceStr, emoji, hasVariantsStr, parentName, bundleJson, imageFilename, categoryStr, subcategoryStr] =
       row.map((c) => c);
 
     if (type === 'product') {
@@ -270,6 +295,8 @@ export function parseCatalog(text: string): ParsedCatalog {
         emoji: emoji || '🍬',
         has_variants,
         image_filename: imageFilename ? imageFilename : null,
+        category: categoryStr && categoryStr.trim() ? categoryStr : null,
+        subcategory: subcategoryStr && subcategoryStr.trim() ? subcategoryStr : null,
       });
     } else if (type === 'variant') {
       if (!name) throw new ParseError('variant row missing name', r + 1);

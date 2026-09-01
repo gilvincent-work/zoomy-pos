@@ -47,6 +47,8 @@ export async function upsertCatalog(
         price: p.price,
         emoji: p.emoji,
         has_variants: p.has_variants,
+        category: p.category,
+        subcategory: p.subcategory,
       });
       productNameToId.set(p.name, result.id);
       if (result.inserted) summary.productsInserted += 1;

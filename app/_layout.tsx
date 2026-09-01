@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
+import { seedDevProducts } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 
@@ -10,7 +11,12 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    initSchema().then(() => setReady(true));
+    async function bootstrap() {
+      await initSchema();
+      if (__DEV__) await seedDevProducts();
+      setReady(true);
+    }
+    bootstrap();
   }, []);
 
   if (!ready) {
@@ -26,6 +32,7 @@ export default function RootLayout() {
       <CartProvider>
         <Stack screenOptions={{ headerStyle: { backgroundColor: C.bg }, headerTintColor: C.textPrimary }}>
           <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="option-h" options={{ headerShown: false }} />
           <Stack.Screen name="modals/payment" options={{ presentation: 'modal', title: 'Payment' }} />
           <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
           <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />

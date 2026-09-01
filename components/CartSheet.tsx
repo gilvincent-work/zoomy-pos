@@ -59,29 +59,31 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
     <>
       {/* Peek bar — always visible at the bottom in portrait */}
       <View style={styles.peek}>
-        <Pressable
-          testID="cart-sheet-peek"
-          style={styles.peekLeft}
-          onPress={open}
-          accessibilityRole="button"
-          accessibilityLabel="Open current sale"
-        >
-          <View style={styles.grabber} />
-          <Text style={styles.peekCount}>
-            {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
-          </Text>
-          <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
-        </Pressable>
-        <TouchableOpacity
-          testID="cart-sheet-charge"
-          style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
-          disabled={cartCount === 0}
-          onPress={onCharge}
-          onLongPress={onMorePayment}
-          delayLongPress={350}
-        >
-          <Text style={styles.peekChargeText}>Cash · Paid</Text>
-        </TouchableOpacity>
+        <View style={styles.grabber} />
+        <View style={styles.peekRow}>
+          <Pressable
+            testID="cart-sheet-peek"
+            style={styles.peekLeft}
+            onPress={open}
+            accessibilityRole="button"
+            accessibilityLabel="Open current sale"
+          >
+            <Text style={styles.peekCount}>
+              {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
+            </Text>
+            <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
+          </Pressable>
+          <TouchableOpacity
+            testID="cart-sheet-charge"
+            style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
+            disabled={cartCount === 0}
+            onPress={onCharge}
+            onLongPress={onMorePayment}
+            delayLongPress={350}
+          >
+            <Text style={styles.peekChargeText}>Cash · Paid</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Expanded sheet + backdrop */}
@@ -110,14 +112,17 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
 
 const styles = StyleSheet.create({
   peek: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
+  },
+  peekRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   peekLeft: { flex: 1, gap: 2 },
   grabber: {
@@ -125,7 +130,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: C.border,
-    marginBottom: 4,
+    alignSelf: 'center',
+    marginBottom: 10,
   },
   peekCount: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
   peekTotal: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },

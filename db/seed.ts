@@ -66,7 +66,8 @@ export const DEV_SEED_VERSION = '2026-09-01-offline-event-prices';
 
 /**
  * Loads the sample catalog for local development. Runs only in __DEV__ (see
- * app/_layout.tsx). When the stored seed version differs from DEV_SEED_VERSION,
+ * app/_layout.tsx). When the stored seed version differs from DEV_SEED_VERSION
+ * (including a database seeded before versioning existed, which has no marker),
  * it replaces the product catalog with the latest sample data; otherwise it is a
  * no-op. Never runs in production, so it cannot touch a real store's data.
  */
@@ -76,16 +77,6 @@ export async function seedDevProducts(): Promise<void> {
     "SELECT value FROM settings WHERE key = 'dev_seed_version'"
   );
   if (versionRow?.value === DEV_SEED_VERSION) return;
-
-  const countRow = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM products'
-  );
-  const hasProducts = (countRow?.count ?? 0) > 0;
-
-  // Only touch the catalog if it is empty or was previously populated by this
-  // dev seed. A manually imported catalog (products present, no seed marker) is
-  // left untouched so we never clobber the user's own data.
-  if (hasProducts && versionRow == null) return;
 
   await db.execAsync('DELETE FROM products');
   for (const p of SEED_PRODUCTS) {

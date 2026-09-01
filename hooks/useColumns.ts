@@ -13,13 +13,18 @@ const MIN_COLS = 3;
  *   sized to the pane, not the whole screen. Omit for full-width layouts
  *   (existing behavior is preserved).
  */
-export function useColumns(availableWidth?: number) {
+export function useColumns(
+  availableWidth?: number,
+  opts?: { tileTarget?: number; minCols?: number }
+) {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const effectiveWidth = availableWidth ?? width;
+  const tileTarget = opts?.tileTarget ?? TILE_TARGET;
+  const minCols = opts?.minCols ?? MIN_COLS;
   const numColumns = Math.max(
-    MIN_COLS,
-    Math.floor((effectiveWidth - GRID_PADDING) / TILE_TARGET)
+    minCols,
+    Math.floor((effectiveWidth - GRID_PADDING) / tileTarget)
   );
   const tileMaxWidth = `${100 / numColumns}%` as DimensionValue;
   return { numColumns, tileMaxWidth, isLandscape };

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../constants/theme';
 import { useCart } from '../context/CartContext';
 
@@ -18,7 +19,7 @@ type Props = {
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
 export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
-  const { items, bundles, total, addItem, decrementItem, removeBundle } = useCart();
+  const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
 
   return (
@@ -76,6 +77,15 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
                     </TouchableOpacity>
                   </View>
                   <Text style={styles.lineTotal}>₱{lineTotal.toFixed(2)}</Text>
+                  <TouchableOpacity
+                    testID={`cart-remove-${key}`}
+                    style={styles.removeBtn}
+                    onPress={() => removeLine(item.productId, item.variantId)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel={`Remove ${item.productName}`}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                  </TouchableOpacity>
                 </View>
               );
             })}
@@ -164,7 +174,7 @@ const styles = StyleSheet.create({
   line: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: C.borderDark,
@@ -209,8 +219,15 @@ const styles = StyleSheet.create({
     color: C.textPrimary,
     fontSize: F.sm,
     fontWeight: '800',
-    minWidth: 62,
+    minWidth: 56,
     textAlign: 'right',
+  },
+  removeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   footer: {
     borderTopWidth: 1,

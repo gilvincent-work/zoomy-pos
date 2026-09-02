@@ -39,6 +39,25 @@ describe('useCart', () => {
     expect(result.current.items).toHaveLength(0);
   });
 
+  it('removeLine removes the whole line regardless of quantity', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addItem(product));
+    act(() => result.current.addItem(product));
+    act(() => result.current.addItem(product2));
+    act(() => result.current.removeLine(1));
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].productId).toBe(2);
+  });
+
+  it('removeLine only removes the matching variant line', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addItem({ ...product, variantId: 10, variantName: 'A' }));
+    act(() => result.current.addItem({ ...product, variantId: 11, variantName: 'B' }));
+    act(() => result.current.removeLine(1, 10));
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].variantId).toBe(11);
+  });
+
   it('clearCart empties all items', () => {
     const { result } = renderHook(() => useCart(), { wrapper });
     act(() => result.current.addItem(product));

@@ -28,6 +28,7 @@ type CartState = {
 type CartAction =
   | { type: 'ADD_ITEM'; product: { id: number; name: string; price: number; variantId?: number; variantName?: string } }
   | { type: 'REMOVE_ITEM'; productId: number }
+  | { type: 'REMOVE_LINE'; productId: number; variantId?: number }
   | { type: 'DECREMENT_ITEM'; productId: number; variantId?: number }
   | { type: 'CLEAR_CART' }
   | { type: 'CLEAR_BUNDLES' }
@@ -66,6 +67,13 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     }
     case 'REMOVE_ITEM':
       return { ...state, items: state.items.filter((i) => i.productId !== action.productId) };
+    case 'REMOVE_LINE':
+      return {
+        ...state,
+        items: state.items.filter(
+          (i) => !(i.productId === action.productId && i.variantId === action.variantId)
+        ),
+      };
     case 'DECREMENT_ITEM': {
       const item = state.items.find((i) =>
         i.productId === action.productId &&
@@ -110,6 +118,7 @@ type CartContextValue = {
   total: number;
   addItem: (product: { id: number; name: string; price: number; variantId?: number; variantName?: string }) => void;
   removeItem: (productId: number) => void;
+  removeLine: (productId: number, variantId?: number) => void;
   decrementItem: (productId: number, variantId?: number) => void;
   clearCart: () => void;
   clearBundles: () => void;
@@ -134,6 +143,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         total,
         addItem: (product) => dispatch({ type: 'ADD_ITEM', product }),
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
+        removeLine: (productId, variantId) => dispatch({ type: 'REMOVE_LINE', productId, variantId }),
         decrementItem: (productId, variantId) => dispatch({ type: 'DECREMENT_ITEM', productId, variantId }),
         clearCart: () => dispatch({ type: 'CLEAR_CART' }),
         clearBundles: () => dispatch({ type: 'CLEAR_BUNDLES' }),

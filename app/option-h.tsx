@@ -184,6 +184,7 @@ export default function OptionHScreen() {
               onPress={() => handleProductPress(item)}
               onLongPress={() => removeItem(item.id)}
               onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
+              onRemove={() => removeItem(item.id)}
             />
           </View>
         )}

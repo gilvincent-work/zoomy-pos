@@ -1,5 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, View, StyleSheet, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../constants/theme';
 
 type Props = {
@@ -13,9 +14,11 @@ type Props = {
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
+  /** Clears the whole item (all quantity). When set, a clear button shows on the active tile. */
+  onRemove?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus }: Props) {
+export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus, onRemove }: Props) {
   const active = badgeCount > 0;
   return (
     <TouchableOpacity
@@ -25,11 +28,6 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
       onLongPress={() => onLongPress(id)}
       activeOpacity={0.7}
     >
-      {active && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
-        </View>
-      )}
       {imageUri ? (
         <>
           <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
@@ -60,20 +58,42 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
           )}
         </View>
       )}
-      {active && onMinus && (
+      {active && onRemove && (
         <TouchableOpacity
-          testID="minus-btn"
-          style={styles.minusBtn}
+          testID="remove-btn"
+          style={styles.clearBtn}
           onPress={(e) => {
-            e.stopPropagation();
-            onMinus(id);
+            e?.stopPropagation?.();
+            onRemove(id);
           }}
           activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityLabel={`Remove all ${name}`}
         >
-          <Text style={styles.minusText}>−</Text>
+          <Ionicons name="close" size={16} color="#fff" />
         </TouchableOpacity>
       )}
+      {active && (onMinus ? (
+        <View style={styles.qtyControl}>
+          <TouchableOpacity
+            testID="minus-btn"
+            style={styles.qtyMinus}
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              onMinus(id);
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 6 }}
+          >
+            <Text style={styles.qtyMinusText}>−</Text>
+          </TouchableOpacity>
+          <Text style={styles.qtyCount} testID="badge">{badgeCount}</Text>
+        </View>
+      ) : (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
+        </View>
+      ))}
     </TouchableOpacity>
   );
 }
@@ -129,8 +149,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 5,
+    zIndex: 10,
+    elevation: 4,
   },
   badgeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
+  // Active-tile control: minus + live count, grouped top-right over the empty
+  // thumbnail corner so it never overlaps the name/price band.
+  qtyControl: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.pink,
+    borderRadius: 16,
+    height: 32,
+    paddingLeft: 3,
+    paddingRight: 11,
+    gap: 3,
+    zIndex: 10,
+    elevation: 4,
+  },
+  qtyMinus: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  qtyMinusText: { color: '#fff', fontSize: 19, fontWeight: '800', lineHeight: 21 },
+  // Clear-whole-item control, top-left so it never sits next to the decrement pill.
+  clearBtn: {
+    position: 'absolute',
+    top: 7,
+    left: 7,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 10,
+    elevation: 4,
+  },
+  qtyCount: {
+    color: '#fff',
+    fontSize: F.md,
+    fontWeight: '800',
+    minWidth: 15,
+    textAlign: 'center',
+  },
   name: {
     color: C.textPrimary,
     fontSize: F.sm,
@@ -145,16 +214,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
-  minusBtn: {
-    position: 'absolute',
-    bottom: 7,
-    right: 7,
-    backgroundColor: C.pink,
-    borderRadius: 10,
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  minusText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
 });

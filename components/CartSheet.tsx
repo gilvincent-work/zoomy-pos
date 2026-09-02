@@ -24,6 +24,17 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
   const [expanded, setExpanded] = useState(false);
   const translateY = useRef(new Animated.Value(sheetHeight)).current;
 
+  // Cross-fade the collapsed peek against the sheet position: fully visible when
+  // closed, fading out over the last stretch of travel as the sheet rises to
+  // cover it (and fading back in on the way down). Makes the two UIs morph
+  // instead of hard-swapping.
+  const PEEK_FADE = 110;
+  const peekOpacity = translateY.interpolate({
+    inputRange: [sheetHeight - PEEK_FADE, sheetHeight],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
   const cartCount = bundles.length + items.reduce((s, i) => s + i.quantity, 0);
 
   const animateTo = (to: number, onDone?: () => void) => {
@@ -74,8 +85,12 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
 
   return (
     <>
-      {/* Peek bar — always visible at the bottom in portrait */}
-      <View style={styles.peek} {...peekPan.panHandlers}>
+      {/* Peek bar — cross-fades with the sheet position (never unmounted, so the
+          drag gesture survives) so its footer doesn't clash with the sheet's. */}
+      <Animated.View
+        style={[styles.peek, { opacity: peekOpacity }]}
+        {...peekPan.panHandlers}
+      >
         <View style={styles.grabber} />
         <View style={styles.peekRow}>
           <Pressable
@@ -101,7 +116,7 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
             <Text style={styles.peekChargeText}>Cash · Paid</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </Animated.View>
 
       {/* Expanded sheet + backdrop */}
       {expanded && (

@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
-import { seedDevProducts } from '../db/seed';
+import { seedDevProducts, seedProductsIfEmpty } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 
@@ -13,7 +13,14 @@ export default function RootLayout() {
   useEffect(() => {
     async function bootstrap() {
       await initSchema();
-      if (__DEV__) await seedDevProducts();
+      // Dev refreshes the sample catalog on every version bump (destructive);
+      // staging/production seed the starter catalog only when empty. Temporary
+      // until products are sourced from Shopify.
+      if (__DEV__) {
+        await seedDevProducts();
+      } else {
+        await seedProductsIfEmpty();
+      }
       setReady(true);
     }
     bootstrap();

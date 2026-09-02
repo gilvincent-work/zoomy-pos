@@ -64,21 +64,7 @@ const SEED_PRODUCTS: {
  */
 export const DEV_SEED_VERSION = '2026-09-01-offline-event-prices';
 
-/**
- * Loads the sample catalog for local development. Runs only in __DEV__ (see
- * app/_layout.tsx). When the stored seed version differs from DEV_SEED_VERSION
- * (including a database seeded before versioning existed, which has no marker),
- * it replaces the product catalog with the latest sample data; otherwise it is a
- * no-op. Never runs in production, so it cannot touch a real store's data.
- */
-export async function seedDevProducts(): Promise<void> {
-  const db = await getDatabase();
-  const versionRow = await db.getFirstAsync<{ value: string }>(
-    "SELECT value FROM settings WHERE key = 'dev_seed_version'"
-  );
-  if (versionRow?.value === DEV_SEED_VERSION) return;
-
-  await db.execAsync('DELETE FROM products');
+async function insertSeedCatalog(): Promise<void> {
   for (const p of SEED_PRODUCTS) {
     await createProduct({
       name: p.name,
@@ -89,8 +75,43 @@ export async function seedDevProducts(): Promise<void> {
       subcategory: p.subcategory,
     });
   }
+}
+
+/**
+ * Loads the sample catalog for local development. Runs only in __DEV__ (see
+ * app/_layout.tsx). When the stored seed version differs from DEV_SEED_VERSION
+ * (including a database seeded before versioning existed, which has no marker),
+ * it replaces the product catalog with the latest sample data; otherwise it is a
+ * no-op. Destructive: only used in dev so it cannot touch a real store's data.
+ */
+export async function seedDevProducts(): Promise<void> {
+  const db = await getDatabase();
+  const versionRow = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'dev_seed_version'"
+  );
+  if (versionRow?.value === DEV_SEED_VERSION) return;
+
+  await db.execAsync('DELETE FROM products');
+  await insertSeedCatalog();
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('dev_seed_version', ?)",
     [DEV_SEED_VERSION]
   );
+}
+
+/**
+ * Loads the sample catalog on non-dev builds (staging/production) the first time
+ * the app runs against an empty database. Non-destructive: if any products
+ * already exist (seeded, manually added, or imported), it is a no-op, so it never
+ * overwrites a real store's catalog. This is what makes products appear on
+ * staging, where __DEV__ is false and seedDevProducts never runs.
+ */
+export async function seedProductsIfEmpty(): Promise<void> {
+  const db = await getDatabase();
+  const countRow = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM products'
+  );
+  if ((countRow?.n ?? 0) > 0) return;
+
+  await insertSeedCatalog();
 }

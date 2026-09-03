@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, SectionList, StyleSheet, SafeAreaView,
+  View, Text, TouchableOpacity, SectionList, StyleSheet, SafeAreaView, useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -41,6 +41,10 @@ export default function BundleSelectModal() {
   const id = bundleId ? Number(bundleId) : null;
   const { addBundle } = useCart();
   const { showToast } = useToast();
+  // Tighten the fixed header/footer on a short viewport (landscape phone) so the
+  // scrolling flavor list has room to work in.
+  const { height } = useWindowDimensions();
+  const tight = height < 500;
 
   const [bundle, setBundle] = useState<SavedBundle | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -116,14 +120,14 @@ export default function BundleSelectModal() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.progress}>
-        <Text style={styles.progressTitle}>{bundle.name}</Text>
+      <View style={[styles.progress, tight && styles.progressTight]}>
+        <Text style={[styles.progressTitle, tight && styles.progressTitleTight]}>{bundle.name}</Text>
         <Text style={styles.progressText}>
           {remaining > 0 ? `Pick ${remaining} more` : `All ${pickCount} chosen`}
           {'  ·  '}
           <Text style={styles.progressCount}>{chosen}/{pickCount}</Text>
         </Text>
-        <Text style={styles.progressLines}>{bundleLineSummary(lines)}</Text>
+        {!tight && <Text style={styles.progressLines}>{bundleLineSummary(lines)}</Text>}
       </View>
 
       <SectionList
@@ -137,7 +141,7 @@ export default function BundleSelectModal() {
         renderItem={({ item }) => {
           const qty = selection[item.id] ?? 0;
           return (
-            <View style={styles.row}>
+            <View style={[styles.row, tight && styles.rowTight]}>
               <Text style={styles.emoji}>{item.emoji}</Text>
               <Text style={styles.name}>{item.name}</Text>
               <View style={styles.stepper}>
@@ -166,13 +170,13 @@ export default function BundleSelectModal() {
         }
       />
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, tight && styles.footerTight]}>
         <View style={styles.footerInfo}>
           <Text style={styles.footerCount}>{chosen}/{pickCount} chosen</Text>
-          <Text style={styles.footerPrice}>₱{bundle.price.toFixed(2)}</Text>
+          <Text style={[styles.footerPrice, tight && styles.footerPriceTight]}>₱{bundle.price.toFixed(2)}</Text>
         </View>
         <TouchableOpacity
-          style={[styles.addBtn, !complete && styles.addBtnDisabled]}
+          style={[styles.addBtn, !complete && styles.addBtnDisabled, tight && styles.addBtnTight]}
           onPress={handleAdd}
           disabled={!complete}
         >
@@ -195,7 +199,9 @@ const styles = StyleSheet.create({
     backgroundColor: C.pinkSubtle,
     gap: 3,
   },
+  progressTight: { paddingTop: 8, paddingBottom: 8, gap: 1 },
   progressTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800' },
+  progressTitleTight: { fontSize: F.md },
   progressText: { color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
   progressCount: { color: C.pink, fontWeight: '800' },
   progressLines: { color: C.textMuted, fontSize: F.xs, fontWeight: '600' },
@@ -221,6 +227,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.borderDark,
   },
+  rowTight: { paddingVertical: 8, marginBottom: 5 },
   emoji: { fontSize: 22, marginRight: 12 },
   name: { flex: 1, color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
 
@@ -250,9 +257,11 @@ const styles = StyleSheet.create({
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
   },
+  footerTight: { paddingVertical: 10 },
   footerInfo: { flex: 1 },
   footerCount: { color: C.textMuted, fontSize: F.xs, fontWeight: '700' },
   footerPrice: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  footerPriceTight: { fontSize: F.lg },
   addBtn: {
     backgroundColor: C.pink,
     paddingVertical: 16,
@@ -260,6 +269,7 @@ const styles = StyleSheet.create({
     borderRadius: R.sm,
     alignItems: 'center',
   },
+  addBtnTight: { paddingVertical: 11 },
   addBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   addText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
 

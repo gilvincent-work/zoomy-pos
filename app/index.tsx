@@ -22,7 +22,7 @@ import {
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction } from '../db/transactions';
 import { buildInsertItems } from '../utils/cart-transaction';
-import { bundleLineSummary } from '../utils/bundles';
+import { lineEmojis } from '../utils/bundles';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
@@ -203,8 +203,7 @@ export default function POSScreen() {
                 id={item.id}
                 name={item.name}
                 price={item.price}
-                pickCount={item.pick_count ?? 0}
-                lineSummary={bundleLineSummary(item.line_categories ?? [])}
+                lineEmojis={lineEmojis(products, item.line_categories ?? [])}
                 onPress={() => router.push(`/modals/bundle-select?bundleId=${item.id}`)}
               />
             </View>

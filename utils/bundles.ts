@@ -18,6 +18,31 @@ export function bundleLineSummary(lineCategories: string[]): string {
   return lineCategories.join(' + ');
 }
 
+/**
+ * A representative emoji per product line, so a bundle tile shows the icons of
+ * the lines a customer can pick from. Uses the most common product emoji in each
+ * line (ties resolved by product order), falling back to a gift when a line has
+ * no products yet.
+ */
+export function lineEmojis(products: Product[], lineCategories: string[]): string[] {
+  return lineCategories.map((category) => {
+    const inLine = products.filter((p) => p.category === category);
+    if (inLine.length === 0) return '🎁';
+    const counts = new Map<string, number>();
+    for (const p of inLine) counts.set(p.emoji, (counts.get(p.emoji) ?? 0) + 1);
+    let best = inLine[0].emoji;
+    let bestCount = 0;
+    for (const p of inLine) {
+      const count = counts.get(p.emoji) ?? 0;
+      if (count > bestCount) {
+        best = p.emoji;
+        bestCount = count;
+      }
+    }
+    return best;
+  });
+}
+
 /** Plain-language description of a deal, shown as a preview and on tiles. */
 export function bundlePreviewText(
   pickCount: number,

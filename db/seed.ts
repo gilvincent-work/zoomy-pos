@@ -35,12 +35,12 @@ const SEED_PRODUCTS: {
   { name: 'Chicken', emoji: '🍗', category: 'Meaty Treats', subcategory: null },
 
   // Tasty Treats
-  { name: 'Chicken', emoji: '🍗', category: 'Tasty Treats', subcategory: null },
-  { name: 'Duck', emoji: '🦆', category: 'Tasty Treats', subcategory: null },
+  { name: 'Chicken Jerky', emoji: '🍗', category: 'Tasty Treats', subcategory: null },
+  { name: 'Duck Jerky', emoji: '🦆', category: 'Tasty Treats', subcategory: null },
 
   // Super Duo Bites
-  { name: 'Carrot Duck', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
-  { name: 'Carrot Chicken', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
+  { name: 'Chicken Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
+  { name: 'Duck Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
   { name: 'Duck Pear', emoji: '🍐', category: 'Super Duo Bites', subcategory: null },
 
   // Freeze Dried · Fish
@@ -48,16 +48,16 @@ const SEED_PRODUCTS: {
   { name: 'Capelin', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish' },
 
   // Freeze Dried · Meats
-  { name: 'Lamb Liver', emoji: '🍖', category: 'Freeze Dried', subcategory: 'Meats' },
+  { name: 'Lamb Liver Cubes', emoji: '🍖', category: 'Freeze Dried', subcategory: 'Meats' },
   { name: 'Duck Breast Cubes', emoji: '🦆', category: 'Freeze Dried', subcategory: 'Meats' },
   { name: 'Chicken Breast Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Chicken Liver', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Beef Liver', emoji: '🥩', category: 'Freeze Dried', subcategory: 'Meats' },
+  { name: 'Chicken Liver Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats' },
+  { name: 'Beef Liver Cubes', emoji: '🥩', category: 'Freeze Dried', subcategory: 'Meats' },
 
   // Freeze Dried · Cat Grass / Yogurt
   { name: 'Cat Grass Cubes', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
-  { name: 'Cat Grass Sticks', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
-  { name: 'Yogurt Cubes', emoji: '🥛', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
+  { name: 'Cat Grass Stick', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
+  { name: 'Yoghurt Cubes', emoji: '🥛', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
 
   // Freeze Dried · Super Food
   { name: 'Duck Apple', emoji: '🍎', category: 'Freeze Dried', subcategory: 'Super Food' },
@@ -65,7 +65,8 @@ const SEED_PRODUCTS: {
   { name: 'Chicken Cranberry', emoji: '🍒', category: 'Freeze Dried', subcategory: 'Super Food' },
   { name: 'Chicken Pumpkin', emoji: '🎃', category: 'Freeze Dried', subcategory: 'Super Food' },
   { name: 'Salmon Steak', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Chicken and Egg', emoji: '🥚', category: 'Freeze Dried', subcategory: 'Super Food' },
+  { name: 'Chicken & Egg', emoji: '🥚', category: 'Freeze Dried', subcategory: 'Super Food' },
+  { name: 'Beef Blueberry', emoji: '🫐', category: 'Freeze Dried', subcategory: 'Super Food' },
 ];
 
 /** Starter "buy any N" deals, per the sales playbook. */
@@ -83,7 +84,7 @@ const SEED_BUNDLES: {
  * Bump this whenever SEED_PRODUCTS or SEED_BUNDLES changes so an already-seeded
  * dev database refreshes to the latest sample catalog on next launch.
  */
-export const DEV_SEED_VERSION = '2026-09-03-line-prices';
+export const DEV_SEED_VERSION = '2026-09-03-accurate-names';
 
 async function insertSeedCatalog(): Promise<void> {
   for (const p of SEED_PRODUCTS) {
@@ -182,6 +183,73 @@ export async function syncLinePricesOnce(): Promise<void> {
   }
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('line_price_sync_version', ?)",
+    [VERSION]
+  );
+}
+
+/**
+ * Renames from the earlier placeholder catalog to the accurate SKU-sheet product
+ * names, scoped by (category, subcategory) so same-named products in different
+ * lines are not touched by mistake. Transaction history keeps its own name
+ * snapshots, so past sales are unaffected. Idempotent via a settings marker.
+ */
+const CATALOG_NAME_FIXES: {
+  category: string;
+  subcategory: string | null;
+  from: string;
+  to: string;
+}[] = [
+  { category: 'Tasty Treats', subcategory: null, from: 'Chicken', to: 'Chicken Jerky' },
+  { category: 'Tasty Treats', subcategory: null, from: 'Duck', to: 'Duck Jerky' },
+  { category: 'Super Duo Bites', subcategory: null, from: 'Carrot Chicken', to: 'Chicken Carrot' },
+  { category: 'Super Duo Bites', subcategory: null, from: 'Carrot Duck', to: 'Duck Carrot' },
+  { category: 'Freeze Dried', subcategory: 'Meats', from: 'Lamb Liver', to: 'Lamb Liver Cubes' },
+  { category: 'Freeze Dried', subcategory: 'Meats', from: 'Chicken Liver', to: 'Chicken Liver Cubes' },
+  { category: 'Freeze Dried', subcategory: 'Meats', from: 'Beef Liver', to: 'Beef Liver Cubes' },
+  { category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', from: 'Cat Grass Sticks', to: 'Cat Grass Stick' },
+  { category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', from: 'Yogurt Cubes', to: 'Yoghurt Cubes' },
+  { category: 'Freeze Dried', subcategory: 'Super Food', from: 'Chicken and Egg', to: 'Chicken & Egg' },
+];
+
+export async function syncCatalogNamesOnce(): Promise<void> {
+  const db = await getDatabase();
+  const VERSION = '2026-09-03-accurate-names';
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'catalog_name_sync_version'"
+  );
+  if (row?.value === VERSION) return;
+
+  for (const fix of CATALOG_NAME_FIXES) {
+    if (fix.subcategory === null) {
+      await db.runAsync(
+        'UPDATE products SET name = ? WHERE category = ? AND subcategory IS NULL AND name = ?',
+        [fix.to, fix.category, fix.from]
+      );
+    } else {
+      await db.runAsync(
+        'UPDATE products SET name = ? WHERE category = ? AND subcategory = ? AND name = ?',
+        [fix.to, fix.category, fix.subcategory, fix.from]
+      );
+    }
+  }
+
+  // Beef Blueberry is new in the accurate catalog; add it if it isn't there yet.
+  const existing = await db.getFirstAsync<{ id: number }>(
+    "SELECT id FROM products WHERE category = 'Freeze Dried' AND subcategory = 'Super Food' AND name = 'Beef Blueberry' LIMIT 1"
+  );
+  if (!existing) {
+    await createProduct({
+      name: 'Beef Blueberry',
+      price: LINE_PRICES['Freeze Dried'] ?? 0,
+      has_variants: false,
+      emoji: '🫐',
+      category: 'Freeze Dried',
+      subcategory: 'Super Food',
+    });
+  }
+
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_name_sync_version', ?)",
     [VERSION]
   );
 }

@@ -136,18 +136,6 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
         >
           <Text style={styles.chargeText}>💵  Cash · Paid</Text>
         </TouchableOpacity>
-        {onMorePayment && (
-          <TouchableOpacity
-            testID="cart-more-payment"
-            style={styles.moreBtn}
-            onPress={onMorePayment}
-            disabled={isEmpty}
-          >
-            <Text style={[styles.moreText, isEmpty && styles.moreTextDisabled]}>
-              GCash / other · change
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -260,7 +248,4 @@ const styles = StyleSheet.create({
   chargeTight: { paddingVertical: 10 },
   chargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   chargeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
-  moreBtn: { alignItems: 'center', paddingVertical: 4 },
-  moreText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
-  moreTextDisabled: { color: C.textMuted },
 });

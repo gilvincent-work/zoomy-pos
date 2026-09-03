@@ -24,14 +24,9 @@ describe('CartPanel', () => {
     expect(onCharge).not.toHaveBeenCalled();
   });
 
-  it('renders the secondary payment path only when provided', () => {
-    const { queryByTestId, rerender } = renderPanel();
+  it('does not render the secondary payment label (long-press on Charge instead)', () => {
+    const { queryByTestId, queryByText } = renderPanel({ onMorePayment: jest.fn() });
     expect(queryByTestId('cart-more-payment')).toBeNull();
-    rerender(
-      <CartProvider>
-        <CartPanel onCharge={jest.fn()} onMorePayment={jest.fn()} />
-      </CartProvider>
-    );
-    expect(queryByTestId('cart-more-payment')).toBeTruthy();
+    expect(queryByText('GCash / other · change')).toBeNull();
   });
 });

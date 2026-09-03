@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
-import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce } from '../db/seed';
+import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 
@@ -22,8 +22,9 @@ export default function RootLayout() {
         await seedProductsIfEmpty();
         await seedBundlesIfEmpty();
       }
-      // One-time correction for installs seeded before the flat per-line prices.
+      // One-time corrections for installs seeded before these changes.
       await syncLinePricesOnce();
+      await syncCatalogNamesOnce();
       setReady(true);
     }
     bootstrap();

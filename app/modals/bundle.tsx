@@ -1,393 +1,247 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, FlatList, TextInput,
-  StyleSheet, SafeAreaView, Alert, Modal, Image,
+  View, Text, TouchableOpacity, ScrollView, TextInput,
+  StyleSheet, SafeAreaView,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { getActiveProducts, getVariantsByProductId, Product, ProductVariant } from '../../db/products';
-import { saveBundlePreset, BundleItemInput } from '../../db/saved-bundles';
-import { useCart } from '../../context/CartContext';
 import { Ionicons } from '@expo/vector-icons';
+import { getCategoriesWithSubcategories, UNCATEGORIZED } from '../../db/products';
+import {
+  savePickBundle, updatePickBundle, getSavedBundleById, validatePickBundleInput,
+} from '../../db/saved-bundles';
+import { bundlePreviewText } from '../../utils/bundles';
+import { useToast } from '../../components/Toast';
 import { C, F, R } from '../../constants/theme';
 
+const MIN_ITEMS = 1;
+
 export default function BundleModal() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productVariants, setProductVariants] = useState<Record<number, ProductVariant[]>>({});
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const editingId = editId ? Number(editId) : null;
+  const { showToast } = useToast();
+
+  const [lines, setLines] = useState<string[]>([]);
+  const [name, setName] = useState('');
   const [price, setPrice] = useState('');
-  const [saveModalVisible, setSaveModalVisible] = useState(false);
-  const [bundleName, setBundleName] = useState('');
-  const [successModalVisible, setSuccessModalVisible] = useState(false);
-  const [savedBundleName, setSavedBundleName] = useState('');
-  const { addBundle } = useCart();
+  const [pickCount, setPickCount] = useState(2);
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      getActiveProducts().then(async (prods) => {
-        setProducts(prods);
-        const variantMap: Record<number, ProductVariant[]> = {};
-        for (const p of prods) {
-          if (p.has_variants) {
-            variantMap[p.id] = await getVariantsByProductId(p.id);
+      let cancelled = false;
+      getCategoriesWithSubcategories().then(async (groups) => {
+        if (cancelled) return;
+        const lineNames = groups.map((g) => g.category).filter((c) => c !== UNCATEGORIZED);
+        setLines(lineNames);
+        if (editingId != null && !loaded) {
+          const bundle = await getSavedBundleById(editingId);
+          if (bundle && !cancelled) {
+            setName(bundle.name);
+            setPrice(String(bundle.price));
+            setPickCount(bundle.pick_count ?? 2);
+            setSelectedLines(new Set(bundle.line_categories ?? []));
           }
         }
-        setProductVariants(variantMap);
+        setLoaded(true);
       });
-    }, [])
+      return () => { cancelled = true; };
+    }, [editingId, loaded])
   );
 
-  const totalSelected = Object.values(quantities).reduce((s, q) => s + q, 0);
+  const selectedList = lines.filter((l) => selectedLines.has(l));
   const parsedPrice = parseFloat(price);
-  const canConfirm = totalSelected > 0 && parsedPrice >= 0;
+  const previewPrice = Number.isFinite(parsedPrice) ? parsedPrice : 0;
 
-  const incrementProduct = (id: number) =>
-    setQuantities((prev) => {
-      const key = `p_${id}`;
-      return { ...prev, [key]: (prev[key] ?? 0) + 1 };
+  function toggleLine(line: string) {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(line)) next.delete(line);
+      else next.add(line);
+      return next;
     });
+  }
 
-  const decrementProduct = (id: number) =>
-    setQuantities((prev) => {
-      const key = `p_${id}`;
-      const cur = prev[key] ?? 0;
-      if (cur <= 1) {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      }
-      return { ...prev, [key]: cur - 1 };
-    });
-
-  const incrementVariant = (variantId: number) =>
-    setQuantities((prev) => {
-      const key = `v_${variantId}`;
-      return { ...prev, [key]: (prev[key] ?? 0) + 1 };
-    });
-
-  const decrementVariant = (variantId: number) =>
-    setQuantities((prev) => {
-      const key = `v_${variantId}`;
-      const cur = prev[key] ?? 0;
-      if (cur <= 1) {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      }
-      return { ...prev, [key]: cur - 1 };
-    });
-
-  function buildBundleItems(): BundleItemInput[] {
-    const items: BundleItemInput[] = [];
-    for (const [key, qty] of Object.entries(quantities)) {
-      if (qty <= 0) continue;
-      if (key.startsWith('p_')) {
-        const productId = Number(key.slice(2));
-        const product = products.find((p) => p.id === productId);
-        if (product) items.push({ id: product.id, name: product.name, quantity: qty });
-      } else if (key.startsWith('v_')) {
-        const variantId = Number(key.slice(2));
-        for (const [pid, variants] of Object.entries(productVariants)) {
-          const variant = variants.find((v) => v.id === variantId);
-          if (variant) {
-            const product = products.find((p) => p.id === Number(pid));
-            items.push({
-              id: Number(pid),
-              name: product ? `${product.name} - ${variant.name}` : variant.name,
-              quantity: qty,
-              variantId,
-              variantName: variant.name,
-            });
-            break;
-          }
-        }
-      }
+  async function handleSave() {
+    const input = {
+      name: name.trim(),
+      price: parsedPrice,
+      pickCount,
+      lineCategories: selectedList,
+    };
+    const error = validatePickBundleInput(input);
+    if (error) {
+      showToast({ variant: 'error', title: 'Check the bundle', message: error });
+      return;
     }
-    return items;
-  }
-
-  function handleAddToCart() {
-    if (!canConfirm) return;
-    addBundle({ presetId: null, name: 'Bundle', price: parsedPrice, items: buildBundleItems() });
-    router.dismiss();
-  }
-
-  function handleSave() {
-    if (!canConfirm) return;
-    setBundleName('');
-    setSaveModalVisible(true);
-  }
-
-  async function handleSaveConfirm() {
-    if (!bundleName.trim()) return;
-    const name = bundleName.trim();
     try {
-      await saveBundlePreset(name, buildBundleItems(), parsedPrice);
-      setSaveModalVisible(false);
-      setSavedBundleName(name);
-      setSuccessModalVisible(true);
+      if (editingId != null) {
+        await updatePickBundle(editingId, input);
+      } else {
+        await savePickBundle(input);
+      }
+      showToast({
+        variant: 'success',
+        title: editingId != null ? 'Bundle updated' : 'Bundle saved',
+        message: `${input.name} · any ${pickCount} for ₱${previewPrice.toFixed(2)}`,
+      });
+      router.dismiss();
     } catch {
-      Alert.alert('Error', 'Could not save the bundle preset.');
+      showToast({ variant: 'error', title: 'Could not save the bundle', message: 'Please try again.' });
     }
-  }
-
-  function renderStepper(key: string, onIncrement: () => void, onDecrement: () => void) {
-    const qty = quantities[key] ?? 0;
-    return (
-      <View style={styles.stepper}>
-        <TouchableOpacity
-          style={[styles.stepBtn, qty === 0 && styles.stepBtnDim]}
-          onPress={onDecrement}
-          disabled={qty === 0}
-        >
-          <Text style={[styles.stepIcon, qty === 0 && styles.stepIconDim]}>−</Text>
-        </TouchableOpacity>
-        <Text style={[styles.qty, qty > 0 && styles.qtyActive]}>{qty}</Text>
-        <TouchableOpacity style={styles.stepBtn} onPress={onIncrement}>
-          <Text style={styles.stepIcon}>+</Text>
-        </TouchableOpacity>
-      </View>
-    );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.stickyPrice}>
-        <Text style={styles.stickyPriceLabel}>Bundle Price</Text>
-        <View style={styles.priceBox}>
-          <Text style={styles.currencySign}>₱</Text>
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <View style={styles.field}>
+          <Text style={styles.label}>Bundle name</Text>
           <TextInput
-            style={styles.priceInput}
-            value={price}
-            onChangeText={setPrice}
-            keyboardType="decimal-pad"
-            placeholder="0.00"
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Buy Any 4"
             placeholderTextColor={C.textMuted}
             returnKeyType="done"
           />
         </View>
-      </View>
 
-      <FlatList
-        data={products}
-        keyExtractor={(p) => String(p.id)}
-        contentContainerStyle={styles.list}
-        ListHeaderComponent={
-          <View style={styles.listHeaderRow}>
-            <Text style={styles.sectionLabel}>Select Items</Text>
-            {totalSelected > 0 && (
-              <TouchableOpacity onPress={() => setQuantities({})} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={styles.clearAllText}>Clear All</Text>
-              </TouchableOpacity>
-            )}
+        <View style={styles.field}>
+          <Text style={styles.label}>Price</Text>
+          <View style={styles.priceBox}>
+            <Text style={styles.currencySign}>₱</Text>
+            <TextInput
+              style={styles.priceInput}
+              value={price}
+              onChangeText={setPrice}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={C.textMuted}
+              returnKeyType="done"
+            />
           </View>
-        }
-        renderItem={({ item }) => {
-          const isVariant = item.has_variants === 1;
-          const variants = isVariant ? (productVariants[item.id] ?? []) : [];
+        </View>
 
-          if (isVariant) {
-            return (
-              <View style={styles.variantGroup}>
-                <Text style={styles.variantGroupName}>{item.name}</Text>
-                {variants.map((v) => (
-                  <View key={v.id} style={styles.variantRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.variantName}>{v.name}</Text>
-                      <Text style={styles.variantPrice}>₱{v.price.toFixed(2)}</Text>
-                    </View>
-                    {renderStepper(`v_${v.id}`, () => incrementVariant(v.id), () => decrementVariant(v.id))}
-                  </View>
-                ))}
-                {variants.length === 0 && (
-                  <Text style={styles.noVariants}>No active variants</Text>
-                )}
-              </View>
-            );
-          }
-
-          return (
-            <View style={styles.itemRow}>
-              {item.image_uri ? (
-                <Image source={{ uri: item.image_uri }} style={styles.itemThumb} resizeMode="cover" />
-              ) : (
-                <Text style={styles.emoji}>{item.emoji}</Text>
-              )}
-              <Text style={styles.itemName}>{item.name}</Text>
-              {renderStepper(`p_${item.id}`, () => incrementProduct(item.id), () => decrementProduct(item.id))}
+        <View style={styles.field}>
+          <Text style={styles.label}>Amount of items</Text>
+          <View style={styles.sizeRow}>
+            <Text style={styles.sizeText}>Buy any <Text style={styles.sizeNum}>{pickCount}</Text> flavors</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={[styles.stepBtn, pickCount <= MIN_ITEMS && styles.stepBtnDim]}
+                onPress={() => setPickCount((n) => Math.max(MIN_ITEMS, n - 1))}
+                disabled={pickCount <= MIN_ITEMS}
+                accessibilityLabel="Fewer items"
+              >
+                <Text style={[styles.stepIcon, pickCount <= MIN_ITEMS && styles.stepIconDim]}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.qty}>{pickCount}</Text>
+              <TouchableOpacity
+                style={styles.stepBtn}
+                onPress={() => setPickCount((n) => n + 1)}
+                accessibilityLabel="More items"
+              >
+                <Text style={styles.stepIcon}>+</Text>
+              </TouchableOpacity>
             </View>
-          );
-        }}
-        ListEmptyComponent={<Text style={styles.empty}>No active products.</Text>}
-      />
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Product lines</Text>
+          {lines.length === 0 ? (
+            <Text style={styles.empty}>No product lines yet. Add products with categories first.</Text>
+          ) : (
+            lines.map((line) => {
+              const on = selectedLines.has(line);
+              return (
+                <TouchableOpacity
+                  key={line}
+                  style={[styles.lineRow, on && styles.lineRowOn]}
+                  onPress={() => toggleLine(line)}
+                  activeOpacity={0.7}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                >
+                  <Text style={styles.lineName}>{line}</Text>
+                  <View style={[styles.check, on && styles.checkOn]}>
+                    {on && <Ionicons name="checkmark" size={16} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        <Text style={styles.preview}>
+          {bundlePreviewText(pickCount, selectedList, previewPrice)}
+        </Text>
+      </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.saveBtn, !canConfirm && styles.saveBtnDisabled]}
-          disabled={!canConfirm}
-          onPress={handleSave}
-        >
-          <Text style={styles.saveBtnText}>Save</Text>
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => router.dismiss()}>
+          <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
-          disabled={!canConfirm}
-          onPress={handleAddToCart}
-        >
-          <Text style={styles.confirmBtnText}>Add to Cart</Text>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+          <Text style={styles.saveText}>{editingId != null ? 'Update bundle' : 'Save bundle'}</Text>
         </TouchableOpacity>
       </View>
-
-      <Modal
-        visible={successModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => { setSuccessModalVisible(false); router.dismiss(); }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.successIcon}>
-              <Ionicons name="checkmark" size={28} color="#fff" />
-            </View>
-            <Text style={styles.successTitle}>Bundle Saved!</Text>
-            <Text style={styles.successSubtitle}>
-              "{savedBundleName}" is now available as a preset on the POS screen.
-            </Text>
-            <TouchableOpacity
-              style={styles.successBtn}
-              onPress={() => { setSuccessModalVisible(false); router.dismiss(); }}
-            >
-              <Text style={styles.successBtnText}>Go to POS</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={saveModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSaveModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Save Bundle Preset</Text>
-            <Text style={styles.modalSubtitle}>
-              Give this bundle a name so you can quickly apply it later.
-            </Text>
-            <TextInput
-              style={styles.modalInput}
-              value={bundleName}
-              onChangeText={setBundleName}
-              placeholder="Bundle name"
-              placeholderTextColor={C.textMuted}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleSaveConfirm}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setSaveModalVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalOkBtn, !bundleName.trim() && styles.modalOkBtnDisabled]}
-                onPress={handleSaveConfirm}
-                disabled={!bundleName.trim()}
-              >
-                <Text style={styles.modalOkText}>OK</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  body: { padding: 16, gap: 18, paddingBottom: 28 },
 
-  list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
-
-  listHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    marginTop: 16,
-  },
-  sectionLabel: {
+  field: { gap: 8 },
+  label: {
     color: C.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  clearAllText: {
-    color: C.red,
-    fontSize: F.xs,
-    fontWeight: '700',
-  },
-
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  input: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.sm,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: C.surface,
-    borderRadius: R.sm,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: C.borderDark,
-  },
-  emoji: { fontSize: 22, marginRight: 12 },
-  itemThumb: { width: 36, height: 36, borderRadius: 6, marginRight: 12 },
-  itemName: { flex: 1, color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
-
-  variantGroup: {
-    backgroundColor: C.surface,
-    borderRadius: R.sm,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: C.borderDark,
-    overflow: 'hidden',
-  },
-  variantGroupName: {
-    color: C.pink,
-    fontSize: F.md,
-    fontWeight: '700',
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 6,
-  },
-  variantRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    paddingLeft: 24,
-    borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-  },
-  variantName: {
     color: C.textPrimary,
-    fontSize: F.sm,
+    fontSize: F.md,
     fontWeight: '600',
   },
-  variantPrice: {
-    color: C.textSecondary,
-    fontSize: F.xs,
-    marginTop: 1,
+
+  priceBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  noVariants: {
-    color: C.textMuted,
-    fontSize: F.sm,
-    paddingHorizontal: 14,
-    paddingBottom: 12,
+  currencySign: { color: C.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
+  priceInput: { flex: 1, color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+
+  sizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 10,
+    paddingLeft: 16,
+    paddingRight: 10,
   },
+  sizeText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  sizeNum: { color: C.pink, fontWeight: '800' },
 
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   stepBtn: {
@@ -406,42 +260,47 @@ const styles = StyleSheet.create({
   qty: {
     width: 36,
     textAlign: 'center',
-    color: C.textSecondary,
+    color: C.pink,
     fontSize: F.md,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  qtyActive: { color: C.pink },
 
-  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
-
-  stickyPrice: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
-    backgroundColor: C.bg,
-  },
-  stickyPriceLabel: {
-    color: C.textMuted,
-    fontSize: F.xs,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  priceBox: {
+  lineRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    paddingHorizontal: 14,
     backgroundColor: C.surface,
     borderRadius: R.md,
     borderWidth: 1,
     borderColor: C.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
   },
-  currencySign: { color: C.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
-  priceInput: { flex: 1, color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  lineRowOn: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
+  lineName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  check: {
+    width: 26,
+    height: 26,
+    borderRadius: R.sm,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: C.pink, borderColor: C.pink },
+
+  preview: {
+    color: C.textSecondary,
+    fontSize: F.sm,
+    fontWeight: '600',
+    lineHeight: 20,
+    backgroundColor: C.pinkSubtle,
+    borderWidth: 1,
+    borderColor: C.pinkDim,
+    borderRadius: R.md,
+    padding: 14,
+  },
+  empty: { color: C.textMuted, fontSize: F.sm, paddingVertical: 8 },
 
   footer: {
     flexDirection: 'row',
@@ -451,117 +310,22 @@ const styles = StyleSheet.create({
     borderTopColor: C.borderDark,
     backgroundColor: C.surface,
   },
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 16,
+    borderRadius: R.sm,
+    alignItems: 'center',
+  },
+  cancelText: { color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
   saveBtn: {
-    flex: 1,
-    backgroundColor: C.green,
-    paddingVertical: 16,
-    borderRadius: R.sm,
-    alignItems: 'center',
-  },
-  saveBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
-  saveBtnText: { color: '#fff', fontSize: F.md, fontWeight: '700' },
-  confirmBtn: {
     flex: 2,
-    backgroundColor: C.pink,
+    backgroundColor: C.green,
     paddingVertical: 16,
     borderRadius: R.sm,
     alignItems: 'center',
   },
-  confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
-  confirmBtnText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
-
-  successIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: C.pink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    alignSelf: 'center',
-  },
-  successIconText: {},
-  successTitle: {
-    color: C.textPrimary,
-    fontSize: F.xl,
-    fontWeight: '800',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  successSubtitle: {
-    color: C.textSecondary,
-    fontSize: F.sm,
-    textAlign: 'center',
-    marginBottom: 22,
-    lineHeight: 18,
-  },
-  successBtn: {
-    backgroundColor: C.pink,
-    borderRadius: R.sm,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  successBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  modalSheet: {
-    backgroundColor: C.surface,
-    borderRadius: R.xl,
-    borderWidth: 1,
-    borderColor: C.borderDark,
-    padding: 24,
-    width: '100%',
-  },
-  modalTitle: {
-    color: C.textPrimary,
-    fontSize: F.lg,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  modalSubtitle: {
-    color: C.textSecondary,
-    fontSize: F.sm,
-    marginBottom: 16,
-    lineHeight: 18,
-  },
-  modalInput: {
-    backgroundColor: C.elevated,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: R.sm,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    color: C.textPrimary,
-    fontSize: F.md,
-    marginBottom: 16,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  modalCancelBtn: {
-    flex: 1,
-    backgroundColor: C.elevated,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: R.sm,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  modalCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
-  modalOkBtn: {
-    flex: 1,
-    backgroundColor: C.green,
-    borderRadius: R.sm,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  modalOkBtnDisabled: { backgroundColor: C.elevated, borderColor: C.border, borderWidth: 1 },
-  modalOkText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+  saveText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
 });

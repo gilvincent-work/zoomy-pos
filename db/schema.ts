@@ -118,6 +118,21 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE saved_bundles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`
   ).catch(() => {});
 
+  // Pick bundles: "buy any N flavors from selected product lines" for a fixed
+  // price. Legacy bundles stay bundle_type 'fixed' (items_json is the item list);
+  // 'pick' bundles use pick_count + line_categories and select flavors at sale time.
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN bundle_type TEXT NOT NULL DEFAULT 'fixed'`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN pick_count INTEGER`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN line_categories TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE products ADD COLUMN image_uri TEXT`
   ).catch(() => {});

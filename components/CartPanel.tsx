@@ -47,7 +47,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
               return (
                 <View key={key} style={styles.line}>
                   <View style={styles.lineInfo}>
-                    <Text style={styles.lineName} numberOfLines={1}>
+                    <Text style={styles.lineName} numberOfLines={2}>
                       {item.productName}
                       {item.variantName ? ` · ${item.variantName}` : ''}
                     </Text>
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     borderBottomColor: C.borderDark,
   },
   lineInfo: { flex: 1, minWidth: 0, gap: 2 },
-  lineName: { color: C.textPrimary, fontSize: F.sm, fontWeight: '600' },
+  lineName: { color: C.textPrimary, fontSize: F.sm, fontWeight: '600', lineHeight: 17 },
   lineUnit: { color: C.textMuted, fontSize: F.xs },
   bundleTag: { color: C.pink, fontWeight: '800' },
   stepper: {

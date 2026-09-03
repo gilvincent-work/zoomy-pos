@@ -2,6 +2,7 @@ import {
   eligibleFlavors,
   bundleLineSummary,
   bundlePreviewText,
+  lineEmojis,
   totalSelected,
   isSelectionComplete,
   isSelectionFull,
@@ -48,6 +49,24 @@ describe('eligibleFlavors', () => {
 describe('bundleLineSummary', () => {
   it('joins lines with a plus', () => {
     expect(bundleLineSummary(['Freeze Dried', 'Meaty Treats'])).toBe('Freeze Dried + Meaty Treats');
+  });
+});
+
+describe('lineEmojis', () => {
+  const catalog = [
+    product({ id: 1, name: 'Salmon Cubes', category: 'Freeze Dried', emoji: '🐟' }),
+    product({ id: 2, name: 'Capelin', category: 'Freeze Dried', emoji: '🐟' }),
+    product({ id: 3, name: 'Lamb Liver', category: 'Freeze Dried', emoji: '🍖' }),
+    product({ id: 4, name: 'Beef', category: 'Meaty Treats', emoji: '🥩' }),
+    product({ id: 5, name: 'Chicken', category: 'Meaty Treats', emoji: '🍗' }),
+  ];
+
+  it('returns the most common emoji per line', () => {
+    expect(lineEmojis(catalog, ['Freeze Dried', 'Meaty Treats'])).toEqual(['🐟', '🥩']);
+  });
+
+  it('falls back to a gift when a line has no products', () => {
+    expect(lineEmojis(catalog, ['Empty Line'])).toEqual(['🎁']);
   });
 });
 

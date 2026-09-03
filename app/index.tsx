@@ -34,11 +34,15 @@ type Selection = { category: string | null; subcategory: string | null };
 /** Synthetic category pill that surfaces saved "buy any N" deals as tiles. */
 const BUNDLES_CATEGORY = 'Bundles';
 
-// Tile grid geometry, used to cap tile width so a row fits the screen height.
-const TILE_ASPECT = 0.65; // must match the tile aspectRatio in ProductTile / BundleTile
+// Tile grid geometry. Tiles keep their column width; their height is what adapts
+// so a row fits the screen (short wide tiles on a phone in landscape) instead of
+// shrinking into unreadable squares.
 const GRID_H_CHROME = 24; // grid horizontal padding (12 * 2)
 const GRID_V_CHROME = 44; // grid vertical padding (12 + 24) plus one row margin (8)
 const COL_GAP = 8; // gap between tiles in a row
+const TILE_ASPECT_PHONE = 0.85; // width / height; more compact on phones
+const TILE_ASPECT_TABLET = 0.65; // taller, showcase tiles on larger screens
+const MIN_TILE_HEIGHT = 128; // never shrink a tile below a usable height; scroll instead
 
 export default function POSScreen() {
   const { width, height } = useWindowDimensions();
@@ -54,14 +58,17 @@ export default function POSScreen() {
     { tileTarget: 175, minCols: 2 }
   );
 
-  // Cap tile width so a row's height (tiles are aspect 0.65, i.e. taller than
-  // wide) fits the measured grid area. Without this, a taller filter stack (the
-  // Freeze Dried subcategory row) pushes the tall tiles off the bottom in
-  // landscape. Falls back to the column width until the grid area is measured.
+  // Tiles keep their column width; the height shrinks to fit the measured grid
+  // area so a row is never cut off (e.g. the taller Freeze Dried subcategory row
+  // in landscape), while never dropping below a usable height so short screens
+  // scroll instead of rendering tiny squares.
   const [gridHeight, setGridHeight] = useState(0);
-  const colWidthPx = (productPaneWidth - GRID_H_CHROME - (numColumns - 1) * COL_GAP) / numColumns;
-  const heightCapPx = gridHeight > 0 ? (gridHeight - GRID_V_CHROME) * TILE_ASPECT : Infinity;
-  const tileMaxWidth = Math.max(1, Math.min(colWidthPx, heightCapPx));
+  const isPhone = Math.min(width, height) < 480;
+  const tileAspect = isPhone ? TILE_ASPECT_PHONE : TILE_ASPECT_TABLET;
+  const tileWidth = (productPaneWidth - GRID_H_CHROME - (numColumns - 1) * COL_GAP) / numColumns;
+  const naturalTileHeight = tileWidth / tileAspect;
+  const maxRowHeight = gridHeight > 0 ? gridHeight - GRID_V_CHROME : Infinity;
+  const tileHeight = Math.min(naturalTileHeight, Math.max(maxRowHeight, MIN_TILE_HEIGHT));
 
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
@@ -218,7 +225,7 @@ export default function POSScreen() {
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
           renderItem={({ item }) => (
-            <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
+            <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
               <BundleTile
                 id={item.id}
                 name={item.name}
@@ -242,7 +249,7 @@ export default function POSScreen() {
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
           renderItem={({ item }) => (
-            <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
+            <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
               <ProductTile
                 id={item.id}
                 name={item.name}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../constants/theme';
 import { useCart } from '../context/CartContext';
@@ -21,10 +21,14 @@ type Props = {
 export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
+  // On a short viewport (landscape phone) the fixed total + Charge block crowds
+  // the receipt, so tighten those and give the scrolling lines more room.
+  const { height } = useWindowDimensions();
+  const tight = height < 500;
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, tight && styles.headerTight]}>
         <Text style={styles.headerLabel}>Current Sale</Text>
       </View>
 
@@ -116,14 +120,14 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
         )}
       </ScrollView>
 
-      <View style={[styles.footer, compact && styles.footerCompact]}>
+      <View style={[styles.footer, compact && styles.footerCompact, tight && styles.footerTight]}>
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>₱{total.toFixed(2)}</Text>
+          <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
         <TouchableOpacity
           testID="cart-charge"
-          style={[styles.charge, isEmpty && styles.chargeDisabled]}
+          style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
           disabled={isEmpty}
           onPress={onCharge}
           onLongPress={onMorePayment}
@@ -156,6 +160,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
+  headerTight: { paddingTop: 6, paddingBottom: 4 },
   headerLabel: {
     color: C.textMuted,
     fontSize: F.xs,
@@ -237,6 +242,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   footerCompact: { padding: 12, gap: 8 },
+  footerTight: { padding: 10, gap: 6 },
   totalRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -244,12 +250,14 @@ const styles = StyleSheet.create({
   },
   totalLabel: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
   totalValue: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  totalValueTight: { fontSize: F.xl },
   charge: {
     backgroundColor: C.green,
     borderRadius: R.md,
     paddingVertical: 15,
     alignItems: 'center',
   },
+  chargeTight: { paddingVertical: 10 },
   chargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
   chargeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
   moreBtn: { alignItems: 'center', paddingVertical: 4 },

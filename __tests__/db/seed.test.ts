@@ -8,6 +8,9 @@ beforeEach(() => {
 const productInserts = () =>
   mockDb.runAsync.mock.calls.filter(([sql]) => String(sql).startsWith('INSERT INTO products'));
 
+const bundleInserts = () =>
+  mockDb.runAsync.mock.calls.filter(([sql]) => String(sql).startsWith('INSERT INTO saved_bundles'));
+
 describe('seedDevProducts', () => {
   it('is a no-op when the stored seed version already matches', async () => {
     mockDb.getFirstAsync.mockResolvedValueOnce({ value: DEV_SEED_VERSION }); // version lookup
@@ -33,10 +36,12 @@ describe('seedDevProducts', () => {
 
     const salmonCubes = inserts.find((c) => c[1][0] === 'Salmon Cubes');
     expect(salmonCubes?.[1]).toEqual(
-      expect.arrayContaining(['Salmon Cubes', 142.5, 'Freeze Dried', 'Fish'])
+      expect.arrayContaining(['Salmon Cubes', 170, 'Freeze Dried', 'Fish'])
     );
     // Duplicate display names across categories are kept as distinct products.
     expect(inserts.filter((c) => c[1][0] === 'Chicken')).toHaveLength(2);
+    // Starter "buy any N" deals are seeded alongside the catalog.
+    expect(bundleInserts()).toHaveLength(2);
     // Version marker persisted.
     expect(mockDb.runAsync).toHaveBeenCalledWith(
       "INSERT OR REPLACE INTO settings (key, value) VALUES ('dev_seed_version', ?)",

@@ -4,7 +4,9 @@ import {
   StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { bundleLineSummary } from '../../utils/bundles';
 import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, ProductVariant, getAllVariantsByProductId } from '../../db/products';
 import {
   getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
@@ -250,6 +252,12 @@ export default function ProductsModal() {
   }
 
   function startEditBundle(bundle: SavedBundle) {
+    // Pick bundles carry lines and an amount, so edit them in the full Add Bundle
+    // screen; the inline form only handles a legacy fixed bundle's name and price.
+    if (bundle.bundle_type === 'pick') {
+      router.push(`/modals/bundle?editId=${bundle.id}`);
+      return;
+    }
     setBundleForm({ name: bundle.name, price: String(bundle.price) });
     setEditingId(bundle.id);
     setFormMode('bundle');
@@ -494,7 +502,9 @@ export default function ProductsModal() {
               <View>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
-                  ₱{bundle.price.toFixed(2)} · {bundle.items.length} item{bundle.items.length !== 1 ? 's' : ''}
+                  {bundle.bundle_type === 'pick'
+                    ? `₱${bundle.price.toFixed(2)} · Any ${bundle.pick_count ?? 0} · ${bundleLineSummary(bundle.line_categories ?? [])}`
+                    : `₱${bundle.price.toFixed(2)} · ${bundle.items.length} item${bundle.items.length !== 1 ? 's' : ''}`}
                 </Text>
               </View>
             </View>

@@ -34,6 +34,12 @@ type Selection = { category: string | null; subcategory: string | null };
 /** Synthetic category pill that surfaces saved "buy any N" deals as tiles. */
 const BUNDLES_CATEGORY = 'Bundles';
 
+// Tile grid geometry, used to cap tile width so a row fits the screen height.
+const TILE_ASPECT = 0.65; // must match the tile aspectRatio in ProductTile / BundleTile
+const GRID_H_CHROME = 24; // grid horizontal padding (12 * 2)
+const GRID_V_CHROME = 44; // grid vertical padding (12 + 24) plus one row margin (8)
+const COL_GAP = 8; // gap between tiles in a row
+
 export default function POSScreen() {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
@@ -43,10 +49,19 @@ export default function POSScreen() {
   const cartWidth = useSideCart ? Math.min(Math.max(width * 0.36, 300), 400) : width;
   const productPaneWidth = useSideCart ? width - cartWidth : width;
   // Bigger, mobile-friendly tiles: 2 columns in portrait, scaling up on wider panes.
-  const { numColumns, tileMaxWidth } = useColumns(
+  const { numColumns } = useColumns(
     useSideCart ? productPaneWidth : undefined,
     { tileTarget: 175, minCols: 2 }
   );
+
+  // Cap tile width so a row's height (tiles are aspect 0.65, i.e. taller than
+  // wide) fits the measured grid area. Without this, a taller filter stack (the
+  // Freeze Dried subcategory row) pushes the tall tiles off the bottom in
+  // landscape. Falls back to the column width until the grid area is measured.
+  const [gridHeight, setGridHeight] = useState(0);
+  const colWidthPx = (productPaneWidth - GRID_H_CHROME - (numColumns - 1) * COL_GAP) / numColumns;
+  const heightCapPx = gridHeight > 0 ? (gridHeight - GRID_V_CHROME) * TILE_ASPECT : Infinity;
+  const tileMaxWidth = Math.max(1, Math.min(colWidthPx, heightCapPx));
 
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
@@ -189,12 +204,17 @@ export default function POSScreen() {
           />
         )}
       </View>
+      <View
+        style={styles.gridArea}
+        onLayout={(e) => setGridHeight(e.nativeEvent.layout.height)}
+      >
       {showingBundles ? (
         <FlatList
           key={`bundles-${numColumns}`}
           data={pickBundles}
           keyExtractor={(b) => String(b.id)}
           numColumns={numColumns}
+          style={styles.grid_list}
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
           renderItem={({ item }) => (
@@ -218,6 +238,7 @@ export default function POSScreen() {
           data={visibleProducts}
           keyExtractor={(p) => String(p.id)}
           numColumns={numColumns}
+          style={styles.grid_list}
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
           renderItem={({ item }) => (
@@ -246,6 +267,7 @@ export default function POSScreen() {
           }
         />
       )}
+      </View>
     </View>
   );
 
@@ -338,6 +360,8 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 8,
   },
+  gridArea: { flex: 1 },
+  grid_list: { flex: 1 },
   grid: { padding: 12, paddingBottom: 24 },
   gridRow: { gap: 8, marginBottom: 8 },
   tileWrapper: { flex: 1 },

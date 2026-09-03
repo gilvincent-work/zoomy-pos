@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
-import { seedDevProducts, seedProductsIfEmpty } from '../db/seed';
+import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 
@@ -20,7 +20,10 @@ export default function RootLayout() {
         await seedDevProducts();
       } else {
         await seedProductsIfEmpty();
+        await seedBundlesIfEmpty();
       }
+      // One-time correction for installs seeded before the flat per-line prices.
+      await syncLinePricesOnce();
       setReady(true);
     }
     bootstrap();
@@ -43,7 +46,8 @@ export default function RootLayout() {
           <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
           <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />
           <Stack.Screen name="modals/admin" options={{ presentation: 'modal', title: '' }} />
-          <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Bundle' }} />
+          <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Add Bundle' }} />
+          <Stack.Screen name="modals/bundle-select" options={{ presentation: 'modal', title: 'Choose Flavors' }} />
           <Stack.Screen name="modals/scan"   options={{ presentation: 'modal', headerShown: false }} />
         </Stack>
       </CartProvider>

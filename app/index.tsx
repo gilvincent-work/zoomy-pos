@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProductTile } from '../components/ProductTile';
+import { BundleTile } from '../components/BundleTile';
 import { VariantPickerModal } from '../components/VariantPickerModal';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
@@ -18,8 +19,10 @@ import {
   getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId,
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
+import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction } from '../db/transactions';
 import { buildInsertItems } from '../utils/cart-transaction';
+import { bundleLineSummary } from '../utils/bundles';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
@@ -27,6 +30,9 @@ import { useColumns } from '../hooks/useColumns';
 import { C, F, R } from '../constants/theme';
 
 type Selection = { category: string | null; subcategory: string | null };
+
+/** Synthetic category pill that surfaces saved "buy any N" deals as tiles. */
+const BUNDLES_CATEGORY = 'Bundles';
 
 export default function POSScreen() {
   const { width, height } = useWindowDimensions();
@@ -44,6 +50,7 @@ export default function POSScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [pickBundles, setPickBundles] = useState<SavedBundle[]>([]);
   const [sel, setSel] = useState<Selection>({ category: null, subcategory: null });
 
   const { items, bundles, total, addItem, removeItem, decrementItem, clearCart } = useCart();
@@ -55,24 +62,36 @@ export default function POSScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getActiveProducts(), getCategoriesWithSubcategories()]).then(
-        ([prods, grps]) => {
-          if (cancelled) return;
-          setProducts(prods);
-          setGroups(grps);
-          // Keep the current category if it still exists, otherwise reset to the first.
-          setSel((prev) => {
-            const stillValid = prev.category && grps.some((g) => g.category === prev.category);
-            return stillValid ? prev : initialSelection(grps);
-          });
-        }
-      );
+      Promise.all([
+        getActiveProducts(),
+        getCategoriesWithSubcategories(),
+        getActivePickBundles(),
+      ]).then(([prods, grps, deals]) => {
+        if (cancelled) return;
+        setProducts(prods);
+        setGroups(grps);
+        setPickBundles(deals);
+        // Keep the current category if it still exists, otherwise reset to the first.
+        setSel((prev) => {
+          const stillValid =
+            (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
+            (prev.category && grps.some((g) => g.category === prev.category));
+          return stillValid ? prev : initialSelection(grps);
+        });
+      });
       return () => { cancelled = true; };
     }, [])
   );
 
-  const visibleProducts = filterProducts(products, sel.category, sel.subcategory);
-  const subs = subcategoriesFor(groups, sel.category);
+  const showingBundles = sel.category === BUNDLES_CATEGORY;
+  const categoryNames = [
+    ...groups.map((g) => g.category),
+    ...(pickBundles.length > 0 ? [BUNDLES_CATEGORY] : []),
+  ];
+  const visibleProducts = showingBundles
+    ? []
+    : filterProducts(products, sel.category, sel.subcategory);
+  const subs = showingBundles ? [] : subcategoriesFor(groups, sel.category);
 
   const getBadge = (productId: number) =>
     items.filter((i) => i.productId === productId).reduce((sum, i) => sum + i.quantity, 0);
@@ -152,9 +171,15 @@ export default function POSScreen() {
     <View style={styles.productPane}>
       <View style={styles.filters}>
         <CategoryTabs
-          categories={groups.map((g) => g.category)}
+          categories={categoryNames}
           active={sel.category ?? ''}
-          onSelect={(category) => setSel(defaultSelectionFor(groups, category))}
+          onSelect={(category) =>
+            setSel(
+              category === BUNDLES_CATEGORY
+                ? { category: BUNDLES_CATEGORY, subcategory: null }
+                : defaultSelectionFor(groups, category)
+            )
+          }
         />
         {subs.length > 0 && (
           <SubcategoryFilter
@@ -164,38 +189,64 @@ export default function POSScreen() {
           />
         )}
       </View>
-      <FlatList
-        key={numColumns}
-        data={visibleProducts}
-        keyExtractor={(p) => String(p.id)}
-        numColumns={numColumns}
-        contentContainerStyle={styles.grid}
-        columnWrapperStyle={styles.gridRow}
-        renderItem={({ item }) => (
-          <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
-            <ProductTile
-              id={item.id}
-              name={item.name}
-              price={item.price}
-              hasVariants={item.has_variants === 1}
-              imageUri={item.image_uri ?? null}
-              emoji={item.emoji}
-              badgeCount={getBadge(item.id)}
-              onPress={() => handleProductPress(item)}
-              onLongPress={() => removeItem(item.id)}
-              onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
-              onRemove={() => removeItem(item.id)}
-            />
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            {products.length === 0
-              ? 'No products yet. Import your SKUs from the Products screen.'
-              : 'No treats in this category yet.'}
-          </Text>
-        }
-      />
+      {showingBundles ? (
+        <FlatList
+          key={`bundles-${numColumns}`}
+          data={pickBundles}
+          keyExtractor={(b) => String(b.id)}
+          numColumns={numColumns}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={styles.gridRow}
+          renderItem={({ item }) => (
+            <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
+              <BundleTile
+                id={item.id}
+                name={item.name}
+                price={item.price}
+                pickCount={item.pick_count ?? 0}
+                lineSummary={bundleLineSummary(item.line_categories ?? [])}
+                onPress={() => router.push(`/modals/bundle-select?bundleId=${item.id}`)}
+              />
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.empty}>No bundle deals yet. Tap the gift icon to add one.</Text>
+          }
+        />
+      ) : (
+        <FlatList
+          key={numColumns}
+          data={visibleProducts}
+          keyExtractor={(p) => String(p.id)}
+          numColumns={numColumns}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={styles.gridRow}
+          renderItem={({ item }) => (
+            <View style={[styles.tileWrapper, { maxWidth: tileMaxWidth }]}>
+              <ProductTile
+                id={item.id}
+                name={item.name}
+                price={item.price}
+                hasVariants={item.has_variants === 1}
+                imageUri={item.image_uri ?? null}
+                emoji={item.emoji}
+                badgeCount={getBadge(item.id)}
+                onPress={() => handleProductPress(item)}
+                onLongPress={() => removeItem(item.id)}
+                onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
+                onRemove={() => removeItem(item.id)}
+              />
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {products.length === 0
+                ? 'No products yet. Import your SKUs from the Products screen.'
+                : 'No treats in this category yet.'}
+            </Text>
+          }
+        />
+      )}
     </View>
   );
 

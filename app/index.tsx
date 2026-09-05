@@ -13,6 +13,7 @@ import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
 import { CartPanel } from '../components/CartPanel';
 import { CartSheet } from '../components/CartSheet';
+import { SyncStatusBar } from '../components/SyncStatusBar';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -283,7 +284,7 @@ export default function POSScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.brandName}>Zoomy</Text>
-          <Text style={styles.brandSub}>Point of Sale</Text>
+          <SyncStatusBar />
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
@@ -342,9 +343,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.borderDark,
   },
-  headerLeft: { gap: 1 },
+  headerLeft: { gap: 4 },
   brandName: { color: C.pink, fontSize: F.xl, fontWeight: '800', letterSpacing: 0.3 },
-  brandSub: { color: C.textMuted, fontSize: F.xs, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBtn: {
     padding: 10,

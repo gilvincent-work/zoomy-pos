@@ -11,6 +11,8 @@ export type Product = {
   subcategory: string | null;
   is_active: number;
   created_at: string;
+  /** The Coop-side pos_products.product_id (SKU Code), once catalog sync assigns one. */
+  sku: string | null;
 };
 
 /** A category and its (possibly empty) list of subcategories, both sorted alphabetically. */
@@ -102,13 +104,14 @@ export async function createProduct(input: {
   emoji?: string;
   category?: string | null;
   subcategory?: string | null;
+  sku?: string | null;
   variants?: { name: string; price: number }[];
 }): Promise<number> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji ?? '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, input.category ?? null, input.subcategory ?? null, now]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji ?? '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, input.category ?? null, input.subcategory ?? null, input.sku ?? null, now]
   );
   const productId = result.lastInsertRowId;
 
@@ -134,13 +137,14 @@ export async function updateProduct(
     image_uri?: string | null;
     category?: string | null;
     subcategory?: string | null;
+    sku?: string | null;
     variants?: { id?: number; name: string; price: number }[];
   }
 ): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ? WHERE id = ?',
-    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, id]
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, fields.sku ?? null, id]
   );
 
   if (fields.has_variants && fields.variants) {
@@ -191,6 +195,15 @@ export async function getProductByName(name: string): Promise<Product | null> {
   return row ?? null;
 }
 
+export async function getProductBySku(sku: string): Promise<Product | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<Product>(
+    'SELECT * FROM products WHERE sku = ? LIMIT 1',
+    [sku]
+  );
+  return row ?? null;
+}
+
 export async function getVariantByProductIdAndName(
   productId: number,
   name: string
@@ -211,6 +224,7 @@ export type UpsertProductInput = {
   image_uri?: string | null;
   category?: string | null;
   subcategory?: string | null;
+  sku?: string | null;
 };
 
 export type UpsertResult = { id: number; inserted: boolean };
@@ -222,20 +236,20 @@ export async function upsertProduct(input: UpsertProductInput): Promise<UpsertRe
   if (existing) {
     if (hasImageUri) {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, input.category ?? null, input.subcategory ?? null, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, category = ?, subcategory = ?, sku = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, input.category ?? null, input.subcategory ?? null, input.sku ?? existing.sku, existing.id]
       );
     } else {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, input.category ?? null, input.subcategory ?? null, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, category = ?, subcategory = ?, sku = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.category ?? null, input.subcategory ?? null, input.sku ?? existing.sku, existing.id]
       );
     }
     return { id: existing.id, inserted: false };
   }
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, input.category ?? null, input.subcategory ?? null, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, input.category ?? null, input.subcategory ?? null, input.sku ?? null, new Date().toISOString()]
   );
   return { id: result.lastInsertRowId, inserted: true };
 }

@@ -147,6 +147,7 @@ export default function ProductsModal() {
           has_variants: true,
           is_active: existing.is_active,
           image_uri: productForm.imageUri,
+          sku: existing.sku,
           variants: parsedVariants,
         });
       } else {
@@ -172,6 +173,7 @@ export default function ProductsModal() {
           has_variants: false,
           is_active: existing.is_active,
           image_uri: productForm.imageUri,
+          sku: existing.sku,
         });
       } else {
         await createProduct({ name, price, has_variants: false, image_uri: productForm.imageUri });
@@ -188,6 +190,7 @@ export default function ProductsModal() {
       price: product.price,
       has_variants: product.has_variants === 1,
       is_active: product.is_active === 1 ? 0 : 1,
+      sku: product.sku,
     });
     setProducts(await getAllProducts());
   }

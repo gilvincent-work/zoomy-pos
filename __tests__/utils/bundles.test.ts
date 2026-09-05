@@ -22,6 +22,7 @@ function product(over: Partial<Product> & Pick<Product, 'id' | 'name'>): Product
     subcategory: over.subcategory ?? null,
     is_active: over.is_active ?? 1,
     created_at: '2026-09-03T10:00:00.000Z',
+    sku: over.sku ?? null,
   };
 }
 

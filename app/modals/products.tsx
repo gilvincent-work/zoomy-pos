@@ -12,6 +12,7 @@ import {
 } from '../../db/saved-bundles';
 import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
+import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 import { useToast } from '../../components/Toast';
@@ -56,6 +57,8 @@ export default function ProductsModal() {
   const [showForm, setShowForm] = useState(false);
   // Which product line's pills is active on the list view. "All" shows everything.
   const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
+  // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
+  const [activeSub, setActiveSub] = useState<string | null>(null);
 
   // The form is an in-place sub-view, not its own route. Hide the modal's native
   // "Products" header while it's open so the form's own back arrow is the single
@@ -83,12 +86,37 @@ export default function ProductsModal() {
   const showProducts = activeLine !== BUNDLES_LINE;
   const showBundles = activeLine === ALL_LINES || activeLine === BUNDLES_LINE;
 
-  const visibleProducts = useMemo(
-    () => (activeLine === ALL_LINES || activeLine === BUNDLES_LINE
-      ? products
-      : products.filter((p) => categoryOf(p) === activeLine)),
-    [products, activeLine]
-  );
+  // Subcategory chips for the active line (e.g. Freeze Dried has Fish / Meats /
+  // Cat Grass · Yogurt / Super Food). Empty for "All", "Bundles", and lines with
+  // no subcategories, so no secondary row shows there.
+  const subNames = useMemo(() => {
+    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return [];
+    const subs = new Set<string>();
+    for (const p of products) {
+      if (categoryOf(p) === activeLine && p.subcategory && p.subcategory.trim()) {
+        subs.add(p.subcategory);
+      }
+    }
+    return Array.from(subs).sort((a, b) => a.localeCompare(b));
+  }, [products, activeLine]);
+
+  const visibleProducts = useMemo(() => {
+    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return products;
+    return products.filter((p) => {
+      if (categoryOf(p) !== activeLine) return false;
+      return activeSub == null || p.subcategory === activeSub;
+    });
+  }, [products, activeLine, activeSub]);
+
+  // Switching lines clears any subcategory narrowing; tapping the active
+  // subcategory again clears back to the whole line.
+  function selectLine(line: string) {
+    setActiveLine(line);
+    setActiveSub(null);
+  }
+  function selectSub(sub: string) {
+    setActiveSub((cur) => (cur === sub ? null : sub));
+  }
 
   async function refreshAll() {
     const [p, b] = await Promise.all([getAllProducts(), getAllSavedBundles()]);
@@ -314,7 +342,14 @@ export default function ProductsModal() {
             long alphabetical list (e.g. every "Beef ..." at once). */}
         {lineNames.length > 1 && (
           <View style={styles.pillRow}>
-            <CategoryTabs categories={lineNames} active={activeLine} onSelect={setActiveLine} />
+            <CategoryTabs categories={lineNames} active={activeLine} onSelect={selectLine} />
+          </View>
+        )}
+
+        {/* Secondary chips for lines that have subcategories (e.g. Freeze Dried). */}
+        {subNames.length > 0 && (
+          <View style={styles.subRow}>
+            <SubcategoryFilter subcategories={subNames} active={activeSub} onSelect={selectSub} />
           </View>
         )}
 
@@ -464,6 +499,7 @@ const styles = StyleSheet.create({
   actionIcon: {},
 
   pillRow: { marginBottom: 16 },
+  subRow: { marginTop: -8, marginBottom: 16 },
 
   formHeader: {
     flexDirection: 'row',

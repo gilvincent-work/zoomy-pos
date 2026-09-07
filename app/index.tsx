@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   useWindowDimensions,
@@ -29,6 +29,7 @@ import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
 import { useColumns } from '../hooks/useColumns';
+import { subscribeCatalogChanged } from '../utils/catalog-sync';
 import { C, F, R } from '../constants/theme';
 
 type Selection = { category: string | null; subcategory: string | null };
@@ -83,29 +84,33 @@ export default function POSScreen() {
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [variantList, setVariantList] = useState<ProductVariant[]>([]);
 
+  const loadCatalog = useCallback(async () => {
+    const [prods, grps, deals] = await Promise.all([
+      getActiveProducts(),
+      getCategoriesWithSubcategories(),
+      getActivePickBundles(),
+    ]);
+    setProducts(prods);
+    setGroups(grps);
+    setPickBundles(deals);
+    // Keep the current category if it still exists, otherwise reset to the first.
+    setSel((prev) => {
+      const stillValid =
+        (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
+        (prev.category && grps.some((g) => g.category === prev.category));
+      return stillValid ? prev : initialSelection(grps);
+    });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      Promise.all([
-        getActiveProducts(),
-        getCategoriesWithSubcategories(),
-        getActivePickBundles(),
-      ]).then(([prods, grps, deals]) => {
-        if (cancelled) return;
-        setProducts(prods);
-        setGroups(grps);
-        setPickBundles(deals);
-        // Keep the current category if it still exists, otherwise reset to the first.
-        setSel((prev) => {
-          const stillValid =
-            (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
-            (prev.category && grps.some((g) => g.category === prev.category));
-          return stillValid ? prev : initialSelection(grps);
-        });
-      });
-      return () => { cancelled = true; };
-    }, [])
+      loadCatalog();
+    }, [loadCatalog])
   );
+
+  // A catalog pull from Coop (price / listing) updates local SQLite; re-read so
+  // the tiles reflect the new prices without waiting for the next screen focus.
+  useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); }), [loadCatalog]);
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
   const categoryNames = [

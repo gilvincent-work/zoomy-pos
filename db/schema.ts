@@ -146,6 +146,17 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE products ADD COLUMN subcategory TEXT`
   ).catch(() => {});
 
+  // Coop integration: the SKU Code that identifies this product as
+  // pos_products.product_id once catalog sync (Phase 2) is wired up.
+  // Nullable — locally-created products have none until synced.
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN sku TEXT`
+  ).catch(() => {});
+
+  await db.execAsync(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku) WHERE sku IS NOT NULL`
+  );
+
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN remarks TEXT`
   ).catch(() => {});

@@ -46,6 +46,7 @@ yarn-error.*
 # Vercel CLI
 .vercel
 .env*
+!.env.example
 
 # local agent settings (machine-specific, not shared)
 .claude/settings.local.json

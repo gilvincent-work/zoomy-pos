@@ -66,8 +66,8 @@ describe('createProduct', () => {
     mockDb.runAsync.mockResolvedValueOnce({ lastInsertRowId: 5, changes: 1 });
     const id = await createProduct({ name: 'Cookie', price: 35, has_variants: false });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-      ['Cookie', 35, '🍬', null, 0, null, null, expect.any(String)]
+      'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+      ['Cookie', 35, '🍬', null, 0, null, null, null, expect.any(String)]
     );
     expect(id).toBe(5);
   });
@@ -77,8 +77,8 @@ describe('updateProduct', () => {
   it('updates name, price, has_variants and is_active by id', async () => {
     await updateProduct(1, { name: 'Big Cake', price: 150, has_variants: false, is_active: 0 });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ? WHERE id = ?',
-      ['Big Cake', 150, 0, 0, null, null, null, 1]
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+      ['Big Cake', 150, 0, 0, null, null, null, null, 1]
     );
   });
 });

@@ -6,6 +6,8 @@ import { initSchema } from '../db/schema';
 import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
+import { requestPersistentStorage } from '../utils/pwa';
+import { loadPersistedSyncStatus } from '../utils/sync-status';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -13,6 +15,9 @@ export default function RootLayout() {
   useEffect(() => {
     async function bootstrap() {
       await initSchema();
+      // Ask the browser to keep unsynced sales from being evicted under storage
+      // pressure (web only; no-op on native). See COOP_INTEGRATION_PLAN.md.
+      await requestPersistentStorage();
       // Dev refreshes the sample catalog on every version bump (destructive);
       // staging/production seed the starter catalog only when empty. Temporary
       // until products are sourced from Shopify.
@@ -25,6 +30,8 @@ export default function RootLayout() {
       // One-time corrections for installs seeded before these changes.
       await syncLinePricesOnce();
       await syncCatalogNamesOnce();
+      // Hydrate the "last synced" marker from the persisted timestamp.
+      await loadPersistedSyncStatus();
       setReady(true);
     }
     bootstrap();

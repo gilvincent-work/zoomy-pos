@@ -18,6 +18,8 @@ import { useToast } from '../../components/Toast';
 
 /** Pseudo-pill that shows every product line at once; the default view. */
 const ALL_LINES = 'All';
+/** Pseudo-pill that shows the Bundle Presets instead of individual products. */
+const BUNDLES_LINE = 'Bundles';
 
 async function confirmAction(
   title: string,
@@ -68,15 +70,23 @@ export default function ProductsModal() {
     }, [])
   );
 
-  // Product-line pills, derived from the loaded catalog: "All" plus each distinct
-  // line, alphabetical. Lets staff jump to a line instead of scrolling one long list.
+  // Pills, derived from the loaded catalog: "All", each distinct product line
+  // (alphabetical), then a "Bundles" pill (only when presets exist). Lets staff
+  // jump straight to a line or the bundles instead of scrolling one long list.
   const lineNames = useMemo(() => {
     const lines = Array.from(new Set(products.map(categoryOf))).sort((a, b) => a.localeCompare(b));
-    return [ALL_LINES, ...lines];
-  }, [products]);
+    return [ALL_LINES, ...lines, ...(bundles.length > 0 ? [BUNDLES_LINE] : [])];
+  }, [products, bundles]);
+
+  // "All" shows both sections; a product line shows only its products; "Bundles"
+  // shows only the presets.
+  const showProducts = activeLine !== BUNDLES_LINE;
+  const showBundles = activeLine === ALL_LINES || activeLine === BUNDLES_LINE;
 
   const visibleProducts = useMemo(
-    () => (activeLine === ALL_LINES ? products : products.filter((p) => categoryOf(p) === activeLine)),
+    () => (activeLine === ALL_LINES || activeLine === BUNDLES_LINE
+      ? products
+      : products.filter((p) => categoryOf(p) === activeLine)),
     [products, activeLine]
   );
 
@@ -309,6 +319,8 @@ export default function ProductsModal() {
         )}
 
         {/* Products section */}
+        {showProducts && (
+        <>
         <Text style={styles.sectionLabel}>Products</Text>
         {visibleProducts.length === 0 && (
           <Text style={styles.emptyHint}>
@@ -347,8 +359,13 @@ export default function ProductsModal() {
           </View>
         ))}
 
+        </>
+        )}
+
         {/* Bundle Presets section */}
-        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Bundle Presets</Text>
+        {showBundles && (
+        <>
+        <Text style={[styles.sectionLabel, showProducts && { marginTop: 20 }]}>Bundle Presets</Text>
         {bundles.length === 0 && (
           <Text style={styles.emptyHint}>No bundle presets yet. Create one from the POS screen.</Text>
         )}
@@ -384,6 +401,8 @@ export default function ProductsModal() {
             </View>
           </View>
         ))}
+        </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

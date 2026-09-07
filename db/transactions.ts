@@ -149,16 +149,24 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     variant_name: string | null;
   };
 
+  // Show the LIVE product / variant name (so a later rename — e.g. from a Coop
+  // catalog sync — is reflected in history), falling back to the at-sale name
+  // snapshot when the product/variant no longer exists. The sale AMOUNT stays
+  // the snapshot (ti.price) — a rename must never rewrite what was charged.
   const rows = await db.getAllAsync<Row>(
     `SELECT t.id AS t_id, t.total AS t_total, t.cash_tendered AS t_cash,
             t.change AS t_change, t.payment_method AS t_payment,
             t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
             t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
             t.status AS t_status, t.created_at AS t_created, t.remarks AS t_remarks,
-            ti.id AS ti_id, ti.transaction_id, ti.product_id, ti.product_name,
-            ti.price, ti.quantity, ti.variant_id, ti.variant_name
+            ti.id AS ti_id, ti.transaction_id, ti.product_id,
+            COALESCE(p.name, ti.product_name) AS product_name,
+            ti.price, ti.quantity, ti.variant_id,
+            COALESCE(pv.name, ti.variant_name) AS variant_name
      FROM transactions t
      LEFT JOIN transaction_items ti ON ti.transaction_id = t.id
+     LEFT JOIN products p ON p.id = ti.product_id
+     LEFT JOIN product_variants pv ON pv.id = ti.variant_id
      ORDER BY t.created_at DESC`
   );
 

@@ -449,12 +449,16 @@ export default function ProductsModal() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Product creation is Coop-only (POS co-edits name/price/listing and unlists,
+            but never creates). Hidden, not deleted, so it can be restored if that
+            ownership decision changes.
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => { setFormMode('product'); setShowForm(true); }}
         >
           <Text style={styles.addBtnText}>+ New Product</Text>
         </TouchableOpacity>
+        */}
 
         {/* Products section */}
         <Text style={styles.sectionLabel}>Products</Text>

@@ -1,20 +1,23 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Image,
+  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import { bundleLineSummary } from '../../utils/bundles';
-import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, ProductVariant, getAllVariantsByProductId } from '../../db/products';
+import { getAllProducts, updateProduct, deleteProduct, Product } from '../../db/products';
 import {
   getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
 } from '../../db/saved-bundles';
-import { copyToDocumentDir } from '../../utils/photos';
+import { categoryOf } from '../../utils/catalog-filter';
+import { CategoryTabs } from '../../components/CategoryTabs';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, R } from '../../constants/theme';
 import { useToast } from '../../components/Toast';
+
+/** Pseudo-pill that shows every product line at once; the default view. */
+const ALL_LINES = 'All';
 
 async function confirmAction(
   title: string,
@@ -32,16 +35,16 @@ async function confirmAction(
   });
 }
 
-type VariantFormRow = { id?: number; name: string; price: string };
-type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[]; imageUri: string | null };
+type ProductForm = { name: string; price: string };
 type BundleForm = { name: string; price: string };
 type FormMode = 'product' | 'bundle';
 
-const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, variants: [], imageUri: null };
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '' };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
   const { showToast } = useToast();
+  const navigation = useNavigation();
   const [products, setProducts] = useState<(Product & { variant_count: number })[]>([]);
   const [bundles, setBundles] = useState<SavedBundle[]>([]);
   const [productForm, setProductForm] = useState<ProductForm>(EMPTY_PRODUCT);
@@ -49,11 +52,32 @@ export default function ProductsModal() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formMode, setFormMode] = useState<FormMode>('product');
   const [showForm, setShowForm] = useState(false);
+  // Which product line's pills is active on the list view. "All" shows everything.
+  const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
+
+  // The form is an in-place sub-view, not its own route. Hide the modal's native
+  // "Products" header while it's open so the form's own back arrow is the single
+  // affordance, and it returns to the product list (not out to the POS page).
+  useEffect(() => {
+    navigation.setOptions({ headerShown: !showForm });
+  }, [navigation, showForm]);
 
   useFocusEffect(
     useCallback(() => {
       refreshAll();
     }, [])
+  );
+
+  // Product-line pills, derived from the loaded catalog: "All" plus each distinct
+  // line, alphabetical. Lets staff jump to a line instead of scrolling one long list.
+  const lineNames = useMemo(() => {
+    const lines = Array.from(new Set(products.map(categoryOf))).sort((a, b) => a.localeCompare(b));
+    return [ALL_LINES, ...lines];
+  }, [products]);
+
+  const visibleProducts = useMemo(
+    () => (activeLine === ALL_LINES ? products : products.filter((p) => categoryOf(p) === activeLine)),
+    [products, activeLine]
   );
 
   async function refreshAll() {
@@ -62,122 +86,42 @@ export default function ProductsModal() {
     setBundles(b);
   }
 
-  // ─── Image picker ─────────────────────────────────────────────────────────
-
-  function pickImage() {
-    if (Platform.OS === 'web') {
-      // On iOS PWA, Alert callbacks are async and lose the user-gesture context,
-      // blocking programmatic input.click(). Trigger the file input directly here
-      // so the click happens in the same synchronous user-gesture stack.
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (file) {
-          const uri = URL.createObjectURL(file);
-          const saved = await copyToDocumentDir(uri, `product_${Date.now()}.jpg`);
-          setProductForm((f) => ({ ...f, imageUri: saved }));
-        }
-      };
-      input.click();
-      return;
-    }
-
-    Alert.alert('Product Photo', 'Choose a source', [
-      {
-        text: 'Take Photo',
-        onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('Permission needed', 'Camera access is required to take photos.');
-            return;
-          }
-          const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-          if (!result.canceled && result.assets[0]) {
-            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
-            setProductForm((f) => ({ ...f, imageUri: saved }));
-          }
-        },
-      },
-      {
-        text: 'Choose from Library',
-        onPress: async () => {
-          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.7 });
-          if (!result.canceled && result.assets[0]) {
-            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
-            setProductForm((f) => ({ ...f, imageUri: saved }));
-          }
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }
-
   // ─── Product actions ──────────────────────────────────────────────────────
 
+  // The POS edits only a product's display name and price (creation, photos and
+  // variants are Coop-owned). A product's other fields are preserved untouched:
+  // for the rare variant product, its variant pricing and null base price stay as
+  // they are and only the name is updated.
   async function handleSaveProduct() {
     const name = productForm.name.trim();
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
+    if (editingId === null) return; // creation is Coop-only; no create path here.
 
-    if (productForm.hasVariants) {
-      const validVariants = productForm.variants.filter((v) => v.name.trim());
-      if (validVariants.length === 0) {
-        Alert.alert('Required', 'Add at least one variant.');
-        return;
-      }
-      for (const v of validVariants) {
-        const p = parseFloat(v.price);
-        if (isNaN(p) || p <= 0) {
-          Alert.alert('Invalid price', `Enter a valid price for "${v.name}".`);
-          return;
-        }
-      }
-      const parsedVariants = validVariants.map((v) => ({
-        id: v.id,
-        name: v.name.trim(),
-        price: parseFloat(v.price),
-      }));
+    const existing = products.find((p) => p.id === editingId)!;
 
-      if (editingId !== null) {
-        const existing = products.find((p) => p.id === editingId)!;
-        await updateProduct(editingId, {
-          name,
-          price: null,
-          has_variants: true,
-          is_active: existing.is_active,
-          image_uri: productForm.imageUri,
-          sku: existing.sku,
-          variants: parsedVariants,
-        });
-      } else {
-        await createProduct({
-          name,
-          price: null,
-          has_variants: true,
-          image_uri: productForm.imageUri,
-          variants: parsedVariants,
-        });
-      }
+    if (existing.has_variants === 1) {
+      await updateProduct(editingId, {
+        name,
+        price: null,
+        has_variants: true,
+        is_active: existing.is_active,
+        image_uri: existing.image_uri,
+        sku: existing.sku,
+        // No variants array: updateProduct leaves the existing variants intact.
+      });
     } else {
       const price = parseFloat(productForm.price);
       if (isNaN(price) || price <= 0) {
         Alert.alert('Invalid price', 'Enter a valid price.'); return;
       }
-
-      if (editingId !== null) {
-        const existing = products.find((p) => p.id === editingId)!;
-        await updateProduct(editingId, {
-          name,
-          price,
-          has_variants: false,
-          is_active: existing.is_active,
-          image_uri: productForm.imageUri,
-          sku: existing.sku,
-        });
-      } else {
-        await createProduct({ name, price, has_variants: false, image_uri: productForm.imageUri });
-      }
+      await updateProduct(editingId, {
+        name,
+        price,
+        has_variants: false,
+        is_active: existing.is_active,
+        image_uri: existing.image_uri,
+        sku: existing.sku,
+      });
     }
 
     await refreshAll();
@@ -195,22 +139,10 @@ export default function ProductsModal() {
     setProducts(await getAllProducts());
   }
 
-  async function startEditProduct(product: Product) {
-    let variants: VariantFormRow[] = [];
-    if (product.has_variants) {
-      const dbVariants = await getAllVariantsByProductId(product.id);
-      variants = dbVariants.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: String(v.price),
-      }));
-    }
+  function startEditProduct(product: Product) {
     setProductForm({
       name: product.name,
       price: product.price != null ? String(product.price) : '',
-      hasVariants: product.has_variants === 1,
-      variants,
-      imageUri: product.image_uri ?? null,
     });
     setEditingId(product.id);
     setFormMode('product');
@@ -303,33 +235,17 @@ export default function ProductsModal() {
     const isBundle = formMode === 'bundle';
     return (
       <SafeAreaView style={styles.container}>
+        {/* Own back arrow (native header is hidden while the form is open) so
+            "back" returns to the product list rather than out to the POS page. */}
+        <View style={styles.formHeader}>
+          <TouchableOpacity onPress={cancelForm} style={styles.backBtn} accessibilityLabel="Back to products">
+            <Ionicons name="arrow-back" size={24} color={C.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.formHeaderTitle}>{isBundle ? 'Edit Bundle Preset' : 'Edit Product'}</Text>
+        </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={styles.form}>
-            <Text style={styles.formTitle}>
-              {isBundle ? 'Edit Bundle Preset' : (editingId ? 'Edit Product' : 'New Product')}
-            </Text>
-
-            {!isBundle && (
-              <View style={styles.imagePickerRow}>
-                {productForm.imageUri ? (
-                  <View style={styles.imagePreviewWrap}>
-                    <Image source={{ uri: productForm.imageUri }} style={styles.imagePreview} resizeMode="cover" />
-                    <TouchableOpacity
-                      style={styles.imageRemoveBtn}
-                      onPress={() => setProductForm((f) => ({ ...f, imageUri: null }))}
-                    >
-                      <Ionicons name="close" size={14} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
-                    <Ionicons name="camera-outline" size={22} color={C.pink} />
-                    <Text style={styles.imagePickerText}>Add Photo</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-
+            <Text style={styles.fieldLabel}>Display name</Text>
             <TextInput
               style={styles.input}
               placeholder={isBundle ? 'Bundle name' : 'Product name'}
@@ -342,96 +258,20 @@ export default function ProductsModal() {
               }
             />
 
-            {!isBundle && (
-              <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Has variants?</Text>
-                <Switch
-                  value={productForm.hasVariants}
-                  onValueChange={(v) => setProductForm((f) => ({
-                    ...f,
-                    hasVariants: v,
-                    price: v ? '' : f.price,
-                    variants: v && f.variants.length === 0 ? [{ name: '', price: '' }] : f.variants,
-                  }))}
-                  trackColor={{ false: C.borderDark, true: C.pink }}
-                  thumbColor="#fff"
-                />
-              </View>
-            )}
+            <Text style={styles.fieldLabel}>Price</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Price (e.g. 120)"
+              placeholderTextColor={C.textMuted}
+              value={isBundle ? bundleForm.price : productForm.price}
+              onChangeText={(v) =>
+                isBundle
+                  ? setBundleForm((f) => ({ ...f, price: v }))
+                  : setProductForm((f) => ({ ...f, price: v }))
+              }
+              keyboardType="decimal-pad"
+            />
 
-            {(!isBundle && productForm.hasVariants) ? (
-              <View style={styles.variantSection}>
-                <Text style={styles.variantLabel}>VARIANTS</Text>
-                {productForm.variants.map((v, i) => (
-                  <View key={i} style={styles.variantRow}>
-                    <TextInput
-                      style={[styles.input, { flex: 2 }]}
-                      placeholder="Variant name"
-                      placeholderTextColor={C.textMuted}
-                      value={v.name}
-                      onChangeText={(text) =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.map((vr, vi) =>
-                            vi === i ? { ...vr, name: text } : vr
-                          ),
-                        }))
-                      }
-                    />
-                    <TextInput
-                      style={[styles.input, { flex: 1 }]}
-                      placeholder="Price"
-                      placeholderTextColor={C.textMuted}
-                      value={v.price}
-                      onChangeText={(text) =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.map((vr, vi) =>
-                            vi === i ? { ...vr, price: text } : vr
-                          ),
-                        }))
-                      }
-                      keyboardType="decimal-pad"
-                    />
-                    <TouchableOpacity
-                      style={styles.variantDeleteBtn}
-                      onPress={() =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.filter((_, vi) => vi !== i),
-                        }))
-                      }
-                    >
-                      <Ionicons name="close" size={F.lg} color={C.pink} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                <TouchableOpacity
-                  style={styles.addVariantBtn}
-                  onPress={() =>
-                    setProductForm((f) => ({
-                      ...f,
-                      variants: [...f.variants, { name: '', price: '' }],
-                    }))
-                  }
-                >
-                  <Text style={styles.addVariantText}>+ Add Variant</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TextInput
-                style={styles.input}
-                placeholder="Price (e.g. 120)"
-                placeholderTextColor={C.textMuted}
-                value={isBundle ? bundleForm.price : productForm.price}
-                onChangeText={(v) =>
-                  isBundle
-                    ? setBundleForm((f) => ({ ...f, price: v }))
-                    : setProductForm((f) => ({ ...f, price: v }))
-                }
-                keyboardType="decimal-pad"
-              />
-            )}
             <View style={styles.formBtns}>
               <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
                 <Text style={styles.cancelText}>Cancel</Text>
@@ -460,12 +300,22 @@ export default function ProductsModal() {
         </TouchableOpacity>
         */}
 
+        {/* Product-line pills: filter the list by line so staff don't scroll one
+            long alphabetical list (e.g. every "Beef ..." at once). */}
+        {lineNames.length > 1 && (
+          <View style={styles.pillRow}>
+            <CategoryTabs categories={lineNames} active={activeLine} onSelect={setActiveLine} />
+          </View>
+        )}
+
         {/* Products section */}
         <Text style={styles.sectionLabel}>Products</Text>
-        {products.length === 0 && (
-          <Text style={styles.emptyHint}>No products yet.</Text>
+        {visibleProducts.length === 0 && (
+          <Text style={styles.emptyHint}>
+            {products.length === 0 ? 'No products yet.' : 'No products in this line.'}
+          </Text>
         )}
-        {products.map((item) => (
+        {visibleProducts.map((item) => (
           <View key={item.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <View>
@@ -594,86 +444,29 @@ const styles = StyleSheet.create({
   actionBtnDanger: { borderColor: C.borderDark },
   actionIcon: {},
 
-  toggleRow: {
+  pillRow: { marginBottom: 16 },
+
+  formHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: C.surface,
-    borderRadius: R.sm,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.border,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.borderDark,
   },
-  toggleLabel: {
-    color: C.textPrimary,
-    fontSize: F.md,
-    fontWeight: '600',
-  },
-  variantSection: { gap: 8 },
-  variantLabel: {
+  backBtn: { padding: 4 },
+  formHeaderTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800' },
+
+  form: { padding: 20, gap: 8 },
+  fieldLabel: {
     color: C.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 1,
     textTransform: 'uppercase',
+    marginTop: 8,
   },
-  variantRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  variantDeleteBtn: {
-    padding: 10,
-  },
-  variantDeleteText: {
-    color: C.pink,
-    fontSize: F.lg,
-    fontWeight: '700',
-  },
-  addVariantBtn: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: C.pink,
-    borderRadius: R.sm,
-    padding: 12,
-    alignItems: 'center',
-  },
-  addVariantText: {
-    color: C.pink,
-    fontWeight: '700',
-    fontSize: F.md,
-  },
-
-  imagePickerRow: { alignItems: 'flex-start' },
-  imagePickerBtn: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: C.pink,
-    borderRadius: R.sm,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    width: 90,
-    height: 90,
-  },
-  imagePickerText: { color: C.pink, fontWeight: '700', fontSize: F.xs },
-  imagePreviewWrap: { width: 90, height: 90, borderRadius: R.sm, overflow: 'hidden' },
-  imagePreview: { width: '100%', height: '100%' },
-  imageRemoveBtn: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  form: { padding: 20, gap: 12 },
-  formTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 6 },
   input: {
     backgroundColor: C.surface, color: C.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: C.border,

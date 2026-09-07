@@ -13,7 +13,8 @@ import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
 import { CartPanel } from '../components/CartPanel';
 import { CartSheet } from '../components/CartSheet';
-import { SyncStatusBar } from '../components/SyncStatusBar';
+// Hidden until Phase 2 wires real sync data — see header below. Keep, do not delete.
+// import { SyncStatusBar } from '../components/SyncStatusBar';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -284,12 +285,16 @@ export default function POSScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.brandName}>Zoomy</Text>
-          <SyncStatusBar />
+          {/* Hidden until Phase 2 (Dexie outbox) wires real last-synced + pending counts.
+              Marker shows only placeholder state today ("Synced never"). Keep, do not delete. */}
+          {/* <SyncStatusBar /> */}
         </View>
         <View style={styles.headerActions}>
+          {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
           <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
             <Ionicons name="scan-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>
+          */}
           <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
             <Ionicons name="gift-outline" size={20} color={C.textPrimary} />
           </TouchableOpacity>

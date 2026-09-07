@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
+import { pushSale } from '../../utils/sales-sync';
 import { getAllQrUris, QrUris, QrMethod, qrMethodLabel } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
@@ -153,6 +154,13 @@ export default function PaymentModal() {
       });
       clearCart();
       setConfirmed(snapshot);
+      // Write the sale up to Coop (online-only), in the background. The local
+      // sale is already saved; warn only if the Coop sync fails.
+      pushSale({ items: itemsForInsert, subtotal: total, discount: null, total }).then((res) => {
+        if (!res.ok) {
+          Alert.alert('Not synced to Coop', 'The sale was saved on this device but did not reach Coop. Check the connection.');
+        }
+      });
     } catch {
       Alert.alert('Error', 'Failed to save transaction. Please try again.');
     }

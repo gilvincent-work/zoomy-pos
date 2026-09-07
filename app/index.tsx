@@ -24,6 +24,7 @@ import {
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction } from '../db/transactions';
 import { buildInsertItems } from '../utils/cart-transaction';
+import { pushSale } from '../utils/sales-sync';
 import { lineEmojis } from '../utils/bundles';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
@@ -168,6 +169,7 @@ export default function POSScreen() {
   async function handleInstantCash() {
     if (items.length === 0 && bundles.length === 0) return;
     const saleTotal = total;
+    const saleItems = buildInsertItems(items, bundles);
     try {
       await insertTransaction({
         total: saleTotal,
@@ -175,13 +177,24 @@ export default function POSScreen() {
         change: 0,
         paymentMethod: 'cash',
         isBundle: bundles.length > 0,
-        items: buildInsertItems(items, bundles),
+        items: saleItems,
       });
       clearCart();
       showToast({
         variant: 'success',
         title: 'Sale recorded',
         message: `Cash ₱${saleTotal.toFixed(2)} · new sale ready`,
+      });
+      // Write the sale up to Coop (online-only). Fire in the background so the
+      // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
+      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal }).then((res) => {
+        if (!res.ok) {
+          showToast({
+            variant: 'error',
+            title: 'Not synced to Coop',
+            message: 'Sale saved on this device. Check the connection.',
+          });
+        }
       });
     } catch {
       showToast({

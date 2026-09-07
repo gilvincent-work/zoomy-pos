@@ -3,11 +3,12 @@ import { Stack } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { initSchema } from '../db/schema';
-import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce } from '../db/seed';
+import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce, syncCatalogSkusOnce } from '../db/seed';
 import { C } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 import { requestPersistentStorage } from '../utils/pwa';
 import { loadPersistedSyncStatus } from '../utils/sync-status';
+import { pullCatalog } from '../utils/catalog-sync';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -30,11 +31,24 @@ export default function RootLayout() {
       // One-time corrections for installs seeded before these changes.
       await syncLinePricesOnce();
       await syncCatalogNamesOnce();
+      await syncCatalogSkusOnce();
       // Hydrate the "last synced" marker from the persisted timestamp.
       await loadPersistedSyncStatus();
       setReady(true);
+      // Pull Coop's latest price/listing into the local cache (online-only;
+      // no-op offline/unconfigured). Non-blocking so launch isn't gated on the
+      // network; open screens refresh via the catalog-changed subscription.
+      pullCatalog().catch(() => {});
     }
     bootstrap();
+
+    // Re-pull when connectivity returns (web PWA). Native falls back to the
+    // launch pull; a NetInfo trigger can be added later if needed.
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      const onOnline = () => { pullCatalog().catch(() => {}); };
+      window.addEventListener('online', onOnline);
+      return () => window.removeEventListener('online', onOnline);
+    }
   }, []);
 
   if (!ready) {

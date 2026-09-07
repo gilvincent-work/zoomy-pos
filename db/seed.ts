@@ -27,46 +27,47 @@ const SEED_PRODUCTS: {
   emoji: string;
   category: string;
   subcategory: string | null;
+  sku: string; // Coop SKU Code (pos_products.product_id); the catalog-pull match key.
 }[] = [
   // Meaty Treats
-  { name: 'Salmon', emoji: '🐟', category: 'Meaty Treats', subcategory: null },
-  { name: 'Beef', emoji: '🥩', category: 'Meaty Treats', subcategory: null },
-  { name: 'Duck', emoji: '🦆', category: 'Meaty Treats', subcategory: null },
-  { name: 'Chicken', emoji: '🍗', category: 'Meaty Treats', subcategory: null },
+  { name: 'Salmon', emoji: '🐟', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATSLMWHL01' },
+  { name: 'Beef', emoji: '🥩', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATBEFWHL01' },
+  { name: 'Duck', emoji: '🦆', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATDCKWHL01' },
+  { name: 'Chicken', emoji: '🍗', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATCHKWHL01' },
 
   // Tasty Treats
-  { name: 'Chicken Jerky', emoji: '🍗', category: 'Tasty Treats', subcategory: null },
-  { name: 'Duck Jerky', emoji: '🦆', category: 'Tasty Treats', subcategory: null },
+  { name: 'Chicken Jerky', emoji: '🍗', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKCHKWHL01' },
+  { name: 'Duck Jerky', emoji: '🦆', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKDCKWHL01' },
 
   // Super Duo Bites
-  { name: 'Chicken Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
-  { name: 'Duck Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null },
-  { name: 'Duck Pear', emoji: '🍐', category: 'Super Duo Bites', subcategory: null },
+  { name: 'Chicken Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKCHKCAR01' },
+  { name: 'Duck Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKCAR01' },
+  { name: 'Duck Pear', emoji: '🍐', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKPER01' },
 
   // Freeze Dried · Fish
-  { name: 'Salmon Cubes', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish' },
-  { name: 'Capelin', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish' },
+  { name: 'Salmon Cubes', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish', sku: 'ZMYFDFDRSLMCUB01' },
+  { name: 'Capelin', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish', sku: 'ZMYFDFDRCAPWHL01' },
 
   // Freeze Dried · Meats
-  { name: 'Lamb Liver Cubes', emoji: '🍖', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Duck Breast Cubes', emoji: '🦆', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Chicken Breast Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Chicken Liver Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats' },
-  { name: 'Beef Liver Cubes', emoji: '🥩', category: 'Freeze Dried', subcategory: 'Meats' },
+  { name: 'Lamb Liver Cubes', emoji: '🍖', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRLMBLVR01' },
+  { name: 'Duck Breast Cubes', emoji: '🦆', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRDCKBRT01' },
+  { name: 'Chicken Breast Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKBRT01' },
+  { name: 'Chicken Liver Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKLVR01' },
+  { name: 'Beef Liver Cubes', emoji: '🥩', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRBEFLVR01' },
 
   // Freeze Dried · Cat Grass / Yogurt
-  { name: 'Cat Grass Cubes', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
-  { name: 'Cat Grass Stick', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
-  { name: 'Yoghurt Cubes', emoji: '🥛', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt' },
+  { name: 'Cat Grass Cubes', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRCUB01' },
+  { name: 'Cat Grass Stick', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRSTK01' },
+  { name: 'Yoghurt Cubes', emoji: '🥛', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRYOGWHL01' },
 
   // Freeze Dried · Super Food
-  { name: 'Duck Apple', emoji: '🍎', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Duck Pear', emoji: '🍐', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Chicken Cranberry', emoji: '🍒', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Chicken Pumpkin', emoji: '🎃', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Salmon Steak', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Chicken & Egg', emoji: '🥚', category: 'Freeze Dried', subcategory: 'Super Food' },
-  { name: 'Beef Blueberry', emoji: '🫐', category: 'Freeze Dried', subcategory: 'Super Food' },
+  { name: 'Duck Apple', emoji: '🍎', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKAPP01' },
+  { name: 'Duck Pear', emoji: '🍐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKPER01' },
+  { name: 'Chicken Cranberry', emoji: '🍒', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKCRA01' },
+  { name: 'Chicken Pumpkin', emoji: '🎃', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKPUM01' },
+  { name: 'Salmon Steak', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRSLMWHL01' },
+  { name: 'Chicken & Egg', emoji: '🥚', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKEGG01' },
+  { name: 'Beef Blueberry', emoji: '🫐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRBEFBLU01' },
 ];
 
 /** Starter "buy any N" deals, per the sales playbook. */
@@ -84,7 +85,7 @@ const SEED_BUNDLES: {
  * Bump this whenever SEED_PRODUCTS or SEED_BUNDLES changes so an already-seeded
  * dev database refreshes to the latest sample catalog on next launch.
  */
-export const DEV_SEED_VERSION = '2026-09-03-accurate-names';
+export const DEV_SEED_VERSION = '2026-09-07-sku-backfill';
 
 async function insertSeedCatalog(): Promise<void> {
   for (const p of SEED_PRODUCTS) {
@@ -95,6 +96,7 @@ async function insertSeedCatalog(): Promise<void> {
       emoji: p.emoji,
       category: p.category,
       subcategory: p.subcategory,
+      sku: p.sku,
     });
   }
 }
@@ -250,6 +252,41 @@ export async function syncCatalogNamesOnce(): Promise<void> {
 
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_name_sync_version', ?)",
+    [VERSION]
+  );
+}
+
+/**
+ * Backfills the Coop SKU onto products seeded before the sku column existed,
+ * matched by (category, subcategory, name) against the seed catalog. Needed so
+ * the catalog pull (utils/catalog-sync.ts) can match local rows to Coop's
+ * pos_products by SKU. Only fills rows whose sku is still null; idempotent via a
+ * settings marker.
+ */
+export async function syncCatalogSkusOnce(): Promise<void> {
+  const db = await getDatabase();
+  const VERSION = '2026-09-07-sku-backfill';
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'catalog_sku_sync_version'"
+  );
+  if (row?.value === VERSION) return;
+
+  for (const p of SEED_PRODUCTS) {
+    if (p.subcategory === null) {
+      await db.runAsync(
+        'UPDATE products SET sku = ? WHERE sku IS NULL AND category = ? AND subcategory IS NULL AND name = ?',
+        [p.sku, p.category, p.name]
+      );
+    } else {
+      await db.runAsync(
+        'UPDATE products SET sku = ? WHERE sku IS NULL AND category = ? AND subcategory = ? AND name = ?',
+        [p.sku, p.category, p.subcategory, p.name]
+      );
+    }
+  }
+
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_sku_sync_version', ?)",
     [VERSION]
   );
 }

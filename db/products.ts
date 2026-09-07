@@ -204,6 +204,25 @@ export async function getProductBySku(sku: string): Promise<Product | null> {
   return row ?? null;
 }
 
+/**
+ * Apply a catalog pull from Coop to the local row matched by SKU: overwrite the
+ * listed flag, and the price unless the pull carried none (COALESCE keeps the
+ * existing price when `price` is null). Returns the number of local rows changed
+ * (0 when no local product carries that SKU). See utils/catalog-sync.ts.
+ */
+export async function applyCatalogUpdate(u: {
+  sku: string;
+  price: number | null;
+  active: boolean;
+}): Promise<number> {
+  const db = await getDatabase();
+  const res = await db.runAsync(
+    'UPDATE products SET price = COALESCE(?, price), is_active = ? WHERE sku = ?',
+    [u.price, u.active ? 1 : 0, u.sku]
+  );
+  return res.changes;
+}
+
 export async function getVariantByProductIdAndName(
   productId: number,
   name: string

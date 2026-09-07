@@ -28,11 +28,33 @@ export type CatalogUpdate = {
   active: boolean;
 };
 
+// Coop's canonical names carry the product line as a prefix ("Freeze-Dried
+// Beef Liver Cubes", "Meaty Treats Beef"). The POS groups tiles by category
+// already, so the prefix is redundant on the tile — strip it for a clean name
+// ("Beef Liver Cubes", "Beef"). Case-insensitive; longest first so
+// "Super Duo Bites " wins over any shorter overlap.
+const LINE_PREFIXES = [
+  'Super Duo Bites ',
+  'Freeze-Dried ',
+  'Freeze-Dired ', // tolerate the old masterfile typo
+  'Meaty Treats ',
+  'Tasty Treats ',
+];
+
+/** Pure: drop a leading product-line prefix from a Coop name for tile display. */
+export function stripLinePrefix(name: string): string {
+  const lower = name.toLowerCase();
+  for (const p of LINE_PREFIXES) {
+    if (lower.startsWith(p.toLowerCase())) return name.slice(p.length).trimStart();
+  }
+  return name.trim();
+}
+
 /** Pure: turn remote rows into the updates to apply locally. Skips rows with no SKU. */
 export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
   return remote
     .filter((r) => r.product_id)
-    .map((r) => ({sku: r.product_id, name: r.name, price: r.price, active: r.active}));
+    .map((r) => ({sku: r.product_id, name: stripLinePrefix(r.name), price: r.price, active: r.active}));
 }
 
 /** Normalize a PostgREST row (pos_prices embeds as an array or object). */

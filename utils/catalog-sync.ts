@@ -19,6 +19,7 @@ export type RemoteCatalogRow = {
   name: string;
   active: boolean;
   price: number | null;
+  product_line: string | null;
 };
 
 export type CatalogUpdate = {
@@ -26,7 +27,27 @@ export type CatalogUpdate = {
   name: string; // Coop is authoritative for the name; empty is ignored on apply
   price: number | null; // null = leave the local price unchanged
   active: boolean;
+  category: string | null; // POS category (mapped from Coop's line); used only when inserting a new product
 };
+
+/**
+ * Map Coop's product-line code to the POS category tab, used only when the pull
+ * inserts a product the POS doesn't have yet. JRK is ambiguous (Tasty Treats vs
+ * Super Duo Bites); default it to Tasty Treats — it's local-only and the cashier
+ * can recategorize. Returns null for an unknown/blank line (lands "Uncategorized").
+ */
+export function categoryForLine(line: string | null): string | null {
+  switch ((line ?? '').toUpperCase()) {
+    case 'FDR':
+      return 'Freeze Dried';
+    case 'MEAT':
+      return 'Meaty Treats';
+    case 'JRK':
+      return 'Tasty Treats';
+    default:
+      return null;
+  }
+}
 
 // Coop's canonical names carry the product line as a prefix ("Freeze-Dried
 // Beef Liver Cubes", "Meaty Treats Beef"). The POS groups tiles by category
@@ -54,7 +75,13 @@ export function stripLinePrefix(name: string): string {
 export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
   return remote
     .filter((r) => r.product_id)
-    .map((r) => ({sku: r.product_id, name: stripLinePrefix(r.name), price: r.price, active: r.active}));
+    .map((r) => ({
+      sku: r.product_id,
+      name: stripLinePrefix(r.name),
+      price: r.price,
+      active: r.active,
+      category: categoryForLine(r.product_line),
+    }));
 }
 
 /** Normalize a PostgREST row (pos_prices embeds as an array or object). */
@@ -62,17 +89,18 @@ function normalizeRemoteRow(r: {
   product_id: string;
   name: string;
   active: boolean;
+  product_line: string | null;
   pos_prices: {price: number | null} | {price: number | null}[] | null;
 }): RemoteCatalogRow {
   const priceRel = Array.isArray(r.pos_prices) ? r.pos_prices[0] : r.pos_prices;
   const price = priceRel && priceRel.price != null ? Number(priceRel.price) : null;
-  return {product_id: r.product_id, name: r.name ?? '', active: Boolean(r.active), price};
+  return {product_id: r.product_id, name: r.name ?? '', active: Boolean(r.active), price, product_line: r.product_line ?? null};
 }
 
 async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   const sb = getSupabase();
   if (!sb) return [];
-  const {data, error} = await sb.from('pos_products').select('product_id, name, active, pos_prices(price)');
+  const {data, error} = await sb.from('pos_products').select('product_id, name, active, product_line, pos_prices(price)');
   if (error) throw new Error(error.message);
   return (data ?? []).map(normalizeRemoteRow as never);
 }

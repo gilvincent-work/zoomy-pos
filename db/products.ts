@@ -216,13 +216,24 @@ export async function applyCatalogUpdate(u: {
   name: string;
   price: number | null;
   active: boolean;
+  category: string | null;
 }): Promise<number> {
   const db = await getDatabase();
   const res = await db.runAsync(
     'UPDATE products SET name = COALESCE(NULLIF(?, \'\'), name), price = COALESCE(?, price), is_active = ? WHERE sku = ?',
     [u.name, u.price, u.active ? 1 : 0, u.sku]
   );
-  return res.changes;
+  if (res.changes > 0) return res.changes;
+
+  // No local row for this SKU — insert the Coop-created product so it appears on
+  // the tiles (default emoji + category mapped from Coop's line; both stay local
+  // and the cashier can adjust). Skip nameless rows (nothing to show).
+  if (!u.name) return 0;
+  const ins = await db.runAsync(
+    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, 0, ?, NULL, ?, ?, ?)',
+    [u.name, u.price, '🍬', u.category, u.sku, u.active ? 1 : 0, new Date().toISOString()]
+  );
+  return ins.changes;
 }
 
 export async function getVariantByProductIdAndName(

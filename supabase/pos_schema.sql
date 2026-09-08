@@ -393,6 +393,69 @@ begin
 end;
 $$;
 
+-- set_product_stock: set a product's TOTAL on-hand to an absolute quantity,
+-- reconciling the lot ledger. Increase tops up the newest lot (or opens an
+-- undated 'adjust' lot if none); decrease draws down FEFO. Logs one 'recount'
+-- movement carrying the signed delta. The dashboard's editable Stock field.
+create or replace function public.set_product_stock(p_product_id text, p_new_qty integer, p_by text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current   integer;
+  v_delta     integer;
+  v_lot       record;
+  v_remaining integer;
+  v_take      integer;
+  v_target    uuid;
+begin
+  if p_new_qty < 0 then
+    raise exception 'stock cannot be negative';
+  end if;
+
+  select coalesce(sum(qty_on_hand), 0) into v_current
+    from pos_inventory_lots where product_id = p_product_id;
+
+  v_delta := p_new_qty - v_current;
+  if v_delta = 0 then
+    return;
+  end if;
+
+  if v_delta > 0 then
+    select lot_id into v_target
+      from pos_inventory_lots where product_id = p_product_id
+      order by received_at desc limit 1;
+    if v_target is null then
+      v_target := gen_random_uuid();
+      insert into pos_inventory_lots (lot_id, product_id, lot_code, expires_on, qty_received, qty_on_hand, received_at, updated_at)
+      values (v_target, p_product_id, 'adjust', null, v_delta, v_delta, now(), now());
+    else
+      update pos_inventory_lots set qty_on_hand = qty_on_hand + v_delta, updated_at = now()
+        where lot_id = v_target;
+    end if;
+  else
+    v_remaining := -v_delta;
+    for v_lot in
+      select lot_id, qty_on_hand from pos_inventory_lots
+      where product_id = p_product_id and qty_on_hand > 0
+      order by expires_on asc nulls last, received_at asc
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(v_lot.qty_on_hand, v_remaining);
+      update pos_inventory_lots set qty_on_hand = qty_on_hand - v_take, updated_at = now()
+        where lot_id = v_lot.lot_id;
+      v_remaining := v_remaining - v_take;
+    end loop;
+  end if;
+
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+  values (p_product_id, null, null, v_delta, 'recount', p_by, now());
+end;
+$$;
+
 -- =========================================================================
 -- 4. Row Level Security — default deny; anon gets SELECT-only on catalog/
 --    inventory/orders reads, plus EXECUTE on the RPCs. No anon INSERT/
@@ -428,3 +491,4 @@ grant execute on function public.set_product_listing(text, boolean, text)   to a
 grant execute on function public.receive_lot(text, date, integer, text)     to anon;
 grant execute on function public.recount_lot(uuid, integer, text, text)     to anon;
 grant execute on function public.record_sync(text, text, jsonb, text)       to anon;
+grant execute on function public.set_product_stock(text, integer, text)     to anon;

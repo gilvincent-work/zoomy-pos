@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { C, F } from '../constants/theme';
+import { F, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 type Props = {
   subcategories: string[];
@@ -14,6 +15,8 @@ type Props = {
  * Lighter weight than CategoryTabs so the hierarchy reads clearly.
  */
 export function SubcategoryFilter({ subcategories, active, onSelect }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (subcategories.length === 0) return null;
   return (
     <ScrollView
@@ -44,25 +47,25 @@ export function SubcategoryFilter({ subcategories, active, onSelect }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   row: { gap: 6, paddingHorizontal: 2, paddingVertical: 2 },
   chip: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: 999,
     paddingVertical: 6,
     paddingHorizontal: 12,
     justifyContent: 'center',
   },
   chipActive: {
-    backgroundColor: C.pinkSubtle,
-    borderColor: C.pink,
+    backgroundColor: c.pinkSubtle,
+    borderColor: c.pink,
   },
   label: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
   },
-  labelActive: { color: C.pink },
+  labelActive: { color: c.pink },
 });

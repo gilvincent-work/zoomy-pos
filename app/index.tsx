@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   useWindowDimensions,
@@ -31,7 +31,8 @@ import {
 } from '../utils/catalog-filter';
 import { useColumns } from '../hooks/useColumns';
 import { subscribeCatalogChanged } from '../utils/catalog-sync';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 type Selection = { category: string | null; subcategory: string | null };
 
@@ -49,6 +50,8 @@ const TILE_ASPECT_TABLET = 0.65; // taller, showcase tiles on larger screens
 const MIN_TILE_HEIGHT = 128; // never shrink a tile below a usable height; scroll instead
 
 export default function POSScreen() {
+  const { mode, colors, toggle } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   // Layout follows device rotation: landscape pins a side cart, portrait uses a sheet.
@@ -310,17 +313,20 @@ export default function POSScreen() {
         <View style={styles.headerActions}>
           {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
           <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
-            <Ionicons name="scan-outline" size={20} color={C.textPrimary} />
+            <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           */}
+          <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+            <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
-            <Ionicons name="gift-outline" size={20} color={C.textPrimary} />
+            <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
-            <Ionicons name="cube-outline" size={20} color={C.textPrimary} />
+            <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
-            <Ionicons name="receipt-outline" size={20} color={C.textPrimary} />
+            <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -354,8 +360,8 @@ export default function POSScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
 
   header: {
     flexDirection: 'row',
@@ -364,17 +370,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
   headerLeft: { gap: 4 },
-  brandName: { color: C.pink, fontSize: F.xl, fontWeight: '800', letterSpacing: 0.3 },
+  brandName: { color: c.pink, fontSize: F.xl, fontWeight: '800', letterSpacing: 0.3 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBtn: {
     padding: 10,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
 
   landscape: { flex: 1, flexDirection: 'row' },
@@ -382,7 +388,7 @@ const styles = StyleSheet.create({
   productPane: { flex: 1 },
   sidePane: {
     borderLeftWidth: 1,
-    borderLeftColor: C.borderDark,
+    borderLeftColor: c.borderDark,
   },
 
   filters: {
@@ -397,7 +403,7 @@ const styles = StyleSheet.create({
   tileWrapper: { flex: 1 },
 
   empty: {
-    color: C.textMuted,
+    color: c.textMuted,
     textAlign: 'center',
     marginTop: 60,
     fontSize: F.md,

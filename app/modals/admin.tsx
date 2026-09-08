@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect , useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
   Image, ScrollView,
@@ -12,7 +12,8 @@ import {
   setQrUri, removeQrUri, QrMethod, QrUris, qrMethodLabel,
 } from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { exportProductsArchive } from '../../utils/export-products-csv';
 import { pickProductsZip } from '../../utils/import-products-csv';
 import { parseCatalog, ParseError } from '../../utils/products-csv-format';
@@ -25,6 +26,8 @@ type Step = 'verify' | 'new_pin' | 'settings';
 const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'backspace', '0', 'confirm'];
 
 export default function AdminModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { action, transactionId } = useLocalSearchParams<{
     action: 'void_transaction' | 'change_pin' | 'settings';
     transactionId?: string;
@@ -213,7 +216,7 @@ export default function AdminModal() {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.settingsScrollView} contentContainerStyle={styles.settingsScroll}>
-          <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={C.textPrimary} /> Admin Settings</Text>
+          <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={colors.textPrimary} /> Admin Settings</Text>
           <Text style={styles.subtitle}>Manage PIN and payment settings</Text>
 
           <TouchableOpacity
@@ -237,7 +240,7 @@ export default function AdminModal() {
                 <View style={styles.qrRowThumb}>
                   {uri
                     ? <Image source={{ uri }} style={styles.qrThumbImage} resizeMode="contain" />
-                    : <Ionicons name="add" size={22} color={C.textMuted} />
+                    : <Ionicons name="add" size={22} color={colors.textMuted} />
                   }
                 </View>
                 <View style={styles.qrRowInfo}>
@@ -250,7 +253,7 @@ export default function AdminModal() {
                       <Text style={styles.qrBtnText}>Replace</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.qrRemoveBtn} onPress={() => handleRemoveQr(method)}>
-                      <Ionicons name="trash-outline" size={F.sm} color={C.textPrimary} />
+                      <Ionicons name="trash-outline" size={F.sm} color={colors.textPrimary} />
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -267,7 +270,7 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleExportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog (ZIP)
+                <Ionicons name="download-outline" size={F.md} color={colors.textPrimary} /> Export Catalog (ZIP)
               </Text>
               <Text style={styles.settingsRowSub}>Save products, variants, bundles, and images</Text>
             </View>
@@ -277,7 +280,7 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleImportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog (ZIP)
+                <Ionicons name="cloud-upload-outline" size={F.md} color={colors.textPrimary} /> Import Catalog (ZIP)
               </Text>
               <Text style={styles.settingsRowSub}>Restore from a previously exported archive</Text>
             </View>
@@ -302,7 +305,7 @@ export default function AdminModal() {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>
-        <Ionicons name="lock-closed-outline" size={F.xl} color={C.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
+        <Ionicons name="lock-closed-outline" size={F.xl} color={colors.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
       </Text>
       <Text style={styles.subtitle}>
         {step === 'verify' && action === 'void_transaction'
@@ -323,7 +326,7 @@ export default function AdminModal() {
             activeOpacity={0.7}
           >
             {key === 'backspace' ? (
-              <Ionicons name="backspace-outline" size={F.xl} color={C.textPrimary} />
+              <Ionicons name="backspace-outline" size={F.xl} color={colors.textPrimary} />
             ) : key === 'confirm' ? (
               <Ionicons name="checkmark" size={F.xl} color="#fff" />
             ) : (
@@ -340,51 +343,51 @@ export default function AdminModal() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: C.bg,
+    flex: 1, backgroundColor: c.bg,
     alignItems: 'center', justifyContent: 'center', padding: 24,
   },
-  title: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
-  subtitle: { color: C.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
+  title: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
+  subtitle: { color: c.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
 
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 40 },
-  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.pink },
-  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.pink },
+  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
 
   keypad: { width: '80%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   key: {
     width: '29%', aspectRatio: 1.4,
-    backgroundColor: C.surface, borderRadius: R.sm,
+    backgroundColor: c.surface, borderRadius: R.sm,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  keyConfirm: { backgroundColor: C.pink, borderColor: C.pink },
-  keyText: { color: C.textPrimary, fontSize: F.xl, fontWeight: '700' },
+  keyConfirm: { backgroundColor: c.pink, borderColor: c.pink },
+  keyText: { color: c.textPrimary, fontSize: F.xl, fontWeight: '700' },
   keyConfirmText: { color: '#fff' },
   cancelBtn: { marginTop: 32 },
-  cancelText: { color: C.textSecondary, fontSize: F.md },
+  cancelText: { color: c.textSecondary, fontSize: F.md },
 
   settingsScrollView: { flex: 1, alignSelf: 'stretch' },
   settingsScroll: { padding: 20, alignItems: 'stretch' },
   settingsRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: C.surface, borderRadius: R.md,
+    backgroundColor: c.surface, borderRadius: R.md,
     padding: 16, marginBottom: 10,
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  settingsRowTitle: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  settingsRowSub: { color: C.textSecondary, fontSize: F.sm, marginTop: 2 },
-  settingsArrow: { color: C.textSecondary, fontSize: F.xl },
-  sectionLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+  settingsRowTitle: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  settingsRowSub: { color: c.textSecondary, fontSize: F.sm, marginTop: 2 },
+  settingsArrow: { color: c.textSecondary, fontSize: F.xl },
+  sectionLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
 
   qrRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     padding: 12,
     marginBottom: 8,
     gap: 12,
@@ -393,45 +396,45 @@ const styles = StyleSheet.create({
   qrRowThumb: {
     width: 48, height: 48,
     borderRadius: R.sm,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   qrThumbImage: { width: 48, height: 48 },
   qrRowInfo: { flex: 1 },
-  qrRowLabel: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  qrRowLabelMuted: { color: C.textMuted },
-  qrRowStatus: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+  qrRowLabel: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qrRowLabelMuted: { color: c.textMuted },
+  qrRowStatus: { color: c.textSecondary, fontSize: F.xs, marginTop: 2 },
   qrRowBtns: { flexDirection: 'row', gap: 6 },
   qrReplaceBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
   },
   qrRemoveBtn: {
-    backgroundColor: C.red,
+    backgroundColor: c.red,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: R.sm,
   },
   qrUploadBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
   },
-  qrBtnText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  qrBtnText: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
 
   settingsDone: {
-    backgroundColor: C.pink, borderRadius: R.sm,
+    backgroundColor: c.pink, borderRadius: R.sm,
     padding: 15, alignItems: 'center', marginTop: 24,
   },
   settingsDoneText: { color: '#fff', fontWeight: '800', fontSize: F.md },

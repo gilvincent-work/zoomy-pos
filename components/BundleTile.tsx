@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 type Props = {
   id: number;
@@ -17,6 +18,8 @@ type Props = {
  * the product lines a customer can choose from.
  */
 export function BundleTile({ id, name, price, lineEmojis, onPress }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const icons = lineEmojis.length > 0 ? lineEmojis : ['🎁'];
   const iconSize = icons.length >= 3 ? 30 : 38;
   return (
@@ -43,9 +46,9 @@ export function BundleTile({ id, name, price, lineEmojis, onPress }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   tile: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     overflow: 'hidden',
     alignItems: 'center',
@@ -53,12 +56,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderWidth: 1.5,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
   thumb: {
     width: '100%',
     flex: 3,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -80,7 +83,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   name: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     marginTop: 6,
     textAlign: 'center',
@@ -88,7 +91,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   price: {
-    color: C.pink,
+    color: c.pink,
     fontSize: F.sm,
     fontWeight: '700',
     marginTop: 4,

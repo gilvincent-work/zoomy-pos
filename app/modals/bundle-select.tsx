@@ -183,7 +183,7 @@ export default function BundleSelectModal() {
           onPress={handleAdd}
           disabled={!complete}
         >
-          <Text style={styles.addText}>{complete ? 'Add to sale' : `Pick ${remaining} more`}</Text>
+          <Text style={[styles.addText, !complete && styles.addTextDisabled]}>{complete ? 'Add to sale' : `Pick ${remaining} more`}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -275,6 +275,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   addBtnTight: { paddingVertical: 11 },
   addBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   addText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
+  addTextDisabled: { color: c.textMuted },
 
   missing: { color: c.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md, paddingHorizontal: 24 },
 });

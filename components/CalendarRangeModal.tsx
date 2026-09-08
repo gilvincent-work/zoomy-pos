@@ -168,7 +168,7 @@ export function CalendarRangeModal({ visible, initialRange, onApply, onClose }: 
               disabled={!canApply}
               onPress={handleApply}
             >
-              <Text style={styles.applyBtnText}>Apply</Text>
+              <Text style={[styles.applyBtnText, !canApply && styles.applyBtnTextDisabled]}>Apply</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -211,4 +211,5 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   applyBtn: { flex: 2, backgroundColor: c.pink, borderRadius: R.sm, padding: 13, alignItems: 'center' },
   applyBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   applyBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+  applyBtnTextDisabled: { color: c.textMuted },
 });

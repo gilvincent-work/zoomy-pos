@@ -157,7 +157,7 @@ export function DetectionResultsSheet({
           onPress={handleConfirmPress}
           disabled={activeCount === 0}
         >
-          <Text style={styles.addBtnText}>
+          <Text style={[styles.addBtnText, activeCount === 0 && styles.addBtnTextDisabled]}>
             {activeCount > 0 ? `Add ${activeCount} to Cart` : 'Add to Cart'}
           </Text>
         </TouchableOpacity>
@@ -251,4 +251,5 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   addBtnDisabled: { backgroundColor: c.border },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+  addBtnTextDisabled: { color: c.textMuted },
 });

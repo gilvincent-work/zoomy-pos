@@ -454,7 +454,7 @@ export default function PaymentModal() {
             disabled={!hasCartContent}
             onPress={() => setDigitalStep('proof')}
           >
-            <Text style={styles.confirmBtnText}>Customer Paid <Ionicons name="checkmark" size={F.lg} color="#fff" /></Text>
+            <Text style={[styles.confirmBtnText, !hasCartContent && styles.confirmBtnTextDisabled]}>Customer Paid <Ionicons name="checkmark" size={F.lg} color={hasCartContent ? '#fff' : colors.textMuted} /></Text>
           </TouchableOpacity>
         </View>
 
@@ -617,7 +617,7 @@ export default function PaymentModal() {
           disabled={!canConfirmCash}
           onPress={handleConfirm}
         >
-          <Text style={styles.confirmBtnText}>Confirm Sale</Text>
+          <Text style={[styles.confirmBtnText, !canConfirmCash && styles.confirmBtnTextDisabled]}>Confirm Sale</Text>
         </TouchableOpacity>
       </View>
       {renderConfirmationModal()}
@@ -961,6 +961,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   confirmBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: F.lg },
+  confirmBtnTextDisabled: { color: c.textMuted },
 
   confirmOverlay: {
     flex: 1,

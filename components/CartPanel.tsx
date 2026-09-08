@@ -137,7 +137,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
           delayLongPress={350}
           activeOpacity={0.85}
         >
-          <Text style={styles.chargeText}>💵  Cash · Paid</Text>
+          <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>💵  Cash · Paid</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -251,4 +251,5 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   chargeTight: { paddingVertical: 10 },
   chargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   chargeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
+  chargeTextDisabled: { color: c.textMuted },
 });

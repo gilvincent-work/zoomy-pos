@@ -116,7 +116,7 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
             onLongPress={onMorePayment}
             delayLongPress={350}
           >
-            <Text style={styles.peekChargeText}>Cash · Paid</Text>
+            <Text style={[styles.peekChargeText, cartCount === 0 && styles.peekChargeTextDisabled]}>Cash · Paid</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -178,6 +178,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   peekChargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   peekChargeText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
+  peekChargeTextDisabled: { color: c.textMuted },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text, Pressable } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { initSchema } from '../db/schema';

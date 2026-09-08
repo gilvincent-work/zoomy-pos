@@ -7,6 +7,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
+import { fetchRemoteOrders } from '../../utils/orders-remote';
+import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
 import {
@@ -186,8 +188,18 @@ export default function TransactionsModal() {
     importResultTimer.current = setTimeout(() => setImportResult(null), 4000);
   }
 
+  // Local sales are the rich source; Coop fills in sales made on other devices,
+  // so every device shows the same list. Remote is best-effort (offline -> local
+  // only). Local resolves first for an instant paint, then the merge fills in.
+  const loadTransactions = useCallback(async () => {
+    const local = await getAllTransactions();
+    setTransactions(local);
+    const remote = await fetchRemoteOrders();
+    if (remote.length > 0) setTransactions(mergeTransactions(local, remote));
+  }, []);
+
   useFocusEffect(
-    useCallback(() => { getAllTransactions().then(setTransactions); }, [])
+    useCallback(() => { loadTransactions(); }, [loadTransactions])
   );
 
   const filtered = useMemo(() => {
@@ -241,8 +253,7 @@ export default function TransactionsModal() {
       // User cancelled file picker — silent return
       if (imported === 0 && skipped === 0 && failed === 0 && photosMissing === 0) return;
 
-      const all = await getAllTransactions();
-      setTransactions(all);
+      await loadTransactions();
 
       const lines: string[] = [];
       if (imported > 0) lines.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
@@ -380,7 +391,9 @@ export default function TransactionsModal() {
           <View style={styles.sheet}>
             {selected && (
               <>
-                <Text style={styles.sheetTitle}>Transaction #{selected.id}</Text>
+                <Text style={styles.sheetTitle}>
+                  {isLocalTransaction(selected) ? `Transaction #${selected.id}` : 'Transaction'}
+                </Text>
                 <View style={styles.sheetMeta}>
                   <Text style={styles.sheetTime}>
                     {new Date(selected.created_at).toLocaleString()}
@@ -476,14 +489,23 @@ export default function TransactionsModal() {
                   </>
                 )}
 
+                {!isLocalTransaction(selected) && (
+                  <>
+                    <View style={styles.divider} />
+                    <Text style={styles.remoteNote}>Synced from another device. Manage it where it was rung up.</Text>
+                  </>
+                )}
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
-                    <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
-                  </TouchableOpacity>
-                  {selected.status === 'completed' && (
+                  {isLocalTransaction(selected) && (
+                    <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
+                      <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isLocalTransaction(selected) && selected.status === 'completed' && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
                       <Text style={styles.voidBtnText}>Void</Text>
                     </TouchableOpacity>
@@ -647,6 +669,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   itemPrice: { color: c.textPrimary, fontSize: F.md, fontWeight: '600' },
 
   divider: { height: 1, backgroundColor: c.borderDark, marginVertical: 12 },
+  remoteNote: { color: c.textMuted, fontSize: F.sm, fontStyle: 'italic' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   summaryLabel: { color: c.textSecondary, fontSize: F.md },
   summaryValue: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },

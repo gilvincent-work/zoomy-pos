@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as Crypto from 'expo-crypto';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
@@ -143,6 +144,9 @@ export default function PaymentModal() {
         isBundle,
         remarks: remarks.trim(),
       };
+      // Shared idempotency key for the local row and the Coop push, so the
+      // Transactions merge can dedupe this sale against Coop's copy.
+      const clientUuid = Crypto.randomUUID();
       await insertTransaction({
         total,
         cashTendered: isCash ? tendered : total,
@@ -153,13 +157,14 @@ export default function PaymentModal() {
         customerHandle: customerHandle.trim() || undefined,
         isBundle,
         remarks: remarks.trim() || undefined,
+        clientUuid,
         items: itemsForInsert,
       });
       clearCart();
       setConfirmed(snapshot);
       // Write the sale up to Coop (online-only), in the background. The local
       // sale is already saved; warn only if the Coop sync fails.
-      pushSale({ items: itemsForInsert, subtotal: total, discount: null, total }).then((res) => {
+      pushSale({ items: itemsForInsert, subtotal: total, discount: null, total, paymentMethod: method, clientUuid }).then((res) => {
         if (!res.ok) {
           Alert.alert('Not synced to Coop', 'The sale was saved on this device but did not reach Coop. Check the connection.');
         }

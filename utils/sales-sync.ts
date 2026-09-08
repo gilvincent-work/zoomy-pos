@@ -51,6 +51,9 @@ export type SaleForPush = {
   discount: number | null;
   total: number;
   paymentMethod?: PaymentMethod;
+  /** Shared idempotency key; reused as the local sale's client_uuid so the
+   *  Transactions merge can dedupe this sale against the row pulled from Coop. */
+  clientUuid?: string;
   createdAt?: string;
 };
 
@@ -68,7 +71,7 @@ export async function pushSale(sale: SaleForPush): Promise<{ok: boolean; error?:
   if (p_items.length === 0) return {ok: false, error: 'No items map to a Coop SKU'};
 
   const p_order = {
-    client_uuid: Crypto.randomUUID(),
+    client_uuid: sale.clientUuid ?? Crypto.randomUUID(),
     device_id: 'pos',
     cashier: null,
     subtotal: sale.subtotal,

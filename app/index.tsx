@@ -4,6 +4,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProductTile } from '../components/ProductTile';
@@ -206,6 +207,9 @@ export default function POSScreen() {
     const saleItems = buildInsertItems(items, bundles);
     const method = payMethod;
     const label = quickMethodMeta(method).label;
+    // One shared id for both the local row and the Coop push, so the Transactions
+    // merge can dedupe this sale against the copy it pulls back from Coop.
+    const clientUuid = Crypto.randomUUID();
     try {
       await insertTransaction({
         total: saleTotal,
@@ -213,6 +217,7 @@ export default function POSScreen() {
         change: 0,
         paymentMethod: method,
         isBundle: bundles.length > 0,
+        clientUuid,
         items: saleItems,
       });
       clearCart();
@@ -223,7 +228,7 @@ export default function POSScreen() {
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
-      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method }).then((res) => {
+      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method, clientUuid }).then((res) => {
         if (!res.ok) {
           showToast({
             variant: 'error',

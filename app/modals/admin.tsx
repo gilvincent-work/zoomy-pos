@@ -1,7 +1,7 @@
 import React, { useState, useEffect , useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
-  Image, ScrollView,
+  Image, ScrollView, useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,6 +28,8 @@ const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'backspace', '0',
 export default function AdminModal() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const { action, transactionId } = useLocalSearchParams<{
     action: 'void_transaction' | 'change_pin' | 'settings';
     transactionId?: string;
@@ -302,8 +304,8 @@ export default function AdminModal() {
     <View key={`e${i}`} style={styles.dotEmpty} />
   ));
 
-  return (
-    <SafeAreaView style={styles.container}>
+  const prompt = (
+    <View style={styles.promptBlock}>
       <Text style={styles.title}>
         <Ionicons name="lock-closed-outline" size={F.xl} color={colors.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
       </Text>
@@ -314,31 +316,57 @@ export default function AdminModal() {
           ? 'Enter current PIN to continue'
           : 'Enter your new PIN (min 4 digits)'}
       </Text>
-
       <View style={styles.dotsRow}>{dots}{empty}</View>
+    </View>
+  );
 
-      <View style={styles.keypad}>
-        {PIN_KEYS.map((key) => (
-          <TouchableOpacity
-            key={key}
-            style={[styles.key, key === 'confirm' && styles.keyConfirm]}
-            onPress={() => handleKey(key)}
-            activeOpacity={0.7}
-          >
-            {key === 'backspace' ? (
-              <Ionicons name="backspace-outline" size={F.xl} color={colors.textPrimary} />
-            ) : key === 'confirm' ? (
-              <Ionicons name="checkmark" size={F.xl} color="#fff" />
-            ) : (
-              <Text style={styles.keyText}>{key}</Text>
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
+  const keypad = (
+    <View style={[styles.keypad, isLandscape && styles.keypadLandscape]}>
+      {PIN_KEYS.map((key) => (
+        <TouchableOpacity
+          key={key}
+          style={[styles.key, key === 'confirm' && styles.keyConfirm]}
+          onPress={() => handleKey(key)}
+          activeOpacity={0.7}
+        >
+          {key === 'backspace' ? (
+            <Ionicons name="backspace-outline" size={F.xl} color={colors.textPrimary} />
+          ) : key === 'confirm' ? (
+            <Ionicons name="checkmark" size={F.xl} color="#fff" />
+          ) : (
+            <Text style={styles.keyText}>{key}</Text>
+          )}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
-      <TouchableOpacity onPress={() => router.dismiss()} style={styles.cancelBtn}>
-        <Text style={styles.cancelText}>Cancel</Text>
-      </TouchableOpacity>
+  const cancel = (
+    <TouchableOpacity onPress={() => router.dismiss()} style={styles.cancelBtn}>
+      <Text style={styles.cancelText}>Cancel</Text>
+    </TouchableOpacity>
+  );
+
+  // Portrait stacks prompt over keypad. Landscape is short, so the vertical
+  // stack overflows and the header scrolls off — split into two columns
+  // (prompt left, keypad right) so everything fits without scrolling.
+  return (
+    <SafeAreaView style={styles.container}>
+      {isLandscape ? (
+        <View style={styles.landscapeBody}>
+          <View style={styles.landscapeLeft}>
+            {prompt}
+            {cancel}
+          </View>
+          {keypad}
+        </View>
+      ) : (
+        <>
+          {prompt}
+          {keypad}
+          {cancel}
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -351,11 +379,24 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   title: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
   subtitle: { color: c.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
 
+  // Landscape is short: lay the prompt and keypad side by side so the header
+  // stays on screen and the keys don't balloon to fill the vertical space.
+  landscapeBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 48,
+  },
+  landscapeLeft: { alignItems: 'center', justifyContent: 'center' },
+  promptBlock: { alignItems: 'center' },
+
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 40 },
   dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.pink },
   dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
 
-  keypad: { width: '80%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  keypad: { width: '80%', maxWidth: 360, flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
+  keypadLandscape: { width: 300, maxWidth: 300 },
   key: {
     width: '29%', aspectRatio: 1.4,
     backgroundColor: c.surface, borderRadius: R.sm,

@@ -220,8 +220,11 @@ export async function applyCatalogUpdate(u: {
 }): Promise<number> {
   const db = await getDatabase();
   const res = await db.runAsync(
-    'UPDATE products SET name = COALESCE(NULLIF(?, \'\'), name), price = COALESCE(?, price), is_active = ? WHERE sku = ?',
-    [u.name, u.price, u.active ? 1 : 0, u.sku]
+    // Category is backfilled only when the local one is empty (COALESCE keeps a
+    // category the cashier already set) — so a line set/changed in Coop AFTER the
+    // product first synced still reaches the POS instead of being stuck.
+    "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, category = COALESCE(NULLIF(category, ''), ?) WHERE sku = ?",
+    [u.name, u.price, u.active ? 1 : 0, u.category, u.sku]
   );
   if (res.changes > 0) return res.changes;
 

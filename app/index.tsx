@@ -32,7 +32,8 @@ import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
 import { useColumns } from '../hooks/useColumns';
-import { subscribeCatalogChanged } from '../utils/catalog-sync';
+import { subscribeCatalogChanged, pullCatalog } from '../utils/catalog-sync';
+import { PullToRefresh } from '../components/PullToRefresh';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 
@@ -113,6 +114,20 @@ export default function POSScreen() {
       return stillValid ? prev : initialSelection(grps);
     });
   }, []);
+
+  // Pull-to-refresh: fetch Coop's latest catalog, then re-read local SQLite so a
+  // Coop product edit shows up without reloading the PWA. Toast reports the outcome.
+  const handlePullRefresh = useCallback(async () => {
+    const res = await pullCatalog();
+    await loadCatalog();
+    if (res === null) {
+      showToast({ variant: 'error', title: 'Couldn’t reach Coop', message: 'Still showing the last synced catalog.' });
+    } else if (res.updated > 0) {
+      showToast({ variant: 'success', title: 'Catalog updated', message: `${res.updated} change${res.updated !== 1 ? 's' : ''} from Coop.` });
+    } else {
+      showToast({ variant: 'success', title: 'Up to date', message: 'No new changes from Coop.' });
+    }
+  }, [loadCatalog, showToast]);
 
   useFocusEffect(
     useCallback(() => {
@@ -256,8 +271,10 @@ export default function POSScreen() {
         style={styles.gridArea}
         onLayout={(e) => setGridHeight(e.nativeEvent.layout.height)}
       >
-      {showingBundles ? (
+      <PullToRefresh onRefresh={handlePullRefresh}>
+      {(scroll) => showingBundles ? (
         <FlatList
+          {...scroll}
           key={`bundles-${numColumns}`}
           data={pickBundles}
           keyExtractor={(b) => String(b.id)}
@@ -282,6 +299,7 @@ export default function POSScreen() {
         />
       ) : (
         <FlatList
+          {...scroll}
           key={numColumns}
           data={visibleProducts}
           keyExtractor={(p) => String(p.id)}
@@ -315,6 +333,7 @@ export default function POSScreen() {
           }
         />
       )}
+      </PullToRefresh>
       </View>
     </View>
   );

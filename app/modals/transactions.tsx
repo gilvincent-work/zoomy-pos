@@ -27,13 +27,13 @@ const DATE_FILTERS: { key: DateFilter; label: string }[] = [
 ];
 
 const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeof Ionicons.glyphMap }[] = [
+  // Only the four tap-to-record methods (matches the cart Pay control). BPI and
+  // bank_transfer still exist on old records but aren't offered as quick filters.
   { key: 'all', label: 'All methods', iconName: 'wallet-outline' },
   { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
   { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
-  { key: 'card', label: 'Card', iconName: 'card-outline' },
   { key: 'maya', label: 'Maya', iconName: 'phone-portrait-outline' },
-  { key: 'bpi', label: 'BPI', iconName: 'business-outline' },
-  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
+  { key: 'card', label: 'Card', iconName: 'card-outline' },
 ];
 
 function getMethodDisplayName(method: PaymentMethod): string {

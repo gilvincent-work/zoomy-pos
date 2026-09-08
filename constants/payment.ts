@@ -8,6 +8,7 @@ import type { PaymentMethod } from '../db/transactions';
 export const QUICK_PAYMENT_METHODS: { key: PaymentMethod; label: string; emoji: string }[] = [
   { key: 'cash',  label: 'Cash',  emoji: '💵' },
   { key: 'gcash', label: 'GCash', emoji: '📱' },
+  { key: 'maya',  label: 'Maya',  emoji: '📲' },
   { key: 'card',  label: 'Card',  emoji: '💳' },
 ];
 

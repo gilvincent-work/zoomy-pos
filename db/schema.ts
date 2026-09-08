@@ -161,6 +161,13 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE transactions ADD COLUMN remarks TEXT`
   ).catch(() => {});
 
+  // Idempotency key shared with Coop's pos_orders.client_uuid. Lets the
+  // Transactions screen merge this device's sales with the ones pulled back
+  // from Coop (other devices) without double-counting a sale it also pushed.
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN client_uuid TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]

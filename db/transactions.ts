@@ -26,6 +26,7 @@ export type Transaction = {
   status: 'completed' | 'voided';
   created_at: string;
   remarks: string | null;
+  client_uuid: string | null;
   items: TransactionItem[];
 };
 
@@ -48,13 +49,14 @@ export async function insertTransaction(data: {
   customerHandle?: string;
   isBundle?: boolean;
   remarks?: string;
+  clientUuid?: string;
   items: InsertItem[];
 }): Promise<number> {
   const db = await getDatabase();
 
   const result = await db.runAsync(
-    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', new Date().toISOString(), data.remarks ?? null]
+    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks, client_uuid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', new Date().toISOString(), data.remarks ?? null, data.clientUuid ?? null]
   );
 
   const transactionId = result.lastInsertRowId;
@@ -139,6 +141,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     t_status: string;
     t_created: string;
     t_remarks: string | null;
+    t_client_uuid: string | null;
     ti_id: number | null;
     transaction_id: number | null;
     product_id: number | null;
@@ -159,6 +162,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
             t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
             t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
             t.status AS t_status, t.created_at AS t_created, t.remarks AS t_remarks,
+            t.client_uuid AS t_client_uuid,
             ti.id AS ti_id, ti.transaction_id, ti.product_id,
             COALESCE(p.name, ti.product_name) AS product_name,
             ti.price, ti.quantity, ti.variant_id,
@@ -186,6 +190,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         status: row.t_status as 'completed' | 'voided',
         created_at: row.t_created,
         remarks: row.t_remarks ?? null,
+        client_uuid: row.t_client_uuid ?? null,
         items: [],
       });
     }

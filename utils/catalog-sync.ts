@@ -20,6 +20,8 @@ export type RemoteCatalogRow = {
   active: boolean;
   price: number | null;
   product_line: string | null;
+  category: string | null; // Coop's explicit POS category (authoritative when set)
+  subcategory: string | null;
 };
 
 export type CatalogUpdate = {
@@ -27,7 +29,8 @@ export type CatalogUpdate = {
   name: string; // Coop is authoritative for the name; empty is ignored on apply
   price: number | null; // null = leave the local price unchanged
   active: boolean;
-  category: string | null; // POS category (mapped from Coop's line); used only when inserting a new product
+  category: string | null; // POS category — Coop's explicit value, else mapped from line
+  subcategory: string | null; // POS subcategory (Coop's, Freeze-Dried only)
 };
 
 /**
@@ -71,7 +74,8 @@ export function stripLinePrefix(name: string): string {
   return name.trim();
 }
 
-/** Pure: turn remote rows into the updates to apply locally. Skips rows with no SKU. */
+/** Pure: turn remote rows into the updates to apply locally. Skips rows with no SKU.
+ *  Category = Coop's explicit value when set, else the best-effort line mapping. */
 export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
   return remote
     .filter((r) => r.product_id)
@@ -80,7 +84,8 @@ export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
       name: stripLinePrefix(r.name),
       price: r.price,
       active: r.active,
-      category: categoryForLine(r.product_line),
+      category: r.category ?? categoryForLine(r.product_line),
+      subcategory: r.subcategory,
     }));
 }
 
@@ -90,17 +95,29 @@ function normalizeRemoteRow(r: {
   name: string;
   active: boolean;
   product_line: string | null;
+  category: string | null;
+  subcategory: string | null;
   pos_prices: {price: number | null} | {price: number | null}[] | null;
 }): RemoteCatalogRow {
   const priceRel = Array.isArray(r.pos_prices) ? r.pos_prices[0] : r.pos_prices;
   const price = priceRel && priceRel.price != null ? Number(priceRel.price) : null;
-  return {product_id: r.product_id, name: r.name ?? '', active: Boolean(r.active), price, product_line: r.product_line ?? null};
+  return {
+    product_id: r.product_id,
+    name: r.name ?? '',
+    active: Boolean(r.active),
+    price,
+    product_line: r.product_line ?? null,
+    category: r.category ?? null,
+    subcategory: r.subcategory ?? null,
+  };
 }
 
 async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   const sb = getSupabase();
   if (!sb) return [];
-  const {data, error} = await sb.from('pos_products').select('product_id, name, active, product_line, pos_prices(price)');
+  const {data, error} = await sb
+    .from('pos_products')
+    .select('product_id, name, active, product_line, category, subcategory, pos_prices(price)');
   if (error) throw new Error(error.message);
   return (data ?? []).map(normalizeRemoteRow as never);
 }

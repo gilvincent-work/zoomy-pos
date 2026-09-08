@@ -206,10 +206,14 @@ export async function getProductBySku(sku: string): Promise<Product | null> {
 
 /**
  * Apply a catalog pull from Coop to the local row matched by SKU: Coop is
- * authoritative for name, price and listed. Name and price fall back to the
- * existing local value when the pull carries a blank/absent one (so a bad row
- * never wipes a tile's name or price). Returns the number of local rows changed
- * (0 when no local product carries that SKU). See utils/catalog-sync.ts.
+ * authoritative for name, price, listed and now category/subcategory (the POS
+ * tab). Name and price fall back to the existing local value when the pull
+ * carries a blank/absent one (so a bad row never wipes a tile's name or price).
+ * Category is overwritten only when Coop provides one (null = unknown -> keep
+ * local); subcategory is set exactly alongside it (so moving a product off
+ * Freeze Dried clears its stale subcategory). When no local row carries the SKU,
+ * the Coop-created product is INSERTed with a default emoji. Returns rows changed
+ * (1 on update or insert). See utils/catalog-sync.ts.
  */
 export async function applyCatalogUpdate(u: {
   sku: string;
@@ -217,24 +221,22 @@ export async function applyCatalogUpdate(u: {
   price: number | null;
   active: boolean;
   category: string | null;
+  subcategory: string | null;
 }): Promise<number> {
   const db = await getDatabase();
   const res = await db.runAsync(
-    // Category is backfilled only when the local one is empty (COALESCE keeps a
-    // category the cashier already set) — so a line set/changed in Coop AFTER the
-    // product first synced still reaches the POS instead of being stuck.
-    "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, category = COALESCE(NULLIF(category, ''), ?) WHERE sku = ?",
-    [u.name, u.price, u.active ? 1 : 0, u.category, u.sku]
+    "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, " +
+      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END WHERE sku = ?',
+    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.sku]
   );
   if (res.changes > 0) return res.changes;
 
   // No local row for this SKU — insert the Coop-created product so it appears on
-  // the tiles (default emoji + category mapped from Coop's line; both stay local
-  // and the cashier can adjust). Skip nameless rows (nothing to show).
+  // the tiles (default emoji; category/subcategory from Coop). Skip nameless rows.
   if (!u.name) return 0;
   const ins = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, 0, ?, NULL, ?, ?, ?)',
-    [u.name, u.price, '🍬', u.category, u.sku, u.active ? 1 : 0, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)',
+    [u.name, u.price, '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, new Date().toISOString()]
   );
   return ins.changes;
 }

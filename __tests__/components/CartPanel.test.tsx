@@ -6,7 +6,7 @@ import { CartProvider } from '../../context/CartContext';
 function renderPanel(props: Partial<React.ComponentProps<typeof CartPanel>> = {}) {
   return render(
     <CartProvider>
-      <CartPanel onCharge={jest.fn()} {...props} />
+      <CartPanel method="cash" onMethodChange={jest.fn()} onCharge={jest.fn()} {...props} />
     </CartProvider>
   );
 }

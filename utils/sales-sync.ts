@@ -3,6 +3,7 @@ import {getSupabase} from '../lib/supabase';
 import {getDatabase} from '../db/database';
 import {markSynced} from './sync-status';
 import type {InsertItem} from './cart-transaction';
+import type {PaymentMethod} from '../db/transactions';
 
 /**
  * Sales push: when online, a completed sale is written up to Coop via the
@@ -49,6 +50,7 @@ export type SaleForPush = {
   subtotal: number;
   discount: number | null;
   total: number;
+  paymentMethod?: PaymentMethod;
   createdAt?: string;
 };
 
@@ -72,6 +74,7 @@ export async function pushSale(sale: SaleForPush): Promise<{ok: boolean; error?:
     subtotal: sale.subtotal,
     discount: sale.discount,
     total: sale.total,
+    payment_method: sale.paymentMethod ?? 'cash',
     created_at: sale.createdAt ?? new Date().toISOString(),
   };
 

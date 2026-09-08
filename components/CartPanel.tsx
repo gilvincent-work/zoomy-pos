@@ -4,9 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
+import type { PaymentMethod } from '../db/transactions';
+import { quickMethodMeta } from '../constants/payment';
+import { PaymentMethodTabs } from './PaymentMethodTabs';
 
 type Props = {
-  /** One-tap instant cash: record the sale as paid-in-cash. */
+  /** Selected quick payment method (Cash / GCash / Card). */
+  method: PaymentMethod;
+  onMethodChange: (method: PaymentMethod) => void;
+  /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
   /** Secondary path to the full payment modal (GCash QR, change, receipt photo). */
   onMorePayment?: () => void;
@@ -19,11 +25,12 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
+export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, compact }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
+  const meta = quickMethodMeta(method);
   // On a short viewport (landscape phone) the fixed total + Charge block crowds
   // the receipt, so tighten those and give the scrolling lines more room.
   const { height } = useWindowDimensions();
@@ -128,6 +135,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
+        <PaymentMethodTabs value={method} onChange={onMethodChange} disabled={isEmpty} />
         <TouchableOpacity
           testID="cart-charge"
           style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
@@ -137,7 +145,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
           delayLongPress={350}
           activeOpacity={0.85}
         >
-          <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>💵  Cash · Paid</Text>
+          <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
         </TouchableOpacity>
       </View>
     </View>

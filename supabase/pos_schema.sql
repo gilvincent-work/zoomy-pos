@@ -77,16 +77,17 @@ create table public.pos_inventory_lots (
 create index pos_inventory_lots_fefo_idx on public.pos_inventory_lots(product_id, expires_on, received_at);
 
 create table public.pos_orders (
-  id           uuid primary key default gen_random_uuid(),
-  client_uuid  text not null unique,
-  device_id    text,
-  cashier      text,
-  subtotal     numeric not null,
-  discount     numeric,
-  total        numeric not null,
-  oversold     boolean not null default false,
-  created_at   timestamptz not null default now(),
-  synced_at    timestamptz not null default now()
+  id             uuid primary key default gen_random_uuid(),
+  client_uuid    text not null unique,
+  device_id      text,
+  cashier        text,
+  subtotal       numeric not null,
+  discount       numeric,
+  total          numeric not null,
+  oversold       boolean not null default false,
+  payment_method text,               -- cash / gcash / card (etc.); how the sale was paid
+  created_at     timestamptz not null default now(),
+  synced_at      timestamptz not null default now()
 );
 
 create table public.pos_order_items (
@@ -186,7 +187,7 @@ begin
 
   v_order_id := gen_random_uuid();
 
-  insert into pos_orders (id, client_uuid, device_id, cashier, subtotal, discount, total, oversold, created_at)
+  insert into pos_orders (id, client_uuid, device_id, cashier, subtotal, discount, total, oversold, payment_method, created_at)
   values (
     v_order_id,
     v_client_uuid,
@@ -196,6 +197,7 @@ begin
     nullif(p_order->>'discount', '')::numeric,
     (p_order->>'total')::numeric,
     false,
+    coalesce(nullif(p_order->>'payment_method', ''), 'cash'),
     coalesce((p_order->>'created_at')::timestamptz, now())
   );
 

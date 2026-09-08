@@ -4,6 +4,10 @@ Mobile POS for pet-treat bazaar sales. Expo / React Native + SQLite. Optimized f
 
 The principles below apply to **all sessions** on this project.
 
+# Changelog
+
+- **`CHANGELOG.md`** (repo root) is the running history of notable POS changes. **For any question about history, "what changed", when/why a feature or decision landed, or to log new work, read and update `CHANGELOG.md`** (the git log holds the finer-grained history). Add new entries at the top under the current date and capture the decision, not just the change. Dashboard-side history lives in `../zoomy-observability-dashboard/CHANGELOG.md`.
+
 # Context Gathering (do this first)
 
 - **A prebuilt knowledge graph lives in `graphify-out/`.** Before reading files broadly to answer a question about the codebase (architecture, "what calls X", "where does the scan flow cross into the cart", "which module owns Y"), use it instead of grepping and reading whole files. This saves tokens. What's in the folder:

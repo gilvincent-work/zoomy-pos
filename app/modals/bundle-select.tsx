@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback , useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, SectionList, StyleSheet, SafeAreaView, useWindowDimensions,
 } from 'react-native';
@@ -13,7 +13,8 @@ import {
 } from '../../utils/bundles';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../components/Toast';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 type Section = { title: string; data: Product[] };
 
@@ -37,6 +38,8 @@ function buildSections(products: Product[]): Section[] {
 }
 
 export default function BundleSelectModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { bundleId } = useLocalSearchParams<{ bundleId?: string }>();
   const id = bundleId ? Number(bundleId) : null;
   const { addBundle } = useCart();
@@ -187,28 +190,28 @@ export default function BundleSelectModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
 
   progress: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
-    backgroundColor: C.pinkSubtle,
+    borderBottomColor: c.borderDark,
+    backgroundColor: c.pinkSubtle,
     gap: 3,
   },
   progressTight: { paddingTop: 8, paddingBottom: 8, gap: 1 },
-  progressTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800' },
+  progressTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
   progressTitleTight: { fontSize: F.md },
-  progressText: { color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
-  progressCount: { color: C.pink, fontWeight: '800' },
-  progressLines: { color: C.textMuted, fontSize: F.xs, fontWeight: '600' },
+  progressText: { color: c.textSecondary, fontSize: F.sm, fontWeight: '600' },
+  progressCount: { color: c.pink, fontWeight: '800' },
+  progressLines: { color: c.textMuted, fontSize: F.xs, fontWeight: '600' },
 
   list: { padding: 16, paddingBottom: 24 },
   sectionHeader: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '800',
     letterSpacing: 1,
@@ -221,32 +224,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.sm,
     marginBottom: 6,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
   rowTight: { paddingVertical: 8, marginBottom: 5 },
   emoji: { fontSize: 22, marginRight: 12 },
-  name: { flex: 1, color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+  name: { flex: 1, color: c.textPrimary, fontSize: F.md, fontWeight: '600' },
 
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   stepBtn: {
     width: 36,
     height: 36,
     borderRadius: R.sm,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnDim: { borderColor: C.borderDark, opacity: 0.5 },
-  stepIcon: { color: C.textPrimary, fontSize: F.lg, fontWeight: '700', lineHeight: 20 },
-  stepIconDim: { color: C.textMuted },
-  qty: { width: 36, textAlign: 'center', color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
-  qtyActive: { color: C.pink },
+  stepBtnDim: { borderColor: c.borderDark, opacity: 0.5 },
+  stepIcon: { color: c.textPrimary, fontSize: F.lg, fontWeight: '700', lineHeight: 20 },
+  stepIconDim: { color: c.textMuted },
+  qty: { width: 36, textAlign: 'center', color: c.textSecondary, fontSize: F.md, fontWeight: '700' },
+  qtyActive: { color: c.pink },
 
   footer: {
     flexDirection: 'row',
@@ -254,24 +257,24 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-    backgroundColor: C.surface,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
   },
   footerTight: { paddingVertical: 10 },
   footerInfo: { flex: 1 },
-  footerCount: { color: C.textMuted, fontSize: F.xs, fontWeight: '700' },
-  footerPrice: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  footerCount: { color: c.textMuted, fontSize: F.xs, fontWeight: '700' },
+  footerPrice: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800' },
   footerPriceTight: { fontSize: F.lg },
   addBtn: {
-    backgroundColor: C.pink,
+    backgroundColor: c.pink,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: R.sm,
     alignItems: 'center',
   },
   addBtnTight: { paddingVertical: 11 },
-  addBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  addBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   addText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
 
-  missing: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md, paddingHorizontal: 24 },
+  missing: { color: c.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md, paddingHorizontal: 24 },
 });

@@ -10,7 +10,8 @@ import React, {
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 export type ToastVariant = 'success' | 'error';
 
@@ -41,6 +42,8 @@ const ERROR_DURATION_MS = 5000;
 const ANIM_DURATION_MS = 180;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [toast, setToast] = useState<VisibleToast | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,7 +102,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const opacity = progress;
 
   const isError = toast?.variant === 'error';
-  const accent = isError ? C.red : C.green;
+  const accent = isError ? colors.red : colors.green;
   const iconName = isError ? 'alert-circle' : 'checkmark-circle';
 
   return (
@@ -136,7 +139,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   host: {
     position: 'absolute',
     top: 0,
@@ -148,7 +151,7 @@ const styles = StyleSheet.create({
   toast: {
     minWidth: 260,
     maxWidth: 480,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderRadius: R.md,
     borderWidth: 1,
     shadowColor: '#000',
@@ -168,12 +171,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.md,
     fontWeight: '700',
   },
   message: {
-    color: C.textSecondary,
+    color: c.textSecondary,
     fontSize: F.sm,
     marginTop: 2,
     lineHeight: 18,

@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TouchableOpacity, Text, View, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 type Props = {
   id: number;
@@ -19,6 +20,8 @@ type Props = {
 };
 
 export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus, onRemove }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const active = badgeCount > 0;
   return (
     <TouchableOpacity
@@ -98,9 +101,9 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   tile: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     overflow: 'hidden',
     alignItems: 'center',
@@ -108,11 +111,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderWidth: 1.5,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
   tileActive: {
-    borderColor: C.pink,
-    backgroundColor: C.pinkSubtle,
+    borderColor: c.pink,
+    backgroundColor: c.pinkSubtle,
   },
   photo: {
     width: '100%',
@@ -121,7 +124,7 @@ const styles = StyleSheet.create({
   emojiThumb: {
     width: '100%',
     flex: 3,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -143,7 +146,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 7,
     right: 7,
-    backgroundColor: C.pink,
+    backgroundColor: c.pink,
     borderRadius: 13,
     minWidth: 26,
     height: 26,
@@ -162,7 +165,7 @@ const styles = StyleSheet.create({
     right: 7,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.pink,
+    backgroundColor: c.pink,
     borderRadius: 16,
     height: 32,
     paddingLeft: 3,
@@ -202,7 +205,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   name: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     marginTop: 6,
     textAlign: 'center',
@@ -210,7 +213,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   price: {
-    color: C.pink,
+    color: c.pink,
     fontSize: F.sm,
     fontWeight: '700',
     marginTop: 4,

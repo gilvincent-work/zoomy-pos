@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { promptInstall } from '../utils/pwa';
@@ -15,6 +16,8 @@ import { formatRelativeTime } from '../utils/format-relative-time';
  * store, so it updates on its own as that store changes.
  */
 export function SyncStatusBar() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { lastSyncedAt, pendingCount, syncing } = useSyncStatus();
   const canInstall = useInstallPrompt();
 
@@ -26,13 +29,13 @@ export function SyncStatusBar() {
   }, []);
 
   const synced = pendingCount === 0 && !syncing;
-  const dotColor = syncing ? C.textSecondary : pendingCount > 0 ? C.pink : C.green;
+  const dotColor = syncing ? colors.textSecondary : pendingCount > 0 ? colors.pink : colors.green;
 
   return (
     <View style={styles.row}>
       <View style={styles.marker} accessibilityRole="text">
         {syncing ? (
-          <ActivityIndicator size="small" color={C.textSecondary} />
+          <ActivityIndicator size="small" color={colors.textSecondary} />
         ) : (
           <View style={[styles.dot, { backgroundColor: dotColor }]} />
         )}
@@ -45,7 +48,7 @@ export function SyncStatusBar() {
           </View>
         )}
         {synced && !syncing && (
-          <Ionicons name="checkmark-circle" size={13} color={C.green} />
+          <Ionicons name="checkmark-circle" size={13} color={colors.green} />
         )}
       </View>
 
@@ -56,7 +59,7 @@ export function SyncStatusBar() {
           accessibilityRole="button"
           accessibilityLabel="Install app"
         >
-          <Ionicons name="download-outline" size={13} color={C.pink} />
+          <Ionicons name="download-outline" size={13} color={colors.pink} />
           <Text style={styles.installText}>Install</Text>
         </TouchableOpacity>
       )}
@@ -64,27 +67,27 @@ export function SyncStatusBar() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   marker: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  label: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
+  label: { color: c.textSecondary, fontSize: F.xs, fontWeight: '600' },
   pendingPill: {
-    backgroundColor: C.pinkSubtle,
+    backgroundColor: c.pinkSubtle,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  pendingText: { color: C.pink, fontSize: F.xs, fontWeight: '700' },
+  pendingText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
   installBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderWidth: 1,
-    borderColor: C.pink,
+    borderColor: c.pink,
     borderRadius: R.sm,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  installText: { color: C.pink, fontSize: F.xs, fontWeight: '700' },
+  installText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
 });

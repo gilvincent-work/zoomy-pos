@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState , useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   SafeAreaView, Platform, Alert,
@@ -6,7 +6,8 @@ import {
 import { router } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { loadDetector, detectProducts, DetectedProduct } from '../../utils/scan-to-cart/detector';
 import { DetectionResultsSheet } from '../../components/DetectionResultsSheet';
 import { getProductByName, getVariantByProductIdAndName } from '../../db/products';
@@ -16,6 +17,8 @@ import type { ScanLabel } from '../../utils/scan-to-cart/labels';
 type Phase = 'loading' | 'permission' | 'capture' | 'detecting' | 'results';
 
 export default function ScanModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addItem } = useCart();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -51,7 +54,7 @@ export default function ScanModal() {
   if (Platform.OS !== 'web') {
     return (
       <SafeAreaView style={styles.fallback}>
-        <Ionicons name="phone-portrait-outline" size={48} color={C.textMuted} />
+        <Ionicons name="phone-portrait-outline" size={48} color={colors.textMuted} />
         <Text style={styles.fallbackTitle}>Mobile Web Only</Text>
         <Text style={styles.fallbackBody}>
           Open zoomy-pos in your mobile browser (Safari or Chrome) and use{' '}
@@ -121,7 +124,7 @@ export default function ScanModal() {
   if (loadError != null) {
     return (
       <SafeAreaView style={styles.fallback}>
-        <Ionicons name="warning-outline" size={40} color={C.textMuted} />
+        <Ionicons name="warning-outline" size={40} color={colors.textMuted} />
         <Text style={styles.fallbackTitle}>Model Unavailable</Text>
         <Text style={styles.fallbackBody}>{loadError}</Text>
       </SafeAreaView>
@@ -131,7 +134,7 @@ export default function ScanModal() {
   if (phase === 'loading') {
     return (
       <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color={C.pink} />
+        <ActivityIndicator size="large" color={colors.pink} />
         <Text style={styles.loadingText}>Loading model…</Text>
       </SafeAreaView>
     );
@@ -140,7 +143,7 @@ export default function ScanModal() {
   if (phase === 'permission') {
     return (
       <SafeAreaView style={styles.centered}>
-        <Ionicons name="camera-outline" size={48} color={C.textMuted} />
+        <Ionicons name="camera-outline" size={48} color={colors.textMuted} />
         <Text style={styles.fallbackTitle}>Camera Permission</Text>
         <Text style={styles.fallbackBody}>Camera access is required to scan products.</Text>
         <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
@@ -183,7 +186,7 @@ export default function ScanModal() {
 
           {phase === 'detecting' ? (
             <View style={styles.captureArea}>
-              <ActivityIndicator size="large" color={C.pink} />
+              <ActivityIndicator size="large" color={colors.pink} />
               <Text style={styles.detectingText}>Identifying…</Text>
             </View>
           ) : (
@@ -197,7 +200,7 @@ export default function ScanModal() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   container:   { flex: 1, backgroundColor: '#000' },
   camera:      { flex: 1 },
   cameraOverlay: {
@@ -221,21 +224,21 @@ const styles = StyleSheet.create({
     borderColor: '#fff', alignItems: 'center', justifyContent: 'center',
   },
   captureBtnInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
-  scanErrorText: { color: C.textMuted, fontSize: F.xs, textAlign: 'center' },
+  scanErrorText: { color: c.textMuted, fontSize: F.xs, textAlign: 'center' },
   centered: {
-    flex: 1, backgroundColor: C.bg, alignItems: 'center',
+    flex: 1, backgroundColor: c.bg, alignItems: 'center',
     justifyContent: 'center', gap: 16, padding: 32,
   },
-  loadingText: { color: C.textMuted, fontSize: F.sm },
+  loadingText: { color: c.textMuted, fontSize: F.sm },
   fallback: {
-    flex: 1, backgroundColor: C.bg, alignItems: 'center',
+    flex: 1, backgroundColor: c.bg, alignItems: 'center',
     justifyContent: 'center', gap: 12, padding: 32,
   },
-  fallbackTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', textAlign: 'center' },
-  fallbackBody:  { color: C.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 20 },
-  fallbackBold:  { color: C.textSecondary, fontWeight: '700' },
+  fallbackTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800', textAlign: 'center' },
+  fallbackBody:  { color: c.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 20 },
+  fallbackBold:  { color: c.textSecondary, fontWeight: '700' },
   permissionBtn: {
-    backgroundColor: C.pink, paddingVertical: 14, paddingHorizontal: 32,
+    backgroundColor: c.pink, paddingVertical: 14, paddingHorizontal: 32,
     borderRadius: R.sm, marginTop: 8,
   },
   permissionBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },

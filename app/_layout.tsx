@@ -33,14 +33,43 @@ function ThemedStack() {
   );
 }
 
+/** Reject if a promise takes longer than `ms` (guards a stuck web SQLite open). */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+  ]);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
   // Default dark; the persisted choice (if any) is loaded before the UI mounts.
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
 
-  useEffect(() => {
-    async function bootstrap() {
-      await initSchema();
+  const bootstrap = useCallback(async () => {
+    setFailed(false);
+    try {
+      // initSchema opens the web SQLite DB (wa-sqlite / OPFS), whose exclusive
+      // access handle can transiently fail to acquire right after a reload.
+      // Retry a few times with backoff + a timeout so a stuck/locked open
+      // recovers on its own instead of hanging the splash until a manual refresh.
+      let lastErr: unknown;
+      let ok = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await withTimeout(initSchema(), 8000, 'Database open');
+          ok = true;
+          break;
+        } catch (e) {
+          lastErr = e;
+          await sleep(300 * (attempt + 1));
+        }
+      }
+      if (!ok) throw lastErr;
+
       // Ask the browser to keep unsynced sales from being evicted under storage
       // pressure (web only; no-op on native). See COOP_INTEGRATION_PLAN.md.
       await requestPersistentStorage();
@@ -68,7 +97,13 @@ export default function RootLayout() {
       // no-op offline/unconfigured). Non-blocking so launch isn't gated on the
       // network; open screens refresh via the catalog-changed subscription.
       pullCatalog().catch(() => {});
+    } catch {
+      // Never leave the splash spinning forever: surface a retry instead.
+      setFailed(true);
     }
+  }, []);
+
+  useEffect(() => {
     bootstrap();
 
     // Re-pull when connectivity returns (web PWA). Native falls back to the
@@ -78,7 +113,25 @@ export default function RootLayout() {
       window.addEventListener('online', onOnline);
       return () => window.removeEventListener('online', onOnline);
     }
-  }, []);
+  }, [bootstrap]);
+
+  if (failed) {
+    const c = palettes[themeMode];
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: c.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 6 }}>Couldn’t start</Text>
+        <Text style={{ color: c.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: 20, maxWidth: 320 }}>
+          The local store didn’t open. This can happen on the first load or with the app open in another tab.
+        </Text>
+        <Pressable
+          onPress={() => { setReady(false); bootstrap(); }}
+          style={{ backgroundColor: c.pink, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!ready) {
     return (

@@ -13,6 +13,7 @@ import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
 import { CartPanel } from '../components/CartPanel';
 import { CartSheet } from '../components/CartSheet';
+import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 // Hidden until Phase 2 wires real sync data — see header below. Keep, do not delete.
 // import { SyncStatusBar } from '../components/SyncStatusBar';
 import { useToast } from '../components/Toast';
@@ -22,7 +23,8 @@ import {
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
-import { insertTransaction } from '../db/transactions';
+import { insertTransaction, type PaymentMethod } from '../db/transactions';
+import { quickMethodMeta } from '../constants/payment';
 import { buildInsertItems } from '../utils/cart-transaction';
 import { pushSale } from '../utils/sales-sync';
 import { lineEmojis } from '../utils/bundles';
@@ -87,6 +89,12 @@ export default function POSScreen() {
 
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [variantList, setVariantList] = useState<ProductVariant[]>([]);
+
+  // Quick payment method for the one-tap Pay button. Cash is the bazaar default;
+  // GCash / Card record just as fast (no ref # — the full modal handles that).
+  const [payMethod, setPayMethod] = useState<PaymentMethod>('cash');
+  // Gate the Pay press behind a confirm so a stray tap can't book a sale.
+  const [confirmPay, setConfirmPay] = useState(false);
 
   const loadCatalog = useCallback(async () => {
     const [prods, grps, deals] = await Promise.all([
@@ -169,16 +177,26 @@ export default function POSScreen() {
     setVariantList([]);
   }
 
-  async function handleInstantCash() {
+  // Tapping Pay opens the confirm guard instead of booking immediately.
+  function handleRequestPay() {
+    if (items.length === 0 && bundles.length === 0) return;
+    setConfirmPay(true);
+  }
+
+  // Confirmed: record the sale with the selected quick method, then push to Coop.
+  async function handleConfirmPay() {
+    setConfirmPay(false);
     if (items.length === 0 && bundles.length === 0) return;
     const saleTotal = total;
     const saleItems = buildInsertItems(items, bundles);
+    const method = payMethod;
+    const label = quickMethodMeta(method).label;
     try {
       await insertTransaction({
         total: saleTotal,
         cashTendered: saleTotal,
         change: 0,
-        paymentMethod: 'cash',
+        paymentMethod: method,
         isBundle: bundles.length > 0,
         items: saleItems,
       });
@@ -186,11 +204,11 @@ export default function POSScreen() {
       showToast({
         variant: 'success',
         title: 'Sale recorded',
-        message: `Cash ₱${saleTotal.toFixed(2)} · new sale ready`,
+        message: `${label} ₱${saleTotal.toFixed(2)} · new sale ready`,
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
-      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal }).then((res) => {
+      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method }).then((res) => {
         if (!res.ok) {
           showToast({
             variant: 'error',
@@ -335,15 +353,34 @@ export default function POSScreen() {
         <View style={styles.landscape}>
           {productPane}
           <View style={[styles.sidePane, { width: cartWidth }]}>
-            <CartPanel onCharge={handleInstantCash} onMorePayment={handleMorePayment} compact />
+            <CartPanel
+              method={payMethod}
+              onMethodChange={setPayMethod}
+              onCharge={handleRequestPay}
+              onMorePayment={handleMorePayment}
+              compact
+            />
           </View>
         </View>
       ) : (
         <View style={styles.portrait}>
           {productPane}
-          <CartSheet onCharge={handleInstantCash} onMorePayment={handleMorePayment} />
+          <CartSheet
+            method={payMethod}
+            onMethodChange={setPayMethod}
+            onCharge={handleRequestPay}
+            onMorePayment={handleMorePayment}
+          />
         </View>
       )}
+
+      <ConfirmPaymentModal
+        visible={confirmPay}
+        method={payMethod}
+        total={total}
+        onConfirm={handleConfirmPay}
+        onCancel={() => setConfirmPay(false)}
+      />
 
       <VariantPickerModal
         visible={!!variantProduct}

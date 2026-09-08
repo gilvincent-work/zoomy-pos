@@ -46,6 +46,7 @@ export function parsePaymentMethod(methodStr: string): {
 
   const methodMap: Record<string, PaymentMethod> = {
     GCash: 'gcash',
+    Card: 'card',
     Maya: 'maya',
     BPI: 'bpi',
     'Bank Transfer': 'bank_transfer',

@@ -14,7 +14,8 @@ import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 
 /** Pseudo-pill that shows every product line at once; the default view. */
@@ -46,6 +47,8 @@ const EMPTY_PRODUCT: ProductForm = { name: '', price: '' };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { showToast } = useToast();
   const navigation = useNavigation();
   const [products, setProducts] = useState<(Product & { variant_count: number })[]>([]);
@@ -277,7 +280,7 @@ export default function ProductsModal() {
             "back" returns to the product list rather than out to the POS page. */}
         <View style={styles.formHeader}>
           <TouchableOpacity onPress={cancelForm} style={styles.backBtn} accessibilityLabel="Back to products">
-            <Ionicons name="arrow-back" size={24} color={C.textPrimary} />
+            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.formHeaderTitle}>{isBundle ? 'Edit Bundle Preset' : 'Edit Product'}</Text>
         </View>
@@ -287,7 +290,7 @@ export default function ProductsModal() {
             <TextInput
               style={styles.input}
               placeholder={isBundle ? 'Bundle name' : 'Product name'}
-              placeholderTextColor={C.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={isBundle ? bundleForm.name : productForm.name}
               onChangeText={(v) =>
                 isBundle
@@ -300,7 +303,7 @@ export default function ProductsModal() {
             <TextInput
               style={styles.input}
               placeholder="Price (e.g. 120)"
-              placeholderTextColor={C.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={isBundle ? bundleForm.price : productForm.price}
               onChangeText={(v) =>
                 isBundle
@@ -376,18 +379,18 @@ export default function ProductsModal() {
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditProduct(item)}>
-                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteProduct(item.id, item.name)}
               >
-                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={item.is_active === 1}
                 onValueChange={() => handleToggleProduct(item)}
-                trackColor={{ false: C.borderDark, true: C.pink }}
+                trackColor={{ false: colors.borderDark, true: colors.pink }}
                 thumbColor="#fff"
               />
             </View>
@@ -407,7 +410,7 @@ export default function ProductsModal() {
         {bundles.map((bundle) => (
           <View key={bundle.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Ionicons name="cube-outline" size={28} color={C.textSecondary} style={{ marginRight: 12 }} />
+              <Ionicons name="cube-outline" size={28} color={colors.textSecondary} style={{ marginRight: 12 }} />
               <View>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
@@ -419,18 +422,18 @@ export default function ProductsModal() {
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditBundle(bundle)}>
-                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteBundle(bundle.id, bundle.name)}
               >
-                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={bundle.is_active === 1}
                 onValueChange={() => handleToggleBundle(bundle)}
-                trackColor={{ false: C.borderDark, true: C.pink }}
+                trackColor={{ false: colors.borderDark, true: colors.pink }}
                 thumbColor="#fff"
               />
             </View>
@@ -443,18 +446,18 @@ export default function ProductsModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   scrollContent: { padding: 16, paddingBottom: 32 },
 
   addBtn: {
-    backgroundColor: C.pink, borderRadius: R.sm,
+    backgroundColor: c.pink, borderRadius: R.sm,
     padding: 15, alignItems: 'center', marginBottom: 20,
   },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 
   sectionLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
@@ -462,7 +465,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyHint: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.sm,
     textAlign: 'center',
     paddingVertical: 16,
@@ -472,30 +475,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
   itemInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   itemEmoji: {},
-  itemName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  itemSub: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
+  itemName: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  itemSub: { color: c.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
 
   itemActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     padding: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnDanger: { borderColor: C.borderDark },
+  actionBtnDanger: { borderColor: c.borderDark },
   actionIcon: {},
 
   pillRow: { marginBottom: 16 },
@@ -508,14 +511,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
   backBtn: { padding: 4 },
-  formHeaderTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800' },
+  formHeaderTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
 
   form: { padding: 20, gap: 8 },
   fieldLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
@@ -523,15 +526,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   input: {
-    backgroundColor: C.surface, color: C.textPrimary, borderRadius: R.sm,
-    padding: 14, fontSize: F.md, borderWidth: 1, borderColor: C.border,
+    backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
+    padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
   formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: {
-    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
-    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: c.border,
   },
-  cancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
-  saveBtn: { flex: 2, backgroundColor: C.pink, borderRadius: R.sm, padding: 14, alignItems: 'center' },
+  cancelText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
+  saveBtn: { flex: 2, backgroundColor: c.pink, borderRadius: R.sm, padding: 14, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

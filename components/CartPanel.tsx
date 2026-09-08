@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 
 type Props = {
@@ -19,6 +20,8 @@ type Props = {
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
 export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
   // On a short viewport (landscape phone) the fixed total + Charge block crowds
@@ -88,7 +91,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     accessibilityLabel={`Remove ${item.productName}`}
                   >
-                    <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                    <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
               );
@@ -141,8 +144,8 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   header: {
     paddingHorizontal: 14,
     paddingTop: 12,
@@ -150,7 +153,7 @@ const styles = StyleSheet.create({
   },
   headerTight: { paddingTop: 6, paddingBottom: 4 },
   headerLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
@@ -159,7 +162,7 @@ const styles = StyleSheet.create({
   lines: { flex: 1 },
   linesContent: { paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
   empty: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.sm,
     paddingVertical: 24,
     paddingHorizontal: 4,
@@ -170,17 +173,17 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
   lineInfo: { flex: 1, minWidth: 0, gap: 2 },
-  lineName: { color: C.textPrimary, fontSize: F.sm, fontWeight: '600', lineHeight: 17 },
-  lineUnit: { color: C.textMuted, fontSize: F.xs },
-  bundleTag: { color: C.pink, fontWeight: '800' },
+  lineName: { color: c.textPrimary, fontSize: F.sm, fontWeight: '600', lineHeight: 17 },
+  lineUnit: { color: c.textMuted, fontSize: F.xs },
+  bundleTag: { color: c.pink, fontWeight: '800' },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -190,26 +193,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepPlus: { backgroundColor: C.pink },
-  stepMinus: { color: C.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  stepPlus: { backgroundColor: c.pink },
+  stepMinus: { color: c.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepPlusText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepQty: {
     minWidth: 26,
     textAlign: 'center',
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     fontWeight: '800',
   },
   bundleRemove: {
     borderWidth: 1,
-    borderColor: C.redDim,
-    backgroundColor: C.redSubtle,
+    borderColor: c.redDim,
+    backgroundColor: c.redSubtle,
     borderRadius: 8,
     width: 26,
     height: 26,
   },
   lineTotal: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     fontWeight: '800',
     minWidth: 56,
@@ -224,10 +227,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
+    borderTopColor: c.borderDark,
     padding: 14,
     gap: 10,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
   },
   footerCompact: { padding: 12, gap: 8 },
   footerTight: { padding: 10, gap: 6 },
@@ -236,16 +239,16 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'space-between',
   },
-  totalLabel: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
-  totalValue: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  totalLabel: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  totalValue: { color: c.textPrimary, fontSize: F.xxl, fontWeight: '800' },
   totalValueTight: { fontSize: F.xl },
   charge: {
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     borderRadius: R.md,
     paddingVertical: 15,
     alignItems: 'center',
   },
   chargeTight: { paddingVertical: 10 },
-  chargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  chargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   chargeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
 });

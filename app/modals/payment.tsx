@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, Image,
   StyleSheet, SafeAreaView, Alert, Modal,
@@ -12,7 +12,8 @@ import { pushSale } from '../../utils/sales-sync';
 import { getAllQrUris, QrUris, QrMethod, qrMethodLabel } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 const DENOMINATIONS = [1, 5, 10, 20, 50, 100, 200, 500, 1000];
 
@@ -31,6 +32,8 @@ type ConfirmedSummary = {
 };
 
 export default function PaymentModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, clearCart, removeBundle, addItem, decrementItem } = useCart();
   const [tendered, setTendered] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>('cash');
@@ -246,7 +249,7 @@ export default function PaymentModal() {
             {confirmed.customerHandle ? (
               <View style={styles.confirmRow}>
                 <Text style={styles.confirmMeta}>Furbaby / IG</Text>
-                <Text style={[styles.confirmMetaValue, { color: C.pink }]}>{confirmed.customerHandle}</Text>
+                <Text style={[styles.confirmMetaValue, { color: colors.pink }]}>{confirmed.customerHandle}</Text>
               </View>
             ) : null}
             {confirmed.remarks ? (
@@ -287,7 +290,7 @@ export default function PaymentModal() {
                   onPress={() => removeBundle(bundle.cartId)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
+                  <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -383,7 +386,7 @@ export default function PaymentModal() {
               style={[styles.methodBtn, method === m.key && styles.methodBtnActive]}
               onPress={() => handleMethodChange(m.key)}
             >
-              <Ionicons name={m.iconName} size={20} color={method === m.key ? C.pink : C.textSecondary} />
+              <Ionicons name={m.iconName} size={20} color={method === m.key ? colors.pink : colors.textSecondary} />
               <Text style={[styles.methodLabel, method === m.key && styles.methodLabelActive]}>
                 {m.label}
               </Text>
@@ -404,7 +407,7 @@ export default function PaymentModal() {
 
           {method === 'bank_transfer' ? (
             <View style={styles.digitalBox}>
-              <Ionicons name="business-outline" size={40} color={C.textSecondary} />
+              <Ionicons name="business-outline" size={40} color={colors.textSecondary} />
               <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
               <Text style={styles.digitalHint}>Collect via Bank Transfer</Text>
             </View>
@@ -422,7 +425,7 @@ export default function PaymentModal() {
             </View>
           ) : (
             <View style={styles.digitalBox}>
-              <Ionicons name="phone-portrait-outline" size={40} color={C.textSecondary} />
+              <Ionicons name="phone-portrait-outline" size={40} color={colors.textSecondary} />
               <Text style={styles.digitalAmount}>₱{total.toFixed(2)}</Text>
               <Text style={styles.digitalHint}>No QR uploaded. Go to Settings to add one.</Text>
             </View>
@@ -434,7 +437,7 @@ export default function PaymentModal() {
           <TextInput
             style={styles.handleInput}
             placeholder="@username or furbaby name"
-            placeholderTextColor={C.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={customerHandle}
             onChangeText={setCustomerHandle}
             autoCapitalize="none"
@@ -483,7 +486,7 @@ export default function PaymentModal() {
           <TextInput
             style={styles.refInput}
             placeholder="e.g. 1234 5678 9012"
-            placeholderTextColor={C.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={refNumber}
             onChangeText={setRefNumber}
             keyboardType="default"
@@ -494,12 +497,12 @@ export default function PaymentModal() {
             <View style={styles.proofPhotoBox}>
               <Image source={{ uri: proofPhotoUri }} style={styles.proofPhotoPreview} resizeMode="cover" />
               <TouchableOpacity style={styles.proofRetake} onPress={handleTakePhoto}>
-                <Text style={styles.proofRetakeText}><Ionicons name="camera-outline" size={F.md} color={C.textPrimary} /> Retake</Text>
+                <Text style={styles.proofRetakeText}><Ionicons name="camera-outline" size={F.md} color={colors.textPrimary} /> Retake</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <TouchableOpacity style={styles.cameraBox} onPress={handleTakePhoto}>
-              <Ionicons name="camera-outline" size={32} color={C.textSecondary} />
+              <Ionicons name="camera-outline" size={32} color={colors.textSecondary} />
               <Text style={styles.cameraText}>Tap to take photo</Text>
             </TouchableOpacity>
           )}
@@ -508,7 +511,7 @@ export default function PaymentModal() {
           <TextInput
             style={styles.handleInput}
             placeholder="@username or furbaby name"
-            placeholderTextColor={C.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={customerHandle}
             onChangeText={setCustomerHandle}
             autoCapitalize="none"
@@ -519,7 +522,7 @@ export default function PaymentModal() {
           <TextInput
             style={[styles.handleInput, { minHeight: 44 }]}
             placeholder="e.g. free item given"
-            placeholderTextColor={C.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={remarks}
             onChangeText={setRemarks}
             multiline
@@ -586,7 +589,7 @@ export default function PaymentModal() {
         <TextInput
           style={styles.handleInput}
           placeholder="@username or furbaby name"
-          placeholderTextColor={C.textMuted}
+          placeholderTextColor={colors.textMuted}
           value={customerHandle}
           onChangeText={setCustomerHandle}
           autoCapitalize="none"
@@ -597,7 +600,7 @@ export default function PaymentModal() {
         <TextInput
           style={[styles.handleInput, { minHeight: 44 }]}
           placeholder="e.g. free item given"
-          placeholderTextColor={C.textMuted}
+          placeholderTextColor={colors.textMuted}
           value={remarks}
           onChangeText={setRemarks}
           multiline
@@ -622,15 +625,15 @@ export default function PaymentModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   scroll: { padding: 14, paddingBottom: 8 },
 
-  title: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
-  proofSubtitle: { color: C.textSecondary, fontSize: F.md, marginBottom: 12 },
+  title: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
+  proofSubtitle: { color: c.textSecondary, fontSize: F.md, marginBottom: 12 },
 
   sectionLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1.2,
@@ -639,7 +642,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   sectionLabelHandle: { marginTop: 8 },
-  optionalTag: { color: C.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
+  optionalTag: { color: c.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
 
   summaryHeader: {
     flexDirection: 'row',
@@ -649,21 +652,21 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bundleTag: {
-    color: C.pink,
+    color: c.pink,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    backgroundColor: C.pinkSubtle,
+    backgroundColor: c.pinkSubtle,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.pinkDim,
+    borderColor: c.pinkDim,
   },
 
   groupName: {
-    color: C.pink,
+    color: c.pink,
     fontSize: F.md,
     fontWeight: '700',
     paddingTop: 8,
@@ -676,10 +679,10 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingLeft: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
   variantItemName: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.md,
     flex: 1,
     fontWeight: '500',
@@ -691,24 +694,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
-  itemName: { color: C.textPrimary, fontSize: F.md, flex: 1, fontWeight: '500' },
+  itemName: { color: c.textPrimary, fontSize: F.md, flex: 1, fontWeight: '500' },
   qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   qtyBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     width: 28,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  qtyBtnText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  qtyText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
-  itemTotal: { color: C.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },
-  bundleQty: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  qtyBtnText: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qtyText: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
+  itemTotal: { color: c.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },
+  bundleQty: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
 
   bundleSectionRow: {
     flexDirection: 'row',
@@ -723,14 +726,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bundleSectionPrice: {
-    color: C.textSecondary,
+    color: c.textSecondary,
     fontSize: F.md,
     fontWeight: '700',
   },
   trashBtn: {
-    backgroundColor: C.redSubtle,
+    backgroundColor: c.redSubtle,
     borderWidth: 1,
-    borderColor: C.redDim,
+    borderColor: c.redDim,
     borderRadius: R.sm,
     padding: 5,
     alignItems: 'center',
@@ -747,42 +750,42 @@ const styles = StyleSheet.create({
   mixedDividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: C.borderDark,
+    backgroundColor: c.borderDark,
   },
   mixedDividerLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
 
-  divider: { height: 1, backgroundColor: C.border, marginVertical: 8 },
+  divider: { height: 1, backgroundColor: c.border, marginVertical: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  totalLabel: { color: C.textSecondary, fontSize: F.md, fontWeight: '700', letterSpacing: 0.5 },
-  totalAmount: { color: C.pink, fontSize: F.xxl, fontWeight: '800' },
+  totalLabel: { color: c.textSecondary, fontSize: F.md, fontWeight: '700', letterSpacing: 0.5 },
+  totalAmount: { color: c.pink, fontSize: F.xxl, fontWeight: '800' },
 
   methodRow: { flexDirection: 'row', gap: 8, marginBottom: 2 },
   methodBtn: {
     flex: 1,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.sm,
     paddingVertical: 9,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     gap: 2,
   },
-  methodBtnActive: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
+  methodBtnActive: { borderColor: c.pink, backgroundColor: c.pinkSubtle },
   methodIcon: {},
-  methodLabel: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
-  methodLabelActive: { color: C.pink },
+  methodLabel: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  methodLabelActive: { color: c.pink },
 
   tenderedBox: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 12,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -790,8 +793,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 4,
   },
-  tenderedLabel: { color: C.textSecondary, fontSize: F.lg, fontWeight: '700' },
-  tenderedAmount: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800', flex: 1 },
+  tenderedLabel: { color: c.textSecondary, fontSize: F.lg, fontWeight: '700' },
+  tenderedAmount: { color: c.textPrimary, fontSize: F.xxl, fontWeight: '800', flex: 1 },
 
   denomGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   denomCell: { width: '30%' },
@@ -799,87 +802,87 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   clearBtn: {
     flex: 1,
-    backgroundColor: C.redSubtle,
+    backgroundColor: c.redSubtle,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.redDim,
+    borderColor: c.redDim,
     padding: 11,
     alignItems: 'center',
   },
-  clearBtnText: { color: C.red, fontWeight: '700', fontSize: F.sm },
+  clearBtnText: { color: c.red, fontWeight: '700', fontSize: F.sm },
   exactBtn: {
     flex: 2,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     padding: 11,
     alignItems: 'center',
   },
-  exactBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
+  exactBtnText: { color: c.textPrimary, fontWeight: '700', fontSize: F.sm },
 
   changeBox: {
-    backgroundColor: C.greenSubtle,
+    backgroundColor: c.greenSubtle,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.green,
+    borderColor: c.green,
     padding: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  changeBoxShort: { backgroundColor: C.redSubtle, borderColor: C.red },
-  changeLabel: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
-  changeAmount: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  changeBoxShort: { backgroundColor: c.redSubtle, borderColor: c.red },
+  changeLabel: { color: c.textPrimary, fontWeight: '700', fontSize: F.sm },
+  changeAmount: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800' },
 
   handleInput: {
-    backgroundColor: C.surface,
-    color: C.textPrimary,
+    backgroundColor: c.surface,
+    color: c.textPrimary,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 10,
     paddingHorizontal: 14,
     fontSize: F.md,
   },
 
   digitalBox: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     padding: 28,
     alignItems: 'center',
     marginTop: 8,
     gap: 8,
   },
   digitalIcon: {},
-  digitalAmount: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
-  digitalHint: { color: C.textSecondary, fontSize: F.md, textAlign: 'center' },
+  digitalAmount: { color: c.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  digitalHint: { color: c.textSecondary, fontSize: F.md, textAlign: 'center' },
 
   qrSection: { marginTop: 8 },
   qrBox: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     padding: 24,
     alignItems: 'center',
     gap: 10,
   },
   qrPreview: { width: 180, height: 180, borderRadius: R.sm, marginBottom: 4 },
-  qrAmount: { color: C.pink, fontSize: F.xxl, fontWeight: '800' },
-  qrHint: { color: C.textSecondary, fontSize: F.sm },
+  qrAmount: { color: c.pink, fontSize: F.xxl, fontWeight: '800' },
+  qrHint: { color: c.textSecondary, fontSize: F.sm },
   fullScreenBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 10,
     paddingHorizontal: 22,
     borderRadius: R.sm,
     marginTop: 4,
   },
-  fullScreenBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.md },
+  fullScreenBtnText: { color: c.textPrimary, fontWeight: '700', fontSize: F.md },
 
   qrFullOverlay: { flex: 1, backgroundColor: '#fff' },
   qrFullImageWrap: { flex: 1, padding: 16, paddingTop: 48 },
@@ -889,51 +892,51 @@ const styles = StyleSheet.create({
   qrFullHint: { color: '#888', fontSize: F.sm },
 
   refInput: {
-    backgroundColor: C.surface,
-    color: C.textPrimary,
+    backgroundColor: c.surface,
+    color: c.textPrimary,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     padding: 14,
     fontSize: F.lg,
     fontWeight: '500',
   },
   cameraBox: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.md,
     padding: 28,
     alignItems: 'center',
     gap: 8,
   },
   cameraIcon: {},
-  cameraText: { color: C.textSecondary, fontSize: F.md },
-  proofPhotoBox: { backgroundColor: C.surface, borderRadius: R.md, padding: 12, alignItems: 'center', gap: 10 },
+  cameraText: { color: c.textSecondary, fontSize: F.md },
+  proofPhotoBox: { backgroundColor: c.surface, borderRadius: R.md, padding: 12, alignItems: 'center', gap: 10 },
   proofPhotoPreview: { width: '100%', height: 220, borderRadius: R.sm },
   proofRetake: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: R.sm,
   },
-  proofRetakeText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  proofRetakeText: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
 
   footer: {
     flexDirection: 'row',
     gap: 12,
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-    backgroundColor: C.surface,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
   },
   backBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     padding: 16,
     alignItems: 'center',
@@ -941,22 +944,22 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     padding: 16,
     alignItems: 'center',
   },
-  cancelBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  cancelBtnText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
   confirmBtn: {
     flex: 2,
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     borderRadius: R.sm,
     padding: 16,
     alignItems: 'center',
   },
-  confirmBtnDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  confirmBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: F.lg },
 
   confirmOverlay: {
@@ -967,10 +970,10 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   confirmSheet: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.xl,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     padding: 28,
     width: '100%',
     alignItems: 'center',
@@ -979,15 +982,15 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: C.pink,
+    backgroundColor: c.pink,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
   },
   confirmCheckText: {},
-  confirmTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
-  confirmSub: { color: C.textSecondary, fontSize: F.sm, marginBottom: 18, textAlign: 'center' },
-  confirmDivider: { height: 1, backgroundColor: C.borderDark, width: '100%', marginVertical: 12 },
+  confirmTitle: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 4 },
+  confirmSub: { color: c.textSecondary, fontSize: F.sm, marginBottom: 18, textAlign: 'center' },
+  confirmDivider: { height: 1, backgroundColor: c.borderDark, width: '100%', marginVertical: 12 },
   confirmBundleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1002,9 +1005,9 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     gap: 8,
   },
-  confirmMixedLine: { flex: 1, height: 1, backgroundColor: C.borderDark },
+  confirmMixedLine: { flex: 1, height: 1, backgroundColor: c.borderDark },
   confirmMixedLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -1016,13 +1019,13 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 6,
   },
-  confirmItemName: { color: C.textPrimary, fontSize: F.md, flex: 1 },
-  confirmItemPrice: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
-  confirmMeta: { color: C.textSecondary, fontSize: F.md },
-  confirmMetaValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 12 },
-  confirmTotal: { color: C.pink, fontSize: F.xl, fontWeight: '800' },
+  confirmItemName: { color: c.textPrimary, fontSize: F.md, flex: 1 },
+  confirmItemPrice: { color: c.textPrimary, fontSize: F.md, fontWeight: '600' },
+  confirmMeta: { color: c.textSecondary, fontSize: F.md },
+  confirmMetaValue: { color: c.textPrimary, fontSize: F.md, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 12 },
+  confirmTotal: { color: c.pink, fontSize: F.xl, fontWeight: '800' },
   confirmDoneBtn: {
-    backgroundColor: C.pink,
+    backgroundColor: c.pink,
     borderRadius: R.sm,
     paddingVertical: 14,
     width: '100%',

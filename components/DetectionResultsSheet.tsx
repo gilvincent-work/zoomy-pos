@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, Image, StyleSheet, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import type { DetectedProduct } from '../utils/scan-to-cart/detector';
 import type { ScanLabel } from '../utils/scan-to-cart/labels';
 
@@ -24,6 +25,8 @@ type Props = {
 export function DetectionResultsSheet({
   results, capturedImageUri, onConfirm, onScanAgain, onClose,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // quantities[i] = 0 means the item is removed from the order
   const [quantities, setQuantities] = useState<Record<number, number>>(
     () => Object.fromEntries(results.map((_, i) => [i, 1])),
@@ -49,7 +52,7 @@ export function DetectionResultsSheet({
       <View style={styles.headerRow}>
         <Text style={styles.title}>What did you scan?</Text>
         <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close" size={22} color={C.textMuted} />
+          <Ionicons name="close" size={22} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
 
@@ -123,18 +126,18 @@ export function DetectionResultsSheet({
                 ) : (
                   <View style={styles.cardActions}>
                     <TouchableOpacity testID="qty-decrement" style={styles.qtyBtn} onPress={() => updateQty(i, -1)}>
-                      <Ionicons name="remove" size={15} color={C.textPrimary} />
+                      <Ionicons name="remove" size={15} color={colors.textPrimary} />
                     </TouchableOpacity>
                     <Text testID="qty-value" style={styles.qtyValue}>{qty}</Text>
                     <TouchableOpacity testID="qty-increment" style={styles.qtyBtn} onPress={() => updateQty(i, 1)}>
-                      <Ionicons name="add" size={15} color={C.textPrimary} />
+                      <Ionicons name="add" size={15} color={colors.textPrimary} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       testID="remove-btn"
                       style={styles.removeBtn}
                       onPress={() => updateQty(i, -qty)}
                     >
-                      <Ionicons name="close-circle-outline" size={18} color={C.textMuted} />
+                      <Ionicons name="close-circle-outline" size={18} color={colors.textMuted} />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -163,19 +166,19 @@ export function DetectionResultsSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.surface },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.surface },
 
   headerRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10,
   },
-  title: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800' },
+  title: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
 
   imageContainer: {
     width: '100%',
     aspectRatio: 1,           // square — matches 640×640 capture
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -200,13 +203,13 @@ const styles = StyleSheet.create({
   listContent: { padding: 12, gap: 8 },
 
   emptyState: { alignItems: 'center', paddingVertical: 32, gap: 6 },
-  emptyText: { color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
-  emptySubtext: { color: C.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 18 },
+  emptyText: { color: c.textSecondary, fontSize: F.md, fontWeight: '700' },
+  emptySubtext: { color: c.textMuted, fontSize: F.sm, textAlign: 'center', lineHeight: 18 },
 
   card: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: C.elevated,
-    borderWidth: 1, borderColor: C.border,
+    backgroundColor: c.elevated,
+    borderWidth: 1, borderColor: c.border,
     borderRadius: R.md,
     paddingHorizontal: 12, paddingVertical: 10,
     gap: 10,
@@ -214,38 +217,38 @@ const styles = StyleSheet.create({
   cardRemoved: { opacity: 0.45 },
   colorDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   cardContent: { flex: 1 },
-  cardLabel: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
-  cardLabelRemoved: { color: C.textMuted, textDecorationLine: 'line-through' },
-  cardConfidence: { color: C.textMuted, fontSize: F.xs, marginTop: 1 },
+  cardLabel: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  cardLabelRemoved: { color: c.textMuted, textDecorationLine: 'line-through' },
+  cardConfidence: { color: c.textMuted, fontSize: F.xs, marginTop: 1 },
 
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   qtyBtn: {
-    backgroundColor: C.bg, borderRadius: R.sm - 4,
-    borderWidth: 1, borderColor: C.border, padding: 5,
+    backgroundColor: c.bg, borderRadius: R.sm - 4,
+    borderWidth: 1, borderColor: c.border, padding: 5,
   },
   qtyValue: {
-    color: C.textPrimary, fontSize: F.sm, fontWeight: '800',
+    color: c.textPrimary, fontSize: F.sm, fontWeight: '800',
     minWidth: 22, textAlign: 'center',
   },
   removeBtn:  { marginLeft: 2, padding: 2 },
   undoBtn:    { paddingHorizontal: 10, paddingVertical: 6 },
-  undoText:   { color: C.pink, fontSize: F.sm, fontWeight: '700' },
+  undoText:   { color: c.pink, fontSize: F.sm, fontWeight: '700' },
 
   actions: {
     flexDirection: 'row', gap: 10,
     paddingHorizontal: 14, paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: C.border,
+    borderTopWidth: 1, borderTopColor: c.border,
   },
   scanAgainBtn: {
-    flex: 1, backgroundColor: C.elevated,
-    borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: c.elevated,
+    borderWidth: 1, borderColor: c.border,
     borderRadius: R.sm, padding: 14, alignItems: 'center',
   },
-  scanAgainText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  scanAgainText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
   addBtn: {
-    flex: 2, backgroundColor: C.pink,
+    flex: 2, backgroundColor: c.pink,
     borderRadius: R.sm, padding: 14, alignItems: 'center',
   },
-  addBtnDisabled: { backgroundColor: C.border },
+  addBtnDisabled: { backgroundColor: c.border },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

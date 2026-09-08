@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { C, F, R } from '../constants/theme';
+import { F, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 type Props = {
   categories: string[];
@@ -13,6 +14,8 @@ type Props = {
  * The active pill uses the Zoomy brand pink; the rest are quiet surfaces.
  */
 export function CategoryTabs({ categories, active, onSelect }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (categories.length === 0) return null;
   return (
     <ScrollView
@@ -43,23 +46,23 @@ export function CategoryTabs({ categories, active, onSelect }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   row: { gap: 8, paddingHorizontal: 2, paddingVertical: 2 },
   pill: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     borderRadius: 999,
     paddingVertical: 9,
     paddingHorizontal: 16,
     justifyContent: 'center',
   },
   pillActive: {
-    backgroundColor: C.pink,
-    borderColor: C.pink,
+    backgroundColor: c.pink,
+    borderColor: c.pink,
   },
   label: {
-    color: C.textSecondary,
+    color: c.textSecondary,
     fontSize: F.sm,
     fontWeight: '700',
   },

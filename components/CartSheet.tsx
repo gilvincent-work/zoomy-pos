@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder,
   useWindowDimensions, Pressable,
 } from 'react-native';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 import { CartPanel } from './CartPanel';
 
@@ -18,6 +19,8 @@ type Props = {
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
 export function CartSheet({ onCharge, onMorePayment }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
   const { height } = useWindowDimensions();
   const sheetHeight = Math.min(height * 0.7, 520);
@@ -142,14 +145,14 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   peek: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-    backgroundColor: C.surface,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
   },
   peekRow: {
     flexDirection: 'row',
@@ -161,19 +164,19 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: C.border,
+    backgroundColor: c.border,
     alignSelf: 'center',
     marginBottom: 10,
   },
-  peekCount: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
-  peekTotal: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  peekCount: { color: c.textSecondary, fontSize: F.xs, fontWeight: '600' },
+  peekTotal: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800' },
   peekCharge: {
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     borderRadius: R.sm,
     paddingVertical: 13,
     paddingHorizontal: 20,
   },
-  peekChargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  peekChargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   peekChargeText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -184,11 +187,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: C.bg,
+    backgroundColor: c.bg,
     borderTopLeftRadius: R.xl,
     borderTopRightRadius: R.xl,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     overflow: 'hidden',
   },
   dragHandleArea: {

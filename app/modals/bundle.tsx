@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput,
   StyleSheet, SafeAreaView,
@@ -12,11 +12,14 @@ import {
 } from '../../db/saved-bundles';
 import { bundlePreviewText } from '../../utils/bundles';
 import { useToast } from '../../components/Toast';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 const MIN_ITEMS = 1;
 
 export default function BundleModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { editId } = useLocalSearchParams<{ editId?: string }>();
   const editingId = editId ? Number(editId) : null;
   const { showToast } = useToast();
@@ -102,7 +105,7 @@ export default function BundleModal() {
             value={name}
             onChangeText={setName}
             placeholder="e.g. Buy Any 4"
-            placeholderTextColor={C.textMuted}
+            placeholderTextColor={colors.textMuted}
             returnKeyType="done"
           />
         </View>
@@ -117,7 +120,7 @@ export default function BundleModal() {
               onChangeText={setPrice}
               keyboardType="decimal-pad"
               placeholder="0.00"
-              placeholderTextColor={C.textMuted}
+              placeholderTextColor={colors.textMuted}
               returnKeyType="done"
             />
           </View>
@@ -191,26 +194,26 @@ export default function BundleModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   body: { padding: 16, gap: 18, paddingBottom: 28 },
 
   field: { gap: 8 },
   label: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.md,
     fontWeight: '600',
   },
@@ -218,49 +221,49 @@ const styles = StyleSheet.create({
   priceBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  currencySign: { color: C.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
-  priceInput: { flex: 1, color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  currencySign: { color: c.textSecondary, fontSize: F.xxl, fontWeight: '700', marginRight: 8 },
+  priceInput: { flex: 1, color: c.textPrimary, fontSize: F.xxl, fontWeight: '800' },
 
   sizeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 10,
     paddingLeft: 16,
     paddingRight: 10,
   },
-  sizeText: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  sizeNum: { color: C.pink, fontWeight: '800' },
+  sizeText: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  sizeNum: { color: c.pink, fontWeight: '800' },
 
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   stepBtn: {
     width: 36,
     height: 36,
     borderRadius: R.sm,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnDim: { borderColor: C.borderDark },
-  stepIcon: { color: C.textPrimary, fontSize: F.lg, fontWeight: '700', lineHeight: 20 },
-  stepIconDim: { color: C.textMuted },
+  stepBtnDim: { borderColor: c.borderDark },
+  stepIcon: { color: c.textPrimary, fontSize: F.lg, fontWeight: '700', lineHeight: 20 },
+  stepIconDim: { color: c.textMuted },
   qty: {
     width: 36,
     textAlign: 'center',
-    color: C.pink,
+    color: c.pink,
     fontSize: F.md,
     fontWeight: '800',
   },
@@ -271,58 +274,58 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 13,
     paddingHorizontal: 14,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
   },
-  lineRowOn: { borderColor: C.pink, backgroundColor: C.pinkSubtle },
-  lineName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  lineRowOn: { borderColor: c.pink, backgroundColor: c.pinkSubtle },
+  lineName: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
   check: {
     width: 26,
     height: 26,
     borderRadius: R.sm,
     borderWidth: 1.5,
-    borderColor: C.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkOn: { backgroundColor: C.pink, borderColor: C.pink },
+  checkOn: { backgroundColor: c.pink, borderColor: c.pink },
 
   preview: {
-    color: C.textSecondary,
+    color: c.textSecondary,
     fontSize: F.sm,
     fontWeight: '600',
     lineHeight: 20,
-    backgroundColor: C.pinkSubtle,
+    backgroundColor: c.pinkSubtle,
     borderWidth: 1,
-    borderColor: C.pinkDim,
+    borderColor: c.pinkDim,
     borderRadius: R.md,
     padding: 14,
   },
-  empty: { color: C.textMuted, fontSize: F.sm, paddingVertical: 8 },
+  empty: { color: c.textMuted, fontSize: F.sm, paddingVertical: 8 },
 
   footer: {
     flexDirection: 'row',
     gap: 10,
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-    backgroundColor: C.surface,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     paddingVertical: 16,
     borderRadius: R.sm,
     alignItems: 'center',
   },
-  cancelText: { color: C.textSecondary, fontSize: F.md, fontWeight: '700' },
+  cancelText: { color: c.textSecondary, fontSize: F.md, fontWeight: '700' },
   saveBtn: {
     flex: 2,
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     paddingVertical: 16,
     borderRadius: R.sm,
     alignItems: 'center',

@@ -13,7 +13,9 @@ create table public.pos_products (
   status        text,
   active        boolean not null default true,
   name          text not null,
-  product_line  text,
+  product_line  text,                -- Coop's SKU-decode line code (FDR / JRK / MEAT)
+  category      text,                -- POS display tab (Freeze Dried / Meaty Treats / Super Duo Bites / Tasty Treats) — authoritative for the POS
+  subcategory   text,                -- POS secondary tab (Freeze-Dried only: Fish / Meats / Cat Grass · Yogurt / Super Food)
   protein       text,
   cut           text,
   size          numeric,

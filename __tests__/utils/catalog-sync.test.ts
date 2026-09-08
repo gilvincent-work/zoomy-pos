@@ -34,29 +34,48 @@ describe('categoryForLine', () => {
   });
 });
 
+const row = (over: Partial<RemoteCatalogRow> & { product_id: string }): RemoteCatalogRow => ({
+  name: 'X',
+  active: true,
+  price: null,
+  product_line: null,
+  category: null,
+  subcategory: null,
+  ...over,
+});
+
 describe('reconcileCatalog', () => {
-  it('maps remote rows to per-SKU updates, stripping the line prefix and mapping category', () => {
+  it("prefers Coop's explicit category over the line mapping, carries subcategory", () => {
     const remote: RemoteCatalogRow[] = [
-      { product_id: 'ZMYFDFDRBEFLVR01', name: 'Freeze-Dried Beef Liver Cubes', active: true, price: 171, product_line: 'FDR' },
-      { product_id: 'ZMYFDMEATBEFWHL01', name: 'Meaty Treats Beef', active: false, price: 200, product_line: 'MEAT' },
+      // JRK line but Coop explicitly says Super Duo Bites — Coop wins.
+      row({ product_id: 'ZMYA', name: 'Super Duo Bites Chicken Carrot', active: true, price: 300, product_line: 'JRK', category: 'Super Duo Bites' }),
+      // Freeze Dried with a subcategory carried through.
+      row({ product_id: 'ZMYB', name: 'Freeze-Dried Salmon Cubes', active: true, price: 170, product_line: 'FDR', category: 'Freeze Dried', subcategory: 'Fish' }),
     ];
     expect(reconcileCatalog(remote)).toEqual([
-      { sku: 'ZMYFDFDRBEFLVR01', name: 'Beef Liver Cubes', price: 171, active: true, category: 'Freeze Dried' },
-      { sku: 'ZMYFDMEATBEFWHL01', name: 'Beef', price: 200, active: false, category: 'Meaty Treats' },
+      { sku: 'ZMYA', name: 'Chicken Carrot', price: 300, active: true, category: 'Super Duo Bites', subcategory: null },
+      { sku: 'ZMYB', name: 'Salmon Cubes', price: 170, active: true, category: 'Freeze Dried', subcategory: 'Fish' },
     ]);
   });
 
-  it('preserves a null price and maps an unknown line to a null category', () => {
-    const remote: RemoteCatalogRow[] = [{ product_id: 'ZMYX', name: 'X', active: true, price: null, product_line: null }];
-    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYX', name: 'X', price: null, active: true, category: null }]);
+  it('falls back to the line mapping when Coop has no explicit category', () => {
+    const remote: RemoteCatalogRow[] = [row({ product_id: 'ZMYC', name: 'Meaty Treats Beef', price: 200, product_line: 'MEAT', category: null })];
+    expect(reconcileCatalog(remote)).toEqual([
+      { sku: 'ZMYC', name: 'Beef', price: 200, active: true, category: 'Meaty Treats', subcategory: null },
+    ]);
+  });
+
+  it('null price + unknown line + no Coop category => null category', () => {
+    const remote: RemoteCatalogRow[] = [row({ product_id: 'ZMYX', name: 'X', price: null })];
+    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYX', name: 'X', price: null, active: true, category: null, subcategory: null }]);
   });
 
   it('drops rows with no SKU', () => {
     const remote: RemoteCatalogRow[] = [
-      { product_id: '', name: 'nope', active: true, price: 10, product_line: 'FDR' },
-      { product_id: 'ZMYY', name: 'Yep', active: true, price: 20, product_line: 'JRK' },
+      row({ product_id: '', name: 'nope', price: 10, product_line: 'FDR' }),
+      row({ product_id: 'ZMYY', name: 'Yep', price: 20, product_line: 'JRK' }),
     ];
-    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYY', name: 'Yep', price: 20, active: true, category: 'Tasty Treats' }]);
+    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYY', name: 'Yep', price: 20, active: true, category: 'Tasty Treats', subcategory: null }]);
   });
 
   it('returns an empty list for no rows', () => {

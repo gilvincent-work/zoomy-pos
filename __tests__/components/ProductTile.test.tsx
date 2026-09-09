@@ -89,4 +89,43 @@ describe('ProductTile', () => {
     );
     expect(queryByTestId('remove-btn')).toBeNull();
   });
+
+  describe('stock warning', () => {
+    it('shows no warning below the stock count', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={5} badgeCount={3} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+
+    it('shows "Last stock" when the cart quantity exactly meets stock', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={3} badgeCount={3} />);
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Last stock');
+    });
+
+    it('shows "Oversold" when the cart quantity exceeds stock', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={2} badgeCount={3} />);
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
+    });
+
+    it('shows "Oversold" for an already-negative stock (prior oversell)', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={-1} badgeCount={1} />);
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
+    });
+
+    it('shows nothing before anything is added to the cart, even at 0 stock', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+
+    it('skips the warning for variant products (no per-variant stock)', () => {
+      const { queryByTestId } = render(
+        <ProductTile {...baseProps} hasVariants stock={1} badgeCount={3} />
+      );
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+
+    it('skips the warning when stock is not provided', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} badgeCount={3} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+  });
 });

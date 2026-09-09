@@ -12,6 +12,10 @@ type Props = {
   imageUri?: string | null;
   emoji?: string | null;
   badgeCount: number;
+  /** Cached Coop stock (Product.stock). Omit to skip the low/oversold warning
+   *  (e.g. no stock signal yet, or not meaningful — variant products, where
+   *  stock isn't tracked per variant). */
+  stock?: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
@@ -19,10 +23,16 @@ type Props = {
   onRemove?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus, onRemove }: Props) {
+export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, stock, onPress, onLongPress, onMinus, onRemove }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const active = badgeCount > 0;
+  // Non-blocking stock warning: the cashier can still ring it up, but sees a
+  // heads-up once the quantity in the cart meets or passes what's on hand.
+  // Variant products have no per-variant stock, so they're excluded.
+  const stockKnown = !hasVariants && stock != null && active;
+  const isOversold = stockKnown && stock! < badgeCount;
+  const isLastStock = stockKnown && !isOversold && stock === badgeCount;
   return (
     <TouchableOpacity
       testID="tile"
@@ -97,6 +107,16 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
           <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
         </View>
       ))}
+      {(isOversold || isLastStock) && (
+        <View
+          style={[styles.stockWarning, isOversold ? styles.stockWarningOversold : styles.stockWarningLast]}
+          testID="stock-warning"
+        >
+          <Text style={styles.stockWarningText} numberOfLines={1}>
+            {isOversold ? 'Oversold' : 'Last stock'}
+          </Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -204,6 +224,24 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     minWidth: 15,
     textAlign: 'center',
   },
+  // Non-blocking stock heads-up, pinned along the tile's bottom edge so it never
+  // collides with the top-corner qty/clear controls. Oversold reuses the app's
+  // red (already "bad"/destructive elsewhere); last-stock uses a plain amber —
+  // there's no warning token in the palette, so this is a literal color.
+  stockWarning: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 4,
+  },
+  stockWarningLast: { backgroundColor: '#f5a524' },
+  stockWarningOversold: { backgroundColor: c.red },
+  stockWarningText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
   name: {
     color: c.textPrimary,
     fontSize: F.sm,

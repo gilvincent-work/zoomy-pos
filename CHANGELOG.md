@@ -12,6 +12,57 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-10 (develop only — not yet promoted to staging)
+
+### Bundles default tab — `feat(pos)`
+- The product grid now opens on the **Bundles** pill instead of the first
+  product line whenever an active "Buy Any N" deal exists (falls back to the
+  first line when there are none). Applies only when computing the default —
+  a cashier's manual tab choice is still respected across catalog reloads.
+
+### Payment options: QRPH + configurable methods — `feat(payments)`
+- Added **QRPH** as a payment method (a single generic QR tap, distinct from
+  GCash/Maya) alongside the existing methods. Old GCash/Maya/Card/BPI records
+  are untouched and still filter/display correctly — this only changes what's
+  offered going forward.
+- **New Settings screen** (there was previously no way to reach the existing
+  PIN-gated admin settings at all — no icon led to it). Added a gear icon to
+  the main header; Settings now includes a **Payment Options** page where you
+  choose which methods appear on the cart Pay control (master list: Cash,
+  QRPH, GCash, Maya, Card — at least one always stays enabled) and whether
+  tapping Pay opens the confirm-before-recording modal. Default enabled set:
+  **Cash + QRPH**. `db/settings.ts` persists both; `PaymentMethodTabs` now
+  takes the enabled set as a prop instead of hard-coding all four/five.
+
+### Edit Product: pinned Save + "Update Product" label — `fix(products)`
+- Buttons now live in a footer pinned outside the ScrollView (mirroring the
+  bundle builder), so Save is always visible regardless of how tall the emoji
+  grid gets. Renamed the button to **"Update Product"** / **"Update Bundle"**.
+
+### In-app confirm modal for delete — `fix(products)`
+- Replaced the browser-native `window.confirm` / `Alert.alert` for deleting a
+  product or bundle with a themed in-app `ConfirmModal`, consistent with the
+  rest of the POS. Scoped to delete only; the Remove-QR and Import-Catalog
+  confirms are unchanged for now.
+
+### Chopsticks + ice cube added to the emoji palette — `feat(products)`
+- Added 🥢 and 🧊 to the shared curated set (`constants/emoji.ts`), available
+  for both products and bundles.
+
+### Low-stock / oversold tile warning — `feat(pos)` / `feat(sync)`
+- The catalog pull now also reads Coop's live stock (`pos_inventory`) into a
+  new local `products.stock` column — Coop-authoritative, always overwritten
+  on sync (unlike emoji, there's no "POS keeps its own" concept for a number
+  that changes constantly). Verified anon can read the view directly.
+- A product tile shows a **non-blocking warning** once the quantity already in
+  the cart reaches or passes what's on hand: **"Last stock"** when the cart
+  quantity exactly equals stock, **"Oversold"** when it exceeds it (including
+  an already-negative stock from a prior oversell). The sale still goes
+  through either way — it's a heads-up, not a block. Scoped to non-variant
+  products (stock isn't tracked per variant); shows nothing until something is
+  actually in the cart, so an untouched 0-stock tile doesn't falsely read
+  "Last stock".
+
 ## 2026-09-09 (develop only — not yet promoted to staging)
 
 ### Fix: editing/toggling a product no longer wipes its category — `fix(products)`

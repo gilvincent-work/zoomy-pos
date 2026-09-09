@@ -16,6 +16,7 @@ import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import { PullToRefresh } from '../../components/PullToRefresh';
+import { ConfirmModal } from '../../components/ConfirmModal';
 import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../constants/emoji';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
@@ -26,22 +27,6 @@ import { useToast } from '../../components/Toast';
 const ALL_LINES = 'All';
 /** Pseudo-pill that shows the Bundle Presets instead of individual products. */
 const BUNDLES_LINE = 'Bundles';
-
-async function confirmAction(
-  title: string,
-  message: string,
-  destructiveLabel: string
-): Promise<boolean> {
-  if (Platform.OS === 'web') {
-    return window.confirm(`${title}\n\n${message}`);
-  }
-  return new Promise((resolve) => {
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
-    ]);
-  });
-}
 
 type ProductForm = { name: string; price: string; emoji: string };
 type BundleForm = { name: string; price: string };
@@ -65,6 +50,8 @@ export default function ProductsModal() {
   // Bundle emoji editor (tap-only palette in a small modal).
   const [emojiBundle, setEmojiBundle] = useState<SavedBundle | null>(null);
   const [emojiDraft, setEmojiDraft] = useState('');
+  // Delete confirm (product or bundle) — one shared modal, see handleConfirmDelete.
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'product' | 'bundle'; id: number; name: string } | null>(null);
   // Which product line's pills is active on the list view. "All" shows everything.
   const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
   // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
@@ -211,20 +198,8 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  async function confirmDeleteProduct(id: number, name: string) {
-    const ok = await confirmAction('Delete Product', `Remove "${name}" permanently?`, 'Delete');
-    if (!ok) return;
-    try {
-      await deleteProduct(id);
-      await refreshAll();
-      showToast({ variant: 'success', title: 'Product deleted' });
-    } catch (e) {
-      showToast({
-        variant: 'error',
-        title: 'Delete failed',
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
+  function confirmDeleteProduct(id: number, name: string) {
+    setDeleteTarget({ type: 'product', id, name });
   }
 
   // ─── Bundle actions ───────────────────────────────────────────────────────
@@ -264,15 +239,26 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  async function confirmDeleteBundle(id: number, name: string) {
-    const ok = await confirmAction('Delete Bundle', `Remove "${name}" preset permanently?`, 'Delete');
-    if (!ok) return;
+  function confirmDeleteBundle(id: number, name: string) {
+    setDeleteTarget({ type: 'bundle', id, name });
+  }
+
+  // Single confirm modal backs both delete flows; onConfirm dispatches by type.
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const { type, id } = deleteTarget;
+    setDeleteTarget(null);
     try {
-      const uuid = bundles.find((b) => b.id === id)?.bundle_uuid ?? null;
-      await deleteSavedBundle(id);
-      deleteBundleRemote(uuid); // remove it from Coop / other devices too
+      if (type === 'product') {
+        await deleteProduct(id);
+        showToast({ variant: 'success', title: 'Product deleted' });
+      } else {
+        const uuid = bundles.find((b) => b.id === id)?.bundle_uuid ?? null;
+        await deleteSavedBundle(id);
+        deleteBundleRemote(uuid); // remove it from Coop / other devices too
+        showToast({ variant: 'success', title: 'Bundle deleted' });
+      }
       await refreshAll();
-      showToast({ variant: 'success', title: 'Bundle deleted' });
     } catch (e) {
       showToast({
         variant: 'error',
@@ -394,16 +380,18 @@ export default function ProductsModal() {
               }
               keyboardType="decimal-pad"
             />
-
-            <View style={styles.formBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
-            </View>
           </ScrollView>
+
+          {/* Pinned footer (outside the ScrollView, like the bundle builder) so
+              Save is always reachable without scrolling past the emoji grid. */}
+          <View style={styles.formBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <Text style={styles.saveBtnText}>{isBundle ? 'Update bundle' : 'Update product'}</Text>
+            </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
     );
@@ -581,6 +569,15 @@ export default function ProductsModal() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <ConfirmModal
+        visible={!!deleteTarget}
+        title={deleteTarget?.type === 'bundle' ? 'Delete Bundle' : 'Delete Product'}
+        message={`Remove "${deleteTarget?.name}" permanently?`}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -656,7 +653,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   backBtn: { padding: 4 },
   formHeaderTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
 
-  form: { padding: 20, paddingBottom: 40, gap: 8 },
+  form: { padding: 20, paddingBottom: 20, gap: 8 },
   fieldLabel: {
     color: c.textMuted,
     fontSize: F.xs,
@@ -693,7 +690,14 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   emojiPickDisabled: { opacity: 0.4 },
   emojiPickText: { fontSize: 22 },
-  formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  formBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
+  },
   cancelBtn: {
     flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center', borderWidth: 1, borderColor: c.border,

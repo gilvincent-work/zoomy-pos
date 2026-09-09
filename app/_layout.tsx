@@ -31,6 +31,7 @@ function ThemedStack() {
         <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
         <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />
         <Stack.Screen name="modals/admin" options={{ presentation: 'modal', title: '' }} />
+        <Stack.Screen name="modals/payment-settings" options={{ presentation: 'modal', title: 'Payment Options' }} />
         <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Add Bundle' }} />
         <Stack.Screen name="modals/bundle-select" options={{ presentation: 'modal', title: 'Choose Flavors' }} />
         <Stack.Screen name="modals/scan"   options={{ presentation: 'modal', headerShown: false }} />

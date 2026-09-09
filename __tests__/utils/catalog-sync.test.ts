@@ -42,6 +42,7 @@ const row = (over: Partial<RemoteCatalogRow> & { product_id: string }): RemoteCa
   category: null,
   subcategory: null,
   emoji: null,
+  stock: 0,
   ...over,
 });
 
@@ -54,21 +55,21 @@ describe('reconcileCatalog', () => {
       row({ product_id: 'ZMYB', name: 'Freeze-Dried Salmon Cubes', active: true, price: 170, product_line: 'FDR', category: 'Freeze Dried', subcategory: 'Fish' }),
     ];
     expect(reconcileCatalog(remote)).toEqual([
-      { sku: 'ZMYA', name: 'Chicken Carrot', price: 300, active: true, category: 'Super Duo Bites', subcategory: null, emoji: '🥕' },
-      { sku: 'ZMYB', name: 'Salmon Cubes', price: 170, active: true, category: 'Freeze Dried', subcategory: 'Fish', emoji: null },
+      { sku: 'ZMYA', name: 'Chicken Carrot', price: 300, active: true, category: 'Super Duo Bites', subcategory: null, emoji: '🥕', stock: 0 },
+      { sku: 'ZMYB', name: 'Salmon Cubes', price: 170, active: true, category: 'Freeze Dried', subcategory: 'Fish', emoji: null, stock: 0 },
     ]);
   });
 
   it('falls back to the line mapping when Coop has no explicit category', () => {
     const remote: RemoteCatalogRow[] = [row({ product_id: 'ZMYC', name: 'Meaty Treats Beef', price: 200, product_line: 'MEAT', category: null })];
     expect(reconcileCatalog(remote)).toEqual([
-      { sku: 'ZMYC', name: 'Beef', price: 200, active: true, category: 'Meaty Treats', subcategory: null, emoji: null },
+      { sku: 'ZMYC', name: 'Beef', price: 200, active: true, category: 'Meaty Treats', subcategory: null, emoji: null, stock: 0 },
     ]);
   });
 
   it('null price + unknown line + no Coop category => null category', () => {
     const remote: RemoteCatalogRow[] = [row({ product_id: 'ZMYX', name: 'X', price: null })];
-    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYX', name: 'X', price: null, active: true, category: null, subcategory: null, emoji: null }]);
+    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYX', name: 'X', price: null, active: true, category: null, subcategory: null, emoji: null, stock: 0 }]);
   });
 
   it('drops rows with no SKU', () => {
@@ -76,7 +77,12 @@ describe('reconcileCatalog', () => {
       row({ product_id: '', name: 'nope', price: 10, product_line: 'FDR' }),
       row({ product_id: 'ZMYY', name: 'Yep', price: 20, product_line: 'JRK' }),
     ];
-    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYY', name: 'Yep', price: 20, active: true, category: 'Tasty Treats', subcategory: null, emoji: null }]);
+    expect(reconcileCatalog(remote)).toEqual([{ sku: 'ZMYY', name: 'Yep', price: 20, active: true, category: 'Tasty Treats', subcategory: null, emoji: null, stock: 0 }]);
+  });
+
+  it('carries the stock count through unchanged', () => {
+    const remote: RemoteCatalogRow[] = [row({ product_id: 'ZMYS', name: 'Duck', price: 200, product_line: 'MEAT', stock: 7 })];
+    expect(reconcileCatalog(remote)[0].stock).toBe(7);
   });
 
   it('returns an empty list for no rows', () => {

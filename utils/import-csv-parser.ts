@@ -45,6 +45,7 @@ export function parsePaymentMethod(methodStr: string): {
   const label = withoutBundle.replace(/\s*\(.+?\)/, '').trim();
 
   const methodMap: Record<string, PaymentMethod> = {
+    QRPH: 'qrph',
     GCash: 'gcash',
     Card: 'card',
     Maya: 'maya',

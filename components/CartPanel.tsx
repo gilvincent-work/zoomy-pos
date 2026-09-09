@@ -9,9 +9,11 @@ import { quickMethodMeta } from '../constants/payment';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
 
 type Props = {
-  /** Selected quick payment method (Cash / GCash / Card). */
+  /** Selected quick payment method. */
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
+  /** Methods to offer, from Settings -> Payment Options. Defaults to all. */
+  enabledMethods?: PaymentMethod[];
   /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
   /** Secondary path to the full payment modal (GCash QR, change, receipt photo). */
@@ -25,7 +27,7 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, compact }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, compact }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
@@ -135,7 +137,7 @@ export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, com
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
-        <PaymentMethodTabs value={method} onChange={onMethodChange} disabled={isEmpty} />
+        <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
         <TouchableOpacity
           testID="cart-charge"
           style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}

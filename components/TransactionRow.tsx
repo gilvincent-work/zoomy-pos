@@ -13,7 +13,8 @@ export function TransactionRow({ transaction, onPress }: Props) {
   const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isVoided = transaction.status === 'voided';
-  const methodLabel = transaction.payment_method === 'gcash' ? 'GCash'
+  const methodLabel = transaction.payment_method === 'qrph' ? 'QRPH'
+    : transaction.payment_method === 'gcash' ? 'GCash'
     : transaction.payment_method === 'card' ? 'Card'
     : transaction.payment_method === 'maya' ? 'Maya'
     : transaction.payment_method === 'bpi' ? 'BPI'

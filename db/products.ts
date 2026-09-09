@@ -13,6 +13,8 @@ export type Product = {
   created_at: string;
   /** The Coop-side pos_products.product_id (SKU Code), once catalog sync assigns one. */
   sku: string | null;
+  /** Cached Coop stock (pos_inventory), refreshed on every catalog pull. 0 until synced. */
+  stock: number;
 };
 
 /** A category and its (possibly empty) list of subcategories, both sorted alphabetically. */
@@ -231,25 +233,28 @@ export async function applyCatalogUpdate(u: {
   category: string | null;
   subcategory: string | null;
   emoji: string | null;
+  stock: number;
 }): Promise<number> {
   const db = await getDatabase();
   // Emoji is deliberately NOT in this UPDATE: Coop seeds it on insert (below),
   // but a POS emoji edit must survive later syncs, so an existing row keeps its
-  // local emoji. (Name / price / category stay Coop-authoritative.)
+  // local emoji. (Name / price / category / stock stay Coop-authoritative —
+  // stock always overwrites, since it changes constantly and there's no local
+  // "POS override" concept for it like there is for emoji.)
   const res = await db.runAsync(
     "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, " +
-      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END WHERE sku = ?',
-    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.sku]
+      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END, stock = ? WHERE sku = ?',
+    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.stock, u.sku]
   );
   if (res.changes > 0) return res.changes;
 
   // No local row for this SKU — insert the Coop-created product so it appears on
-  // the tiles, seeded with Coop's emoji (falling back to the default). Skip
-  // nameless rows.
+  // the tiles, seeded with Coop's emoji (falling back to the default) and stock.
+  // Skip nameless rows.
   if (!u.name) return 0;
   const ins = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)',
-    [u.name, u.price, u.emoji || '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, stock, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
+    [u.name, u.price, u.emoji || '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, u.stock, new Date().toISOString()]
   );
   return ins.changes;
 }

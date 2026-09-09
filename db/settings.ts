@@ -1,5 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDatabase } from './database';
+import type { PaymentMethod } from './transactions';
+import { QUICK_PAYMENT_METHODS, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
 
 export async function getAdminHash(): Promise<string | null> {
   const db = await getDatabase();
@@ -72,4 +74,59 @@ export async function getAllQrUris(): Promise<QrUris> {
     getQrUri('bpi'),
   ]);
   return { gcash, maya, bpi };
+}
+
+// ─── Payment options (Settings) ────────────────────────────────────────────
+// Which quick-tap methods show on the cart Pay control, and whether tapping Pay
+// asks for confirmation first. Both configurable from Settings -> Payment
+// Options (PIN-gated). Defaults match the bazaar's current cash/QR flow.
+
+const VALID_METHODS = new Set(QUICK_PAYMENT_METHODS.map((m) => m.key));
+
+/** Enabled quick-pay methods, in the fixed master order. Falls back to the
+ *  default set if unset, empty, or corrupted (never returns []). */
+export async function getEnabledPaymentMethods(): Promise<PaymentMethod[]> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    ['payment_methods_enabled']
+  );
+  if (!row?.value) return DEFAULT_ENABLED_PAYMENT_METHODS;
+  try {
+    const parsed: unknown = JSON.parse(row.value);
+    if (!Array.isArray(parsed)) return DEFAULT_ENABLED_PAYMENT_METHODS;
+    const enabled = QUICK_PAYMENT_METHODS.map((m) => m.key).filter((k) => parsed.includes(k));
+    return enabled.length > 0 ? enabled : DEFAULT_ENABLED_PAYMENT_METHODS;
+  } catch {
+    return DEFAULT_ENABLED_PAYMENT_METHODS;
+  }
+}
+
+/** Persist the enabled set. Always keeps at least one method (falls back to Cash). */
+export async function setEnabledPaymentMethods(methods: PaymentMethod[]): Promise<void> {
+  const cleaned = methods.filter((m) => VALID_METHODS.has(m));
+  const value = cleaned.length > 0 ? cleaned : ['cash'];
+  const db = await getDatabase();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    ['payment_methods_enabled', JSON.stringify(value)]
+  );
+}
+
+/** Whether tapping Pay opens the confirm-before-recording modal. Default on. */
+export async function getConfirmOnPay(): Promise<boolean> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    ['confirm_on_pay']
+  );
+  return row?.value !== '0'; // unset (null) => on, matches the existing default behavior
+}
+
+export async function setConfirmOnPay(enabled: boolean): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    ['confirm_on_pay', enabled ? '1' : '0']
+  );
 }

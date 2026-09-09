@@ -34,6 +34,7 @@ const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeo
   // bank_transfer still exist on old records but aren't offered as quick filters.
   { key: 'all', label: 'All methods', iconName: 'wallet-outline' },
   { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
+  { key: 'qrph', label: 'QRPH', iconName: 'qr-code-outline' },
   { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
   { key: 'maya', label: 'Maya', iconName: 'phone-portrait-outline' },
   { key: 'card', label: 'Card', iconName: 'card-outline' },
@@ -41,6 +42,7 @@ const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeo
 
 function getMethodDisplayName(method: PaymentMethod): string {
   switch (method) {
+    case 'qrph': return 'QRPH';
     case 'gcash': return 'GCash';
     case 'card': return 'Card';
     case 'maya': return 'Maya';

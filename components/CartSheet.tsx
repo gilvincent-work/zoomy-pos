@@ -14,6 +14,7 @@ import { quickMethodMeta } from '../constants/payment';
 type Props = {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
+  enabledMethods?: PaymentMethod[];
   onCharge: () => void;
   onMorePayment?: () => void;
 };
@@ -23,7 +24,7 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ method, onMethodChange, onCharge, onMorePayment }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, onMorePayment }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
@@ -102,7 +103,7 @@ export function CartSheet({ method, onMethodChange, onCharge, onMorePayment }: P
       >
         <View style={styles.grabber} />
         <View style={styles.peekMethods}>
-          <PaymentMethodTabs value={method} onChange={onMethodChange} disabled={cartCount === 0} compact />
+          <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={cartCount === 0} compact />
         </View>
         <View style={styles.peekRow}>
           <Pressable
@@ -148,7 +149,7 @@ export function CartSheet({ method, onMethodChange, onCharge, onMorePayment }: P
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={styles.grabber} />
         </View>
-        <CartPanel method={method} onMethodChange={onMethodChange} onCharge={onCharge} onMorePayment={onMorePayment} />
+        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} onMorePayment={onMorePayment} />
       </Animated.View>
     </>
   );

@@ -167,6 +167,14 @@ export async function initSchema(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku) WHERE sku IS NOT NULL`
   );
 
+  // Local cache of Coop's on-hand stock (pos_inventory), refreshed on every
+  // catalog pull. Coop-authoritative — unlike emoji, the pull always overwrites
+  // this. Powers the low/oversold tile warning; 0 for locally-created products
+  // with no SKU yet (never synced, so no stock signal to show).
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN remarks TEXT`
   ).catch(() => {});

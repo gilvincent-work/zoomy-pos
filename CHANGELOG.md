@@ -14,6 +14,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09 (develop only — not yet promoted to staging)
 
+### Fix: Edit Product form is scrollable — `fix(products)`
+- The taller emoji palette pushed Display Name / Price / Save below the fold and
+  the form couldn't scroll, so Save was unreachable. Made the edit form body a
+  ScrollView (with bottom padding) so all fields and the Save button are always
+  reachable. The bundle builder already scrolled with a pinned footer.
+
 ### Bundles sync across devices + editable bundle emoji — `feat(bundles)`
 - Bundles were local-only, so a bundle created on one device was invisible to
   others. They now sync through Coop like products: each bundle gets a shared

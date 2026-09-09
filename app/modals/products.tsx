@@ -316,7 +316,7 @@ export default function ProductsModal() {
           <Text style={styles.formHeaderTitle}>{isBundle ? 'Edit Bundle Preset' : 'Edit Product'}</Text>
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <View style={styles.form}>
+          <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
             {!isBundle && (() => {
               const chosen = emojiGraphemes(productForm.emoji);
               const full = chosen.length >= MAX_EMOJI;
@@ -393,7 +393,7 @@ export default function ProductsModal() {
                 <Text style={styles.saveBtnText}>Save</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     );
@@ -646,7 +646,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   backBtn: { padding: 4 },
   formHeaderTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
 
-  form: { padding: 20, gap: 8 },
+  form: { padding: 20, paddingBottom: 40, gap: 8 },
   fieldLabel: {
     color: c.textMuted,
     fontSize: F.xs,

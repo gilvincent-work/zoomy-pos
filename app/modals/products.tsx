@@ -14,6 +14,7 @@ import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import { PullToRefresh } from '../../components/PullToRefresh';
+import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../constants/emoji';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -46,24 +47,6 @@ type FormMode = 'product' | 'bundle';
 
 const EMPTY_PRODUCT: ProductForm = { name: '', price: '', emoji: '🍬' };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
-
-/** One-tap quick picks for the emoji field; freeform input covers everything else. */
-const EMOJI_QUICK_PICKS = ['🍬', '🥩', '🍗', '🐟', '🍤', '🦴', '🧀', '🥚', '🌿', '🫐', '🥕', '🍖'];
-
-/** A tile can show up to 3 emoji (like the bundle tiles); at least 1 is kept. */
-const MAX_EMOJI = 3;
-
-/** Split into grapheme clusters so a multi-codepoint emoji counts as one. */
-function emojiGraphemes(input: string): string[] {
-  const Seg = (Intl as {Segmenter?: typeof Intl.Segmenter}).Segmenter;
-  if (Seg) return Array.from(new Seg(undefined, {granularity: 'grapheme'}).segment(input), (s) => s.segment);
-  return Array.from(input);
-}
-
-/** Strip whitespace and cap at MAX_EMOJI clusters. */
-function clampEmoji(input: string): string {
-  return emojiGraphemes(input.replace(/\s+/g, '')).slice(0, MAX_EMOJI).join('');
-}
 
 export default function ProductsModal() {
   const { colors } = useTheme();
@@ -309,42 +292,46 @@ export default function ProductsModal() {
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={styles.form}>
-            {!isBundle && (
-              <>
-                <Text style={styles.fieldLabel}>Emoji</Text>
-                <Text style={styles.emojiHint}>Up to 3 emoji. Tap to add; the field clears extras.</Text>
-                <View style={styles.emojiRow}>
-                  <TextInput
-                    style={styles.emojiInput}
-                    value={productForm.emoji}
-                    onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: clampEmoji(v) }))}
-                    accessibilityLabel="Product emoji (up to 3)"
-                  />
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.emojiPicks}
-                  >
-                    {EMOJI_QUICK_PICKS.map((e) => (
+            {!isBundle && (() => {
+              const chosen = emojiGraphemes(productForm.emoji);
+              const full = chosen.length >= MAX_EMOJI;
+              return (
+                <>
+                  <Text style={styles.fieldLabel}>Emoji</Text>
+                  <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. No typing needed.</Text>
+                  <View style={styles.emojiPreviewRow}>
+                    <View style={styles.emojiPreview}>
+                      <Text style={styles.emojiPreviewText}>{productForm.emoji || '🍬'}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.emojiClearBtn}
+                      onPress={() =>
+                        setProductForm((f) => ({ ...f, emoji: emojiGraphemes(f.emoji).slice(0, -1).join('') }))
+                      }
+                      disabled={chosen.length === 0}
+                      accessibilityLabel="Remove last emoji"
+                    >
+                      <Ionicons name="backspace-outline" size={18} color={chosen.length === 0 ? colors.textMuted : colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.emojiGrid}>
+                    {PRODUCT_EMOJIS.map((e) => (
                       <TouchableOpacity
                         key={e}
-                        style={styles.emojiPick}
-                        // Append the pick, capped at 3. Once full it starts over from
-                        // this pick, so a tap always does something visible.
-                        onPress={() =>
-                          setProductForm((f) => {
-                            const next = emojiGraphemes(f.emoji);
-                            return { ...f, emoji: next.length >= MAX_EMOJI ? e : clampEmoji(f.emoji + e) };
-                          })
-                        }
+                        style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                        // Append until 3 are chosen; then further taps are ignored
+                        // (backspace clears). Keeps the "max 3" rule obvious.
+                        onPress={() => !full && setProductForm((f) => ({ ...f, emoji: clampEmoji(f.emoji + e) }))}
+                        disabled={full}
+                        accessibilityLabel={`Add ${e}`}
                       >
                         <Text style={styles.emojiPickText}>{e}</Text>
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
-                </View>
-              </>
-            )}
+                  </View>
+                </>
+              );
+            })()}
 
             <Text style={styles.fieldLabel}>Display name</Text>
             <TextInput
@@ -595,19 +582,23 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
-  emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 2 },
-  emojiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  emojiInput: {
-    backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
-    paddingVertical: 8, minWidth: 96, fontSize: 24, textAlign: 'center',
-    borderWidth: 1, borderColor: c.border,
+  emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 4 },
+  emojiPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  emojiPreview: {
+    minWidth: 96, height: 48, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12,
   },
-  emojiPicks: { gap: 8, paddingRight: 4, alignItems: 'center' },
+  emojiPreviewText: { fontSize: 26 },
+  emojiClearBtn: {
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   emojiPick: {
-    width: 42, height: 42, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
     backgroundColor: c.surface, borderWidth: 1, borderColor: c.border,
   },
-  emojiPickActive: { borderColor: c.pink, backgroundColor: c.pinkSubtle },
+  emojiPickDisabled: { opacity: 0.4 },
   emojiPickText: { fontSize: 22 },
   formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: {

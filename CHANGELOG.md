@@ -14,6 +14,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Emoji picker is tap-only (no typing) — `fix(products)`
+- The emoji field required typing an emoji, which is awkward and impossible on a
+  desktop keyboard. Replaced it with a **tap-only palette**: a selected preview
+  with a backspace, and a grid of curated treat emojis you tap to add (up to 3).
+  No text entry. Shared the curated set + helpers in `constants/emoji.ts`.
+
 ### Product emoji: up to 3, Coop-seeded + POS-editable — `feat(products)` / `feat(sync)`
 - A tile emoji can now be **1 to 3 emoji** (like the bundle tiles), not just one.
   The POS edit field clamps to 3 (grapheme-aware) and the quick-picks append.

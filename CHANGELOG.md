@@ -14,6 +14,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Align POS tile emojis with Coop — `fix(products)`
+- The POS seed emojis had drifted from Coop's (e.g. Chicken 🍗 vs 🐔, Cat Grass
+  🌱 vs 🌿, and Coop's richer accented set like Chicken Carrot 🐔🥕). Updated the
+  seed to match Coop exactly and added a one-time boot migration
+  (`syncCatalogEmojiOnce`) so existing installs adopt the aligned emojis. This is
+  a deliberate one-shot override; the ongoing catalog pull still never overwrites
+  emoji, so later POS emoji edits stick. (Coop `pos_products.emoji` was backfilled
+  on Staging to the same values.)
+
 ### Emoji picker is tap-only (no typing) — `fix(products)`
 - The emoji field required typing an emoji, which is awkward and impossible on a
   desktop keyboard. Replaced it with a **tap-only palette**: a selected preview

@@ -5,7 +5,7 @@ import { View, ActivityIndicator, Text, Pressable } from 'react-native';
 import { CartProvider } from '../context/CartContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { initSchema } from '../db/schema';
-import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce, syncCatalogSkusOnce } from '../db/seed';
+import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce, syncCatalogSkusOnce, syncCatalogEmojiOnce } from '../db/seed';
 import { palettes, type ThemeMode } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
 import { requestPersistentStorage } from '../utils/pwa';
@@ -92,6 +92,7 @@ export default function RootLayout() {
       await syncLinePricesOnce();
       await syncCatalogNamesOnce();
       await syncCatalogSkusOnce();
+      await syncCatalogEmojiOnce();
       // Hydrate the "last synced" marker from the persisted timestamp.
       await loadPersistedSyncStatus();
       // Restore the saved dark/light choice before the first paint so the theme

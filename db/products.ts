@@ -225,8 +225,12 @@ export async function applyCatalogUpdate(u: {
   active: boolean;
   category: string | null;
   subcategory: string | null;
+  emoji: string | null;
 }): Promise<number> {
   const db = await getDatabase();
+  // Emoji is deliberately NOT in this UPDATE: Coop seeds it on insert (below),
+  // but a POS emoji edit must survive later syncs, so an existing row keeps its
+  // local emoji. (Name / price / category stay Coop-authoritative.)
   const res = await db.runAsync(
     "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, " +
       'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END WHERE sku = ?',
@@ -235,11 +239,12 @@ export async function applyCatalogUpdate(u: {
   if (res.changes > 0) return res.changes;
 
   // No local row for this SKU — insert the Coop-created product so it appears on
-  // the tiles (default emoji; category/subcategory from Coop). Skip nameless rows.
+  // the tiles, seeded with Coop's emoji (falling back to the default). Skip
+  // nameless rows.
   if (!u.name) return 0;
   const ins = await db.runAsync(
     'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)',
-    [u.name, u.price, '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, new Date().toISOString()]
+    [u.name, u.price, u.emoji || '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, new Date().toISOString()]
   );
   return ins.changes;
 }

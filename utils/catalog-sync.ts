@@ -22,6 +22,7 @@ export type RemoteCatalogRow = {
   product_line: string | null;
   category: string | null; // Coop's explicit POS category (authoritative when set)
   subcategory: string | null;
+  emoji: string | null; // Coop's tile emoji; used only when the POS inserts a new product
 };
 
 export type CatalogUpdate = {
@@ -31,6 +32,7 @@ export type CatalogUpdate = {
   active: boolean;
   category: string | null; // POS category — Coop's explicit value, else mapped from line
   subcategory: string | null; // POS subcategory (Coop's, Freeze-Dried only)
+  emoji: string | null; // seeds a newly-inserted tile; existing tiles keep their local emoji
 };
 
 /**
@@ -86,6 +88,7 @@ export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
       active: r.active,
       category: r.category ?? categoryForLine(r.product_line),
       subcategory: r.subcategory,
+      emoji: r.emoji,
     }));
 }
 
@@ -97,6 +100,7 @@ function normalizeRemoteRow(r: {
   product_line: string | null;
   category: string | null;
   subcategory: string | null;
+  emoji: string | null;
   pos_prices: {price: number | null} | {price: number | null}[] | null;
 }): RemoteCatalogRow {
   const priceRel = Array.isArray(r.pos_prices) ? r.pos_prices[0] : r.pos_prices;
@@ -109,6 +113,7 @@ function normalizeRemoteRow(r: {
     product_line: r.product_line ?? null,
     category: r.category ?? null,
     subcategory: r.subcategory ?? null,
+    emoji: r.emoji ?? null,
   };
 }
 
@@ -117,7 +122,7 @@ async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   if (!sb) return [];
   const {data, error} = await sb
     .from('pos_products')
-    .select('product_id, name, active, product_line, category, subcategory, pos_prices(price)');
+    .select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)');
   if (error) throw new Error(error.message);
   return (data ?? []).map(normalizeRemoteRow as never);
 }

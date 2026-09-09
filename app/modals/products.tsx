@@ -50,6 +50,21 @@ const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 /** One-tap quick picks for the emoji field; freeform input covers everything else. */
 const EMOJI_QUICK_PICKS = ['🍬', '🥩', '🍗', '🐟', '🍤', '🦴', '🧀', '🥚', '🌿', '🫐', '🥕', '🍖'];
 
+/** A tile can show up to 3 emoji (like the bundle tiles); at least 1 is kept. */
+const MAX_EMOJI = 3;
+
+/** Split into grapheme clusters so a multi-codepoint emoji counts as one. */
+function emojiGraphemes(input: string): string[] {
+  const Seg = (Intl as {Segmenter?: typeof Intl.Segmenter}).Segmenter;
+  if (Seg) return Array.from(new Seg(undefined, {granularity: 'grapheme'}).segment(input), (s) => s.segment);
+  return Array.from(input);
+}
+
+/** Strip whitespace and cap at MAX_EMOJI clusters. */
+function clampEmoji(input: string): string {
+  return emojiGraphemes(input.replace(/\s+/g, '')).slice(0, MAX_EMOJI).join('');
+}
+
 export default function ProductsModal() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -143,7 +158,7 @@ export default function ProductsModal() {
     if (editingId === null) return; // creation is Coop-only; no create path here.
 
     const existing = products.find((p) => p.id === editingId)!;
-    const emoji = productForm.emoji.trim() || '🍬';
+    const emoji = clampEmoji(productForm.emoji) || '🍬';
 
     if (existing.has_variants === 1) {
       await updateProduct(editingId, {
@@ -297,13 +312,13 @@ export default function ProductsModal() {
             {!isBundle && (
               <>
                 <Text style={styles.fieldLabel}>Emoji</Text>
+                <Text style={styles.emojiHint}>Up to 3 emoji. Tap to add; the field clears extras.</Text>
                 <View style={styles.emojiRow}>
                   <TextInput
                     style={styles.emojiInput}
                     value={productForm.emoji}
-                    onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: v }))}
-                    maxLength={8}
-                    accessibilityLabel="Product emoji"
+                    onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: clampEmoji(v) }))}
+                    accessibilityLabel="Product emoji (up to 3)"
                   />
                   <ScrollView
                     horizontal
@@ -313,8 +328,15 @@ export default function ProductsModal() {
                     {EMOJI_QUICK_PICKS.map((e) => (
                       <TouchableOpacity
                         key={e}
-                        style={[styles.emojiPick, productForm.emoji === e && styles.emojiPickActive]}
-                        onPress={() => setProductForm((f) => ({ ...f, emoji: e }))}
+                        style={styles.emojiPick}
+                        // Append the pick, capped at 3. Once full it starts over from
+                        // this pick, so a tap always does something visible.
+                        onPress={() =>
+                          setProductForm((f) => {
+                            const next = emojiGraphemes(f.emoji);
+                            return { ...f, emoji: next.length >= MAX_EMOJI ? e : clampEmoji(f.emoji + e) };
+                          })
+                        }
                       >
                         <Text style={styles.emojiPickText}>{e}</Text>
                       </TouchableOpacity>
@@ -573,10 +595,11 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
+  emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 2 },
   emojiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   emojiInput: {
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
-    paddingVertical: 8, width: 56, fontSize: 26, textAlign: 'center',
+    paddingVertical: 8, minWidth: 96, fontSize: 24, textAlign: 'center',
     borderWidth: 1, borderColor: c.border,
   },
   emojiPicks: { gap: 8, paddingRight: 4, alignItems: 'center' },

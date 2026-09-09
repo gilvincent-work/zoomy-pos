@@ -13,6 +13,12 @@ import { loadPersistedSyncStatus } from '../utils/sync-status';
 import { loadThemeMode } from '../utils/theme-preference';
 import { pullCatalog } from '../utils/catalog-sync';
 
+// Anchor the stack to the POS home. Without this, deep-linking or reloading the
+// PWA directly on a modal route (e.g. /modals/transactions) opens that modal
+// with no screen beneath it — so its header back button vanishes and Back can't
+// return to the POS. The anchor guarantees `index` always sits under the modals.
+export const unstable_settings = { anchor: 'index' };
+
 /** The navigator, themed from context so headers and status bar track the toggle. */
 function ThemedStack() {
   const { mode, colors } = useTheme();

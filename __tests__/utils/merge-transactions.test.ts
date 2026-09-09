@@ -41,6 +41,36 @@ describe('mergeTransactions', () => {
     expect(isLocalTransaction(remoteRow)).toBe(false);
   });
 
+  it('adopts a void done on another device onto the local row (monotonic)', () => {
+    const local = [tx({ id: 1, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', status: 'completed' })];
+    const remote = [tx({ id: 0, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', status: 'voided' })];
+    const merged = mergeTransactions(local, remote);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe(1); // still the local row (rich fields kept)
+    expect(merged[0].status).toBe('voided'); // Coop void reflected
+  });
+
+  it('never un-voids a locally voided sale when Coop still shows completed', () => {
+    const local = [tx({ id: 1, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', status: 'voided' })];
+    const remote = [tx({ id: 0, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', status: 'completed' })];
+    const merged = mergeTransactions(local, remote);
+    expect(merged[0].status).toBe('voided');
+  });
+
+  it('lets a Coop remark override the local one (cross-device edit)', () => {
+    const local = [tx({ id: 1, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', remarks: 'local note' })];
+    const remote = [tx({ id: 0, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', remarks: 'edited elsewhere' })];
+    const merged = mergeTransactions(local, remote);
+    expect(merged[0].remarks).toBe('edited elsewhere');
+  });
+
+  it('keeps the local remark when Coop has none', () => {
+    const local = [tx({ id: 1, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', remarks: 'local only' })];
+    const remote = [tx({ id: 0, created_at: '2026-09-09T02:30:00.000Z', client_uuid: 'abc', remarks: null })];
+    const merged = mergeTransactions(local, remote);
+    expect(merged[0].remarks).toBe('local only');
+  });
+
   it('dedupes a legacy local row (null uuid) by same minute + total', () => {
     const local = [tx({ id: 1, created_at: '2026-09-09T02:30:45.000Z', total: 680, client_uuid: null })];
     const remote = [tx({ id: 0, created_at: '2026-09-09T02:30:12.000Z', total: 680, client_uuid: 'srv-1' })];

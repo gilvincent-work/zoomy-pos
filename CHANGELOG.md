@@ -14,6 +14,24 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Void / Remarks any sale from any device — `feat(transactions)`
+- Voiding and adding remarks now work on sales made on **another device**, not
+  just the local one. Both write to Coop (by the shared `client_uuid`) so the
+  change shows on every device; local sales also update locally.
+- Merge overlays Coop's cross-device fields onto a matching local row: **void is
+  monotonic** (voided on either side stays voided, never un-voided), and
+  **remarks are Coop-authoritative** (an edit on another device wins, falling
+  back to the local note when Coop has none).
+- The void flow still goes through the Admin PIN gate; the "synced from another
+  device — manage where rung up" read-only note is gone.
+- Coop DB (Staging): added `status` / `remarks` / `voided_at` to `pos_orders`
+  and `void_pos_order(client_uuid)` + `set_pos_order_remarks(client_uuid, text)`
+  SECURITY DEFINER RPCs (granted to anon). Mirrored in `supabase/pos_schema.sql`;
+  verified via anon round-trip. The Coop dashboard excludes voided sales from
+  revenue and shows remarks (see the dashboard changelog).
+- **Decisions:** void excludes voided from Coop revenue and shows struck-through;
+  remarks visible on POS + the Coop dashboard.
+
 ### Hide the Import button on Transactions — `chore(transactions)`
 - Hid the **Import** button on the Transactions screen, leaving **Export** only.
   The handler and state are kept (JSX commented out) for an easy restore.

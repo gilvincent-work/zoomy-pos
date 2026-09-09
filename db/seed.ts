@@ -29,20 +29,22 @@ const SEED_PRODUCTS: {
   subcategory: string | null;
   sku: string; // Coop SKU Code (pos_products.product_id); the catalog-pull match key.
 }[] = [
+  // Emojis are kept aligned with Coop's pos_products.emoji (protein cue + flavor
+  // accent). See syncCatalogEmojiOnce for the one-time reconcile of older installs.
   // Meaty Treats
   { name: 'Salmon', emoji: '🐟', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATSLMWHL01' },
   { name: 'Beef', emoji: '🥩', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATBEFWHL01' },
   { name: 'Duck', emoji: '🦆', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATDCKWHL01' },
-  { name: 'Chicken', emoji: '🍗', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATCHKWHL01' },
+  { name: 'Chicken', emoji: '🐔', category: 'Meaty Treats', subcategory: null, sku: 'ZMYFDMEATCHKWHL01' },
 
   // Tasty Treats
-  { name: 'Chicken Jerky', emoji: '🍗', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKCHKWHL01' },
-  { name: 'Duck Jerky', emoji: '🦆', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKDCKWHL01' },
+  { name: 'Chicken Jerky', emoji: '🐔🦴', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKCHKWHL01' },
+  { name: 'Duck Jerky', emoji: '🦆🦴', category: 'Tasty Treats', subcategory: null, sku: 'ZMYFDJRKDCKWHL01' },
 
   // Super Duo Bites
-  { name: 'Chicken Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKCHKCAR01' },
-  { name: 'Duck Carrot', emoji: '🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKCAR01' },
-  { name: 'Duck Pear', emoji: '🍐', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKPER01' },
+  { name: 'Chicken Carrot', emoji: '🐔🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKCHKCAR01' },
+  { name: 'Duck Carrot', emoji: '🦆🥕', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKCAR01' },
+  { name: 'Duck Pear', emoji: '🦆', category: 'Super Duo Bites', subcategory: null, sku: 'ZMYFDJRKDCKPER01' },
 
   // Freeze Dried · Fish
   { name: 'Salmon Cubes', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Fish', sku: 'ZMYFDFDRSLMCUB01' },
@@ -51,23 +53,23 @@ const SEED_PRODUCTS: {
   // Freeze Dried · Meats
   { name: 'Lamb Liver Cubes', emoji: '🍖', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRLMBLVR01' },
   { name: 'Duck Breast Cubes', emoji: '🦆', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRDCKBRT01' },
-  { name: 'Chicken Breast Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKBRT01' },
-  { name: 'Chicken Liver Cubes', emoji: '🍗', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKLVR01' },
+  { name: 'Chicken Breast Cubes', emoji: '🐔', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKBRT01' },
+  { name: 'Chicken Liver Cubes', emoji: '🐔', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRCHKLVR01' },
   { name: 'Beef Liver Cubes', emoji: '🥩', category: 'Freeze Dried', subcategory: 'Meats', sku: 'ZMYFDFDRBEFLVR01' },
 
   // Freeze Dried · Cat Grass / Yogurt
-  { name: 'Cat Grass Cubes', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRCUB01' },
-  { name: 'Cat Grass Stick', emoji: '🌱', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRSTK01' },
+  { name: 'Cat Grass Cubes', emoji: '🌿', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRCUB01' },
+  { name: 'Cat Grass Stick', emoji: '🌿', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRCGRSTK01' },
   { name: 'Yoghurt Cubes', emoji: '🥛', category: 'Freeze Dried', subcategory: 'Cat Grass / Yogurt', sku: 'ZMYFDFDRYOGWHL01' },
 
   // Freeze Dried · Super Food
-  { name: 'Duck Apple', emoji: '🍎', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKAPP01' },
-  { name: 'Duck Pear', emoji: '🍐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKPER01' },
-  { name: 'Chicken Cranberry', emoji: '🍒', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKCRA01' },
-  { name: 'Chicken Pumpkin', emoji: '🎃', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKPUM01' },
+  { name: 'Duck Apple', emoji: '🦆🍎', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKAPP01' },
+  { name: 'Duck Pear', emoji: '🦆', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRDCKPER01' },
+  { name: 'Chicken Cranberry', emoji: '🐔🍓', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKCRA01' },
+  { name: 'Chicken Pumpkin', emoji: '🐔🎃', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKPUM01' },
   { name: 'Salmon Steak', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRSLMWHL01' },
-  { name: 'Chicken & Egg', emoji: '🥚', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKEGG01' },
-  { name: 'Beef Blueberry', emoji: '🫐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRBEFBLU01' },
+  { name: 'Chicken & Egg', emoji: '🐔🥚', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKEGG01' },
+  { name: 'Beef Blueberry', emoji: '🥩🫐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRBEFBLU01' },
 ];
 
 /** Starter "buy any N" deals, per the sales playbook. */
@@ -287,6 +289,32 @@ export async function syncCatalogSkusOnce(): Promise<void> {
 
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_sku_sync_version', ?)",
+    [VERSION]
+  );
+}
+
+/**
+ * One-time reconcile: adopt the Coop-aligned tile emojis for the seed catalog,
+ * overriding the older local defaults (e.g. 🍗 → 🐔, 🌱 → 🌿, single → protein +
+ * accent). Matched by SKU. This is a deliberate one-shot override of the POS's
+ * emoji so it matches what Coop shows; afterward the ongoing catalog pull still
+ * never touches emoji, so later POS emoji edits stick. Guarded by a version
+ * marker so it runs at most once.
+ */
+export async function syncCatalogEmojiOnce(): Promise<void> {
+  const db = await getDatabase();
+  const VERSION = '2026-09-09-emoji-coop-align';
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'catalog_emoji_sync_version'"
+  );
+  if (row?.value === VERSION) return;
+
+  for (const p of SEED_PRODUCTS) {
+    await db.runAsync('UPDATE products SET emoji = ? WHERE sku = ?', [p.emoji, p.sku]);
+  }
+
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_emoji_sync_version', ?)",
     [VERSION]
   );
 }

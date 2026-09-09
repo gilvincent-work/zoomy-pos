@@ -14,6 +14,16 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Product emoji: up to 3, Coop-seeded + POS-editable — `feat(products)` / `feat(sync)`
+- A tile emoji can now be **1 to 3 emoji** (like the bundle tiles), not just one.
+  The POS edit field clamps to 3 (grapheme-aware) and the quick-picks append.
+- **Coop now seeds the emoji.** `pos_products` gained an `emoji` column; the
+  catalog pull carries it and uses it when **inserting** a new product. An
+  existing product keeps its **local** emoji, so a POS emoji edit survives later
+  syncs (per the agreed "Coop sets, POS can override" rule — unlike name/price/
+  category which stay Coop-authoritative). Verified end-to-end via anon read.
+- The product list still shows the emoji before the name; editing still works.
+
 ### Products page: emoji in list, editable emoji, pull-to-refresh — `feat(products)`
 - The product list now shows each product's **emoji before its name**, so items
   are easier to tell apart at a glance (matches the POS tiles).

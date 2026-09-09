@@ -16,6 +16,7 @@ create table public.pos_products (
   product_line  text,                -- Coop's SKU-decode line code (FDR / JRK / MEAT)
   category      text,                -- POS display tab (Freeze Dried / Meaty Treats / Super Duo Bites / Tasty Treats) — authoritative for the POS
   subcategory   text,                -- POS secondary tab (Freeze-Dried only: Fish / Meats / Cat Grass · Yogurt / Super Food)
+  emoji         text,                -- 1-3 emoji for the POS tile; Coop seeds it, POS keeps its own later edits
   protein       text,
   cut           text,
   size          numeric,

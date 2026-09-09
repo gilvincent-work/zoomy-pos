@@ -130,6 +130,7 @@ export type PickBundleInput = {
   price: number;
   pickCount: number;
   lineCategories: string[];
+  emoji?: string | null; // tile emoji (1-3); null/empty derives from lines
 };
 
 /**
@@ -149,7 +150,7 @@ export function validatePickBundleInput(input: PickBundleInput): string | null {
 export async function savePickBundle(input: PickBundleInput): Promise<number> {
   const db = await getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, pick_count, line_categories, is_active, bundle_uuid, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
+    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, pick_count, line_categories, is_active, bundle_uuid, emoji, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)',
     [
       input.name.trim(),
       '[]',
@@ -158,6 +159,7 @@ export async function savePickBundle(input: PickBundleInput): Promise<number> {
       input.pickCount,
       JSON.stringify(input.lineCategories),
       Crypto.randomUUID(),
+      input.emoji || null,
       new Date().toISOString(),
     ]
   );
@@ -167,8 +169,8 @@ export async function savePickBundle(input: PickBundleInput): Promise<number> {
 export async function updatePickBundle(id: number, input: PickBundleInput): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    'UPDATE saved_bundles SET name = ?, price = ?, pick_count = ?, line_categories = ? WHERE id = ?',
-    [input.name.trim(), input.price, input.pickCount, JSON.stringify(input.lineCategories), id]
+    'UPDATE saved_bundles SET name = ?, price = ?, pick_count = ?, line_categories = ?, emoji = ? WHERE id = ?',
+    [input.name.trim(), input.price, input.pickCount, JSON.stringify(input.lineCategories), input.emoji || null, id]
   );
 }
 

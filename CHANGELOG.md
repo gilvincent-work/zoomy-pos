@@ -21,8 +21,9 @@ Dates are local working dates (GMT+8). Newest first.
   (`apply_pos_bundle` / `delete_pos_bundle` RPCs), and the catalog pull mirrors
   Coop's bundle set into every device (`reconcileRemoteBundles`). Coop is the
   shared source; legacy local bundles with no uuid are left untouched.
-- **Bundle emoji is now editable** in the POS Products page (tap-only palette,
-  up to 3, matching products). The bundle tile shows the custom emoji when set,
+- **Bundle emoji is now editable** — a tap-only palette (up to 3) is built into
+  the **Add/Edit Bundle screen** (set it while creating the bundle), and also on
+  each bundle row in the Products page. The tile shows the custom emoji when set,
   else falls back to the line-derived emojis.
 - Added 🍐 pear to the emoji palette.
 - Coop DB (Staging): `pos_bundles` gained `bundle_type` / `pick_count` /

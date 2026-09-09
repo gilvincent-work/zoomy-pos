@@ -30,9 +30,10 @@ export default function AdminModal() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  const { action, transactionId } = useLocalSearchParams<{
+  const { action, transactionId, clientUuid } = useLocalSearchParams<{
     action: 'void_transaction' | 'change_pin' | 'settings';
     transactionId?: string;
+    clientUuid?: string;
   }>();
 
   const [step, setStep] = useState<Step>('verify');
@@ -81,8 +82,17 @@ export default function AdminModal() {
         setStep('settings');
         return;
       }
-      const { voidTransaction } = await import('../../db/transactions');
-      await voidTransaction(Number(transactionId));
+      // Void locally if the sale lives on this device (positive id), and on Coop
+      // (by client_uuid) so every device sees the void. Both are best-effort.
+      const localId = Number(transactionId);
+      if (Number.isFinite(localId) && localId > 0) {
+        const { voidTransaction } = await import('../../db/transactions');
+        await voidTransaction(localId);
+      }
+      if (clientUuid) {
+        const { voidRemoteOrder } = await import('../../utils/orders-remote');
+        await voidRemoteOrder(clientUuid);
+      }
       router.dismiss();
       router.dismiss();
     } else if (step === 'new_pin') {

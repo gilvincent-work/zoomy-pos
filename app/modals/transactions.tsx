@@ -7,7 +7,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
-import { fetchRemoteOrders } from '../../utils/orders-remote';
+import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
 import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
@@ -288,19 +288,31 @@ export default function TransactionsModal() {
   async function handleSaveRemarks() {
     if (!selected) return;
     const trimmed = remarksInput.trim() || null;
-    await updateTransactionRemarks(selected.id, trimmed);
+    // Local rows persist to SQLite; any synced row (has a client_uuid) also
+    // writes to Coop so the note shows on every device.
+    if (isLocalTransaction(selected)) {
+      await updateTransactionRemarks(selected.id, trimmed);
+    }
+    if (selected.client_uuid) {
+      await setRemoteOrderRemarks(selected.client_uuid, trimmed);
+    }
     const updated = { ...selected, remarks: trimmed };
     setSelected(updated);
     setTransactions((prev) => prev.map((t) => t.id === selected.id ? updated : t));
     setRemarksModalVisible(false);
   }
 
+  // A sale can be voided from any device: locally if it lives here, and on Coop
+  // (by client_uuid) so other devices see it. The admin PIN gate does both.
+  const canVoid = !!selected && selected.status === 'completed' && (isLocalTransaction(selected) || !!selected.client_uuid);
+
   function handleVoid() {
     if (!selected) return;
+    const { id, client_uuid } = selected;
     setSelected(null);
     router.push({
       pathname: '/modals/admin',
-      params: { action: 'void_transaction', transactionId: String(selected.id) },
+      params: { action: 'void_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
     });
   }
 
@@ -491,23 +503,14 @@ export default function TransactionsModal() {
                   </>
                 )}
 
-                {!isLocalTransaction(selected) && (
-                  <>
-                    <View style={styles.divider} />
-                    <Text style={styles.remoteNote}>Synced from another device. Manage it where it was rung up.</Text>
-                  </>
-                )}
-
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
                     <Text style={styles.closeBtnText}>Close</Text>
                   </TouchableOpacity>
-                  {isLocalTransaction(selected) && (
-                    <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
-                      <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
-                    </TouchableOpacity>
-                  )}
-                  {isLocalTransaction(selected) && selected.status === 'completed' && (
+                  <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
+                    <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
+                  </TouchableOpacity>
+                  {canVoid && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
                       <Text style={styles.voidBtnText}>Void</Text>
                     </TouchableOpacity>

@@ -17,12 +17,28 @@ import type {Transaction} from '../db/transactions';
 export function mergeTransactions(local: Transaction[], remote: Transaction[]): Transaction[] {
   const minuteTotalKey = (t: Transaction) => `${t.created_at.slice(0, 16)}|${Math.round(t.total)}`;
 
+  const remoteByUuid = new Map<string, Transaction>();
+  for (const r of remote) {
+    if (r.client_uuid) remoteByUuid.set(r.client_uuid, r);
+  }
   const localUuids = new Set<string>();
   const localMinuteTotals = new Set<string>();
   for (const t of local) {
     if (t.client_uuid) localUuids.add(t.client_uuid);
     localMinuteTotals.add(minuteTotalKey(t));
   }
+
+  // Overlay Coop's cross-device fields onto a local row that also lives on Coop:
+  // void is monotonic (voided on either side -> voided), and remarks are
+  // Coop-authoritative (a remark edited on another device wins), falling back to
+  // the local remark when Coop has none. The rich local fields (cash tendered,
+  // proof) are untouched.
+  const localMerged = local.map((t) => {
+    const r = t.client_uuid ? remoteByUuid.get(t.client_uuid) : undefined;
+    if (!r) return t;
+    const status: Transaction['status'] = t.status === 'voided' || r.status === 'voided' ? 'voided' : t.status;
+    return {...t, status, remarks: r.remarks ?? t.remarks};
+  });
 
   const remoteOnly: Transaction[] = [];
   for (const r of remote) {
@@ -31,7 +47,7 @@ export function mergeTransactions(local: Transaction[], remote: Transaction[]): 
     remoteOnly.push({...r, id: -(remoteOnly.length + 1)});
   }
 
-  return [...local, ...remoteOnly].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return [...localMerged, ...remoteOnly].sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 /** A row is local (has real detail, supports void/remarks) when its id is positive. */

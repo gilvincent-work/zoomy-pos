@@ -86,6 +86,9 @@ create table public.pos_orders (
   total          numeric not null,
   oversold       boolean not null default false,
   payment_method text,               -- cash / gcash / card (etc.); how the sale was paid
+  status         text not null default 'completed', -- completed / voided (void from any device)
+  remarks        text,               -- free-text note; editable from any device
+  voided_at      timestamptz,        -- when the sale was voided (audit)
   created_at     timestamptz not null default now(),
   synced_at      timestamptz not null default now()
 );
@@ -460,6 +463,46 @@ begin
 end;
 $$;
 
+-- Void a sale by its client_uuid, from any device. Idempotent (re-voiding a
+-- voided order is a no-op). Returns rows affected so the caller knows if the
+-- order was found. Voids are monotonic — there is no un-void.
+create or replace function public.void_pos_order(p_client_uuid text)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update pos_orders
+     set status = 'voided',
+         voided_at = coalesce(voided_at, now())
+   where client_uuid = p_client_uuid
+     and status <> 'voided';
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+-- Set (or clear, with null/empty) a sale's remarks by client_uuid, from any device.
+create or replace function public.set_pos_order_remarks(p_client_uuid text, p_remarks text)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update pos_orders
+     set remarks = nullif(p_remarks, '')
+   where client_uuid = p_client_uuid;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
 -- =========================================================================
 -- 4. Row Level Security — default deny; anon gets SELECT-only on catalog/
 --    inventory/orders reads, plus EXECUTE on the RPCs. No anon INSERT/
@@ -496,3 +539,5 @@ grant execute on function public.receive_lot(text, date, integer, text)     to a
 grant execute on function public.recount_lot(uuid, integer, text, text)     to anon;
 grant execute on function public.record_sync(text, text, jsonb, text)       to anon;
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
+grant execute on function public.void_pos_order(text)                       to anon;
+grant execute on function public.set_pos_order_remarks(text, text)          to anon;

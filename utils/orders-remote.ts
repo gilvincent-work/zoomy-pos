@@ -20,6 +20,8 @@ type OrderRow = {
   discount: number | null;
   total: number | null;
   payment_method: string | null;
+  status: string | null;
+  remarks: string | null;
   created_at: string;
 };
 
@@ -38,7 +40,7 @@ export async function fetchRemoteOrders(): Promise<Transaction[]> {
     // pos_orders keyed for dedup by client_uuid; join items by the order id.
     const {data: orders, error: ordersErr} = await sb
       .from('pos_orders')
-      .select('id, client_uuid, subtotal, discount, total, payment_method, created_at')
+      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, created_at')
       .order('created_at', {ascending: false})
       .limit(MAX_ORDERS);
     if (ordersErr || !orders) return [];
@@ -85,14 +87,43 @@ export async function fetchRemoteOrders(): Promise<Transaction[]> {
         proof_photo_uri: null,
         customer_handle: null,
         is_bundle: false,
-        status: 'completed',
+        status: o.status === 'voided' ? 'voided' : 'completed',
         created_at: o.created_at,
-        remarks: null,
+        remarks: o.remarks ?? null,
         client_uuid: o.client_uuid ?? null,
         items: itemsByOrder.get(o.id) ?? [],
       };
     });
   } catch {
     return [];
+  }
+}
+
+/**
+ * Void a sale on Coop by its shared client_uuid, so the void shows on every
+ * device. Best-effort: returns false when Supabase is unconfigured/unreachable
+ * or the order isn't on Coop yet (e.g. an unsynced offline sale) — the caller
+ * still voids the local copy.
+ */
+export async function voidRemoteOrder(clientUuid: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  try {
+    const {error} = await sb.rpc('void_pos_order', {p_client_uuid: clientUuid});
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Set (or clear, with null) a sale's remarks on Coop by client_uuid. Best-effort. */
+export async function setRemoteOrderRemarks(clientUuid: string, remarks: string | null): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  try {
+    const {error} = await sb.rpc('set_pos_order_remarks', {p_client_uuid: clientUuid, p_remarks: remarks});
+    return !error;
+  } catch {
+    return false;
   }
 }

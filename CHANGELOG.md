@@ -12,6 +12,23 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-09 (develop only — not yet promoted to staging)
+
+### Bundles sync across devices + editable bundle emoji — `feat(bundles)`
+- Bundles were local-only, so a bundle created on one device was invisible to
+  others. They now sync through Coop like products: each bundle gets a shared
+  `bundle_uuid`, the POS pushes on create/edit/toggle/delete
+  (`apply_pos_bundle` / `delete_pos_bundle` RPCs), and the catalog pull mirrors
+  Coop's bundle set into every device (`reconcileRemoteBundles`). Coop is the
+  shared source; legacy local bundles with no uuid are left untouched.
+- **Bundle emoji is now editable** in the POS Products page (tap-only palette,
+  up to 3, matching products). The bundle tile shows the custom emoji when set,
+  else falls back to the line-derived emojis.
+- Added 🍐 pear to the emoji palette.
+- Coop DB (Staging): `pos_bundles` gained `bundle_type` / `pick_count` /
+  `line_categories` / `emoji`, plus the two RPCs (granted anon). Mirrored in
+  `supabase/pos_schema.sql`; verified via anon round-trip.
+
 ## 2026-09-09
 
 ### Align POS tile emojis with Coop — `fix(products)`

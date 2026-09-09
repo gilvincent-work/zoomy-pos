@@ -79,11 +79,10 @@ export default function BundleModal() {
       return;
     }
     try {
-      if (editingId != null) {
-        await updatePickBundle(editingId, input);
-      } else {
-        await savePickBundle(input);
-      }
+      const bundleId = editingId != null ? (await updatePickBundle(editingId, input), editingId) : await savePickBundle(input);
+      // Share it to Coop so other POS devices see it (best-effort, online-only).
+      const saved = await getSavedBundleById(bundleId);
+      if (saved) { const { pushBundle } = await import('../../utils/bundles-sync'); pushBundle(saved); }
       showToast({
         variant: 'success',
         title: editingId != null ? 'Bundle updated' : 'Bundle saved',

@@ -158,6 +158,12 @@ export async function pullCatalog(): Promise<{updated: number} | null> {
     updated += await applyCatalogUpdate(u);
   }
 
+  // Mirror Coop's shared bundles into the local store too (best-effort; a null
+  // result just leaves the local bundles as they are).
+  const {pullBundles} = await import('./bundles-sync');
+  const bundleChanges = await pullBundles();
+  if (bundleChanges && bundleChanges > 0) updated += bundleChanges;
+
   await markSynced();
 
   // Best-effort audit trail (pos_sync_log); never let it fail the pull.

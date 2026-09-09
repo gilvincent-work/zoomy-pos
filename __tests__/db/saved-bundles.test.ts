@@ -119,7 +119,8 @@ describe('savePickBundle', () => {
       'pick',
       4,
       '["Freeze Dried","Meaty Treats"]',
-      expect.any(String),
+      expect.any(String), // bundle_uuid
+      expect.any(String), // created_at
     ]);
   });
 });

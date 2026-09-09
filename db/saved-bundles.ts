@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
 
 export type BundleItemInput = {
@@ -24,6 +25,8 @@ export type SavedBundle = {
   pick_count: number | null;
   line_categories: string[] | null;
   is_active: number;
+  bundle_uuid: string | null;
+  emoji: string | null;
   created_at: string;
 };
 
@@ -36,11 +39,13 @@ type BundleRow = {
   pick_count: number | null;
   line_categories: string | null;
   is_active: number;
+  bundle_uuid: string | null;
+  emoji: string | null;
   created_at: string;
 };
 
 const COLUMNS =
-  'id, name, items_json, price, bundle_type, pick_count, line_categories, is_active, created_at';
+  'id, name, items_json, price, bundle_type, pick_count, line_categories, is_active, bundle_uuid, emoji, created_at';
 
 function rowToBundle(r: BundleRow): SavedBundle {
   return {
@@ -54,6 +59,8 @@ function rowToBundle(r: BundleRow): SavedBundle {
       ? (JSON.parse(r.line_categories) as string[])
       : null,
     is_active: r.is_active,
+    bundle_uuid: r.bundle_uuid,
+    emoji: r.emoji,
     created_at: r.created_at,
   };
 }
@@ -99,8 +106,8 @@ export async function saveBundlePreset(
 ): Promise<number> {
   const db = await getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-    [name, JSON.stringify(items), price, 'fixed', new Date().toISOString()]
+    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, is_active, bundle_uuid, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)',
+    [name, JSON.stringify(items), price, 'fixed', Crypto.randomUUID(), new Date().toISOString()]
   );
   return result.lastInsertRowId;
 }
@@ -142,7 +149,7 @@ export function validatePickBundleInput(input: PickBundleInput): string | null {
 export async function savePickBundle(input: PickBundleInput): Promise<number> {
   const db = await getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, pick_count, line_categories, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)',
+    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, pick_count, line_categories, is_active, bundle_uuid, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
     [
       input.name.trim(),
       '[]',
@@ -150,6 +157,7 @@ export async function savePickBundle(input: PickBundleInput): Promise<number> {
       'pick',
       input.pickCount,
       JSON.stringify(input.lineCategories),
+      Crypto.randomUUID(),
       new Date().toISOString(),
     ]
   );
@@ -172,6 +180,83 @@ export async function toggleSavedBundle(id: number, is_active: number): Promise<
 export async function deleteSavedBundle(id: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('DELETE FROM saved_bundles WHERE id = ?', [id]);
+}
+
+/** Set a bundle's tile emoji (null clears it, so the tile derives from lines). */
+export async function updateBundleEmoji(id: number, emoji: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE saved_bundles SET emoji = ? WHERE id = ?', [emoji, id]);
+}
+
+/** Fetch a single bundle by its shared uuid (for building a sync push payload). */
+export async function getBundleByUuid(uuid: string): Promise<SavedBundle | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<BundleRow>(
+    `SELECT ${COLUMNS} FROM saved_bundles WHERE bundle_uuid = ? LIMIT 1`,
+    [uuid]
+  );
+  return row ? rowToBundle(row) : null;
+}
+
+/** Shape of a bundle pulled back from Coop for the local mirror. */
+export type RemoteBundle = {
+  bundle_uuid: string;
+  name: string;
+  price: number;
+  bundle_type: BundleType;
+  pick_count: number | null;
+  line_categories: string[] | null;
+  emoji: string | null;
+  is_active: number;
+  items: BundleItemInput[];
+};
+
+/**
+ * Mirror Coop's bundle set into local SQLite (Coop is the shared source, like
+ * products): upsert each remote bundle by its uuid, then delete local bundles
+ * that were synced (have a uuid) but are no longer on Coop. Legacy local bundles
+ * with no uuid (created before sync existed) are left untouched. Returns the
+ * number of local rows changed, so the caller can notify listeners only on a
+ * real change.
+ */
+export async function reconcileRemoteBundles(remote: RemoteBundle[]): Promise<number> {
+  const db = await getDatabase();
+  let changed = 0;
+  const seen = new Set<string>();
+
+  for (const b of remote) {
+    if (!b.bundle_uuid) continue;
+    seen.add(b.bundle_uuid);
+    const existing = await getBundleByUuid(b.bundle_uuid);
+    const itemsJson = JSON.stringify(b.items ?? []);
+    const lines = b.line_categories ? JSON.stringify(b.line_categories) : null;
+    if (existing) {
+      const res = await db.runAsync(
+        'UPDATE saved_bundles SET name = ?, items_json = ?, price = ?, bundle_type = ?, pick_count = ?, line_categories = ?, emoji = ?, is_active = ? WHERE bundle_uuid = ?',
+        [b.name, itemsJson, b.price, b.bundle_type, b.pick_count, lines, b.emoji, b.is_active, b.bundle_uuid]
+      );
+      changed += res.changes;
+    } else {
+      const res = await db.runAsync(
+        'INSERT INTO saved_bundles (name, items_json, price, bundle_type, pick_count, line_categories, is_active, bundle_uuid, emoji, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [b.name, itemsJson, b.price, b.bundle_type, b.pick_count, lines, b.is_active, b.bundle_uuid, b.emoji, new Date().toISOString()]
+      );
+      changed += res.changes;
+    }
+  }
+
+  // Remove local synced bundles Coop no longer has (deleted on another device).
+  const synced = await db.getAllAsync<{ id: number; bundle_uuid: string }>(
+    'SELECT id, bundle_uuid FROM saved_bundles WHERE bundle_uuid IS NOT NULL'
+  );
+  for (const s of synced) {
+    if (!seen.has(s.bundle_uuid)) {
+      const res = await db.runAsync('DELETE FROM saved_bundles WHERE id = ?', [s.id]);
+      changed += res.changes;
+    }
+  }
+
+  return changed;
 }
 
 export async function getBundleByName(name: string): Promise<SavedBundle | null> {
@@ -198,8 +283,8 @@ export async function upsertBundleByName(
     return { id: existing.id, inserted: false };
   }
   const result = await db.runAsync(
-    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-    [name, JSON.stringify(items), price, 'fixed', new Date().toISOString()]
+    'INSERT INTO saved_bundles (name, items_json, price, bundle_type, is_active, bundle_uuid, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)',
+    [name, JSON.stringify(items), price, 'fixed', Crypto.randomUUID(), new Date().toISOString()]
   );
   return { id: result.lastInsertRowId, inserted: true };
 }

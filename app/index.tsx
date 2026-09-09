@@ -29,6 +29,7 @@ import { quickMethodMeta } from '../constants/payment';
 import { buildInsertItems } from '../utils/cart-transaction';
 import { pushSale } from '../utils/sales-sync';
 import { lineEmojis } from '../utils/bundles';
+import { emojiGraphemes } from '../constants/emoji';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
@@ -293,7 +294,7 @@ export default function POSScreen() {
                 id={item.id}
                 name={item.name}
                 price={item.price}
-                lineEmojis={lineEmojis(products, item.line_categories ?? [])}
+                lineEmojis={item.emoji ? emojiGraphemes(item.emoji) : lineEmojis(products, item.line_categories ?? [])}
                 onPress={() => router.push(`/modals/bundle-select?bundleId=${item.id}`)}
               />
             </View>

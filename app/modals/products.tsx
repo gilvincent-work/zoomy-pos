@@ -1,15 +1,17 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
+  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { bundleLineSummary } from '../../utils/bundles';
+import { bundleLineSummary, lineEmojis } from '../../utils/bundles';
 import { getAllProducts, updateProduct, deleteProduct, Product } from '../../db/products';
 import {
-  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
+  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle,
+  updateBundleEmoji, getSavedBundleById, SavedBundle,
 } from '../../db/saved-bundles';
+import { pushBundle, deleteBundleRemote } from '../../utils/bundles-sync';
 import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
@@ -60,6 +62,9 @@ export default function ProductsModal() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formMode, setFormMode] = useState<FormMode>('product');
   const [showForm, setShowForm] = useState(false);
+  // Bundle emoji editor (tap-only palette in a small modal).
+  const [emojiBundle, setEmojiBundle] = useState<SavedBundle | null>(null);
+  const [emojiDraft, setEmojiDraft] = useState('');
   // Which product line's pills is active on the list view. "All" shows everything.
   const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
   // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
@@ -221,8 +226,9 @@ export default function ProductsModal() {
     if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
 
     if (editingId !== null) {
-      const existing = bundles.find((b) => b.id === editingId)!;
-      await updateSavedBundle(editingId, { name, price, items: existing.items });
+      await updateSavedBundle(editingId, { name, price, items: bundles.find((b) => b.id === editingId)!.items });
+      const saved = await getSavedBundleById(editingId);
+      if (saved) pushBundle(saved); // share the edit to Coop / other devices
     }
     await refreshAll();
     cancelForm();
@@ -230,6 +236,8 @@ export default function ProductsModal() {
 
   async function handleToggleBundle(bundle: SavedBundle) {
     await toggleSavedBundle(bundle.id, bundle.is_active === 1 ? 0 : 1);
+    const saved = await getSavedBundleById(bundle.id);
+    if (saved) pushBundle(saved);
     setBundles(await getAllSavedBundles());
   }
 
@@ -250,7 +258,9 @@ export default function ProductsModal() {
     const ok = await confirmAction('Delete Bundle', `Remove "${name}" preset permanently?`, 'Delete');
     if (!ok) return;
     try {
+      const uuid = bundles.find((b) => b.id === id)?.bundle_uuid ?? null;
       await deleteSavedBundle(id);
+      deleteBundleRemote(uuid); // remove it from Coop / other devices too
       await refreshAll();
       showToast({ variant: 'success', title: 'Bundle deleted' });
     } catch (e) {
@@ -260,6 +270,21 @@ export default function ProductsModal() {
         message: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  function openBundleEmoji(bundle: SavedBundle) {
+    setEmojiBundle(bundle);
+    setEmojiDraft(bundle.emoji ?? '');
+  }
+
+  async function saveBundleEmoji() {
+    if (!emojiBundle) return;
+    const emoji = clampEmoji(emojiDraft) || null; // empty clears -> derive from lines
+    await updateBundleEmoji(emojiBundle.id, emoji);
+    const saved = await getSavedBundleById(emojiBundle.id);
+    if (saved) pushBundle(saved);
+    setEmojiBundle(null);
+    await refreshAll();
   }
 
   // ─── Shared ───────────────────────────────────────────────────────────────
@@ -460,8 +485,12 @@ export default function ProductsModal() {
         {bundles.map((bundle) => (
           <View key={bundle.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Ionicons name="cube-outline" size={28} color={colors.textSecondary} style={{ marginRight: 12 }} />
-              <View>
+              <TouchableOpacity onPress={() => openBundleEmoji(bundle)} accessibilityLabel={`Edit emoji for ${bundle.name}`}>
+                <Text style={styles.itemEmoji}>
+                  {bundle.emoji || lineEmojis(products, bundle.line_categories ?? []).join('') || '🎁'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.itemText}>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
                   {bundle.bundle_type === 'pick'
@@ -494,6 +523,54 @@ export default function ProductsModal() {
       </ScrollView>
         )}
       </PullToRefresh>
+
+      {/* Bundle emoji editor: tap-only palette, up to 3 (matches the product picker). */}
+      <Modal visible={!!emojiBundle} transparent animationType="fade" onRequestClose={() => setEmojiBundle(null)}>
+        <TouchableOpacity style={styles.emojiOverlay} activeOpacity={1} onPress={() => setEmojiBundle(null)}>
+          <TouchableOpacity style={styles.emojiCard} activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.emojiCardTitle}>Bundle emoji</Text>
+            <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. Leave empty to use the line emojis.</Text>
+            <View style={styles.emojiPreviewRow}>
+              <View style={styles.emojiPreview}>
+                <Text style={styles.emojiPreviewText}>
+                  {emojiDraft || (emojiBundle ? lineEmojis(products, emojiBundle.line_categories ?? []).join('') : '') || '🎁'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.emojiClearBtn}
+                onPress={() => setEmojiDraft((d) => emojiGraphemes(d).slice(0, -1).join(''))}
+                disabled={emojiDraft.length === 0}
+                accessibilityLabel="Remove last emoji"
+              >
+                <Ionicons name="backspace-outline" size={18} color={emojiDraft.length === 0 ? colors.textMuted : colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.emojiGrid}>
+              {PRODUCT_EMOJIS.map((e) => {
+                const full = emojiGraphemes(emojiDraft).length >= MAX_EMOJI;
+                return (
+                  <TouchableOpacity
+                    key={e}
+                    style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                    onPress={() => !full && setEmojiDraft((d) => clampEmoji(d + e))}
+                    disabled={full}
+                  >
+                    <Text style={styles.emojiPickText}>{e}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.formBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEmojiBundle(null)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveBundleEmoji}>
+                <Text style={styles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -582,6 +659,12 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
+  emojiOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emojiCard: {
+    width: '100%', maxWidth: 380, backgroundColor: c.surface, borderRadius: R.lg,
+    borderWidth: 1, borderColor: c.borderDark, padding: 20, gap: 4,
+  },
+  emojiCardTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
   emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 4 },
   emojiPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   emojiPreview: {

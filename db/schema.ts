@@ -133,6 +133,16 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE saved_bundles ADD COLUMN line_categories TEXT`
   ).catch(() => {});
 
+  // Shared id (matches Coop pos_bundles.bundle_id) so a bundle created on one
+  // device syncs to the others, plus an editable tile emoji.
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN bundle_uuid TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN emoji TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE products ADD COLUMN image_uri TEXT`
   ).catch(() => {});

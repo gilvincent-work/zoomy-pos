@@ -14,6 +14,16 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
+### Fix: web build crashed on load ("getEnabledPaymentMethods is not a function") — `fix(settings)`
+- `db/settings.web.ts` is a platform override Metro prefers over `db/settings.ts`
+  for web builds; the new payment-config functions (`getEnabledPaymentMethods`,
+  `setEnabledPaymentMethods`, `getConfirmOnPay`, `setConfirmOnPay`) were only
+  added to `settings.ts`, so the web build kept calling the old file and threw
+  on launch. Mirrored the same functions into `settings.web.ts` (identical
+  logic — no FileSystem involved, so no real web-specific behavior needed).
+  Scanned the repo for every other `.web.ts` override; none of this session's
+  other edited files have one, so this was an isolated miss.
+
 ### Bundles default tab — `feat(pos)`
 - The product grid now opens on the **Bundles** pill instead of the first
   product line whenever an active "Buy Any N" deal exists (falls back to the

@@ -134,6 +134,7 @@ export async function updateProduct(
     price: number | null;
     has_variants: boolean;
     is_active: number;
+    emoji?: string;
     image_uri?: string | null;
     category?: string | null;
     subcategory?: string | null;
@@ -142,9 +143,11 @@ export async function updateProduct(
   }
 ): Promise<void> {
   const db = await getDatabase();
+  // COALESCE keeps the current emoji when the caller doesn't pass one, so callers
+  // that only edit name/price/listing don't have to carry the emoji through.
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
-    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, fields.sku ?? null, id]
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.emoji ?? null, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, fields.sku ?? null, id]
   );
 
   if (fields.has_variants && fields.variants) {

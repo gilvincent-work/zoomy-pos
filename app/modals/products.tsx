@@ -13,6 +13,7 @@ import {
 import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
+import { PullToRefresh } from '../../components/PullToRefresh';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -39,12 +40,15 @@ async function confirmAction(
   });
 }
 
-type ProductForm = { name: string; price: string };
+type ProductForm = { name: string; price: string; emoji: string };
 type BundleForm = { name: string; price: string };
 type FormMode = 'product' | 'bundle';
 
-const EMPTY_PRODUCT: ProductForm = { name: '', price: '' };
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '', emoji: '🍬' };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
+
+/** One-tap quick picks for the emoji field; freeform input covers everything else. */
+const EMOJI_QUICK_PICKS = ['🍬', '🥩', '🍗', '🐟', '🍤', '🦴', '🧀', '🥚', '🌿', '🫐', '🥕', '🍖'];
 
 export default function ProductsModal() {
   const { colors } = useTheme();
@@ -139,6 +143,7 @@ export default function ProductsModal() {
     if (editingId === null) return; // creation is Coop-only; no create path here.
 
     const existing = products.find((p) => p.id === editingId)!;
+    const emoji = productForm.emoji.trim() || '🍬';
 
     if (existing.has_variants === 1) {
       await updateProduct(editingId, {
@@ -146,6 +151,7 @@ export default function ProductsModal() {
         price: null,
         has_variants: true,
         is_active: existing.is_active,
+        emoji,
         image_uri: existing.image_uri,
         sku: existing.sku,
         // No variants array: updateProduct leaves the existing variants intact.
@@ -160,6 +166,7 @@ export default function ProductsModal() {
         price,
         has_variants: false,
         is_active: existing.is_active,
+        emoji,
         image_uri: existing.image_uri,
         sku: existing.sku,
       });
@@ -184,6 +191,7 @@ export default function ProductsModal() {
     setProductForm({
       name: product.name,
       price: product.price != null ? String(product.price) : '',
+      emoji: product.emoji || '🍬',
     });
     setEditingId(product.id);
     setFormMode('product');
@@ -286,6 +294,36 @@ export default function ProductsModal() {
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={styles.form}>
+            {!isBundle && (
+              <>
+                <Text style={styles.fieldLabel}>Emoji</Text>
+                <View style={styles.emojiRow}>
+                  <TextInput
+                    style={styles.emojiInput}
+                    value={productForm.emoji}
+                    onChangeText={(v) => setProductForm((f) => ({ ...f, emoji: v }))}
+                    maxLength={8}
+                    accessibilityLabel="Product emoji"
+                  />
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.emojiPicks}
+                  >
+                    {EMOJI_QUICK_PICKS.map((e) => (
+                      <TouchableOpacity
+                        key={e}
+                        style={[styles.emojiPick, productForm.emoji === e && styles.emojiPickActive]}
+                        onPress={() => setProductForm((f) => ({ ...f, emoji: e }))}
+                      >
+                        <Text style={styles.emojiPickText}>{e}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </>
+            )}
+
             <Text style={styles.fieldLabel}>Display name</Text>
             <TextInput
               style={styles.input}
@@ -329,7 +367,9 @@ export default function ProductsModal() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <PullToRefresh onRefresh={refreshAll}>
+        {(scroll) => (
+      <ScrollView {...scroll} contentContainerStyle={styles.scrollContent}>
         {/* Product creation is Coop-only (POS co-edits name/price/listing and unlists,
             but never creates). Hidden, not deleted, so it can be restored if that
             ownership decision changes.
@@ -368,7 +408,8 @@ export default function ProductsModal() {
         {visibleProducts.map((item) => (
           <View key={item.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <View>
+              <Text style={styles.itemEmoji}>{item.emoji || '🍬'}</Text>
+              <View style={styles.itemText}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemSub}>
                   {item.has_variants
@@ -442,6 +483,8 @@ export default function ProductsModal() {
         </>
         )}
       </ScrollView>
+        )}
+      </PullToRefresh>
     </SafeAreaView>
   );
 }
@@ -484,7 +527,8 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     borderColor: c.borderDark,
   },
   itemInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  itemEmoji: {},
+  itemEmoji: { fontSize: 24, width: 30, textAlign: 'center' },
+  itemText: { flex: 1, minWidth: 0 },
   itemName: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
   itemSub: { color: c.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
 
@@ -529,6 +573,19 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
+  emojiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  emojiInput: {
+    backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
+    paddingVertical: 8, width: 56, fontSize: 26, textAlign: 'center',
+    borderWidth: 1, borderColor: c.border,
+  },
+  emojiPicks: { gap: 8, paddingRight: 4, alignItems: 'center' },
+  emojiPick: {
+    width: 42, height: 42, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border,
+  },
+  emojiPickActive: { borderColor: c.pink, backgroundColor: c.pinkSubtle },
+  emojiPickText: { fontSize: 22 },
   formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: {
     flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,

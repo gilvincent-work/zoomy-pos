@@ -14,6 +14,17 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Products page: emoji in list, editable emoji, pull-to-refresh — `feat(products)`
+- The product list now shows each product's **emoji before its name**, so items
+  are easier to tell apart at a glance (matches the POS tiles).
+- **Editing a product can now change its emoji.** The edit form has an emoji
+  field plus a one-tap quick-pick row of common treat emojis (freeform input
+  covers anything else). Emoji stays **local-only** by design — `updateProduct`
+  writes it via `emoji = COALESCE(?, emoji)`, so callers that only edit
+  name/price/listing leave it untouched.
+- **Pull-to-refresh** on the Products list (reuses the shared gesture) to re-read
+  the local catalog after a Coop sync.
+
 ### Transactions: pull-to-refresh + modal nav fixes — `feat(transactions)` / `fix(nav)`
 - **Pull-to-refresh** on the Transactions list (reuses the product-grid gesture):
   pull down to re-pull Coop + re-read local, so another device's sale/void shows

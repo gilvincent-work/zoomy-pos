@@ -162,8 +162,8 @@ export default function POSScreen() {
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
   const categoryNames = [
-    ...groups.map((g) => g.category),
     ...(pickBundles.length > 0 ? [BUNDLES_CATEGORY] : []),
+    ...groups.map((g) => g.category),
   ];
   const visibleProducts = showingBundles
     ? []

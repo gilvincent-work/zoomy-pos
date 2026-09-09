@@ -24,11 +24,13 @@ Dates are local working dates (GMT+8). Newest first.
   Scanned the repo for every other `.web.ts` override; none of this session's
   other edited files have one, so this was an isolated miss.
 
-### Bundles default tab — `feat(pos)`
+### Bundles default tab (and first position) — `feat(pos)`
 - The product grid now opens on the **Bundles** pill instead of the first
   product line whenever an active "Buy Any N" deal exists (falls back to the
   first line when there are none). Applies only when computing the default —
   a cashier's manual tab choice is still respected across catalog reloads.
+- The **Bundles pill is also first in the tab row** (was last), so it reads as
+  the featured tab, not an afterthought.
 
 ### Payment options: QRPH + configurable methods — `feat(payments)`
 - Added **QRPH** as a payment method (a single generic QR tap, distinct from

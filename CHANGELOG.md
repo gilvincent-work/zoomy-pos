@@ -14,6 +14,10 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Hide the Import button on Transactions — `chore(transactions)`
+- Hid the **Import** button on the Transactions screen, leaving **Export** only.
+  The handler and state are kept (JSX commented out) for an easy restore.
+
 ### Admin PIN pad: landscape layout fix — `fix(admin)`
 - The admin PIN screen (opened by the transaction **Void** flow) stacked
   header, dots, and keypad vertically. In a short landscape viewport that

@@ -333,11 +333,13 @@ export default function TransactionsModal() {
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
         <View style={styles.summaryActions}>
+          {/* Import hidden for now (kept for easy restore). Export only.
           <TouchableOpacity style={styles.exportBtn} onPress={handleImport} disabled={importing}>
             <Text style={styles.exportBtnText}>
               <Ionicons name="arrow-down" size={F.xs} color={colors.textSecondary} /> {importing ? 'Importing…' : 'Import'}
             </Text>
           </TouchableOpacity>
+          */}
           <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
             <Text style={styles.exportBtnText}>
               <Ionicons name="arrow-up" size={F.xs} color={colors.textSecondary} /> Export

@@ -143,10 +143,15 @@ export async function updateProduct(
   }
 ): Promise<void> {
   const db = await getDatabase();
-  // COALESCE keeps the current emoji when the caller doesn't pass one, so callers
-  // that only edit name/price/listing don't have to carry the emoji through.
+  // COALESCE preserves the current value when the caller omits a field, so an
+  // edit that only touches name/price/listing (or just the emoji) can't wipe the
+  // product's tab (category/subcategory), image, or emoji. Callers that mean to
+  // change these still pass a value. (There is no "clear to null" path here; the
+  // catalog is Coop-authoritative for category via applyCatalogUpdate.)
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, ' +
+      'emoji = COALESCE(?, emoji), image_uri = COALESCE(?, image_uri), ' +
+      'category = COALESCE(?, category), subcategory = COALESCE(?, subcategory), sku = ? WHERE id = ?',
     [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.emoji ?? null, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, fields.sku ?? null, id]
   );
 

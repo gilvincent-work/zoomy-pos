@@ -156,6 +156,10 @@ export default function ProductsModal() {
         is_active: existing.is_active,
         emoji,
         image_uri: existing.image_uri,
+        // Preserve the product's tab; updateProduct writes category/subcategory
+        // unconditionally, so omitting these wiped them to Uncategorized.
+        category: existing.category,
+        subcategory: existing.subcategory,
         sku: existing.sku,
         // No variants array: updateProduct leaves the existing variants intact.
       });
@@ -171,6 +175,8 @@ export default function ProductsModal() {
         is_active: existing.is_active,
         emoji,
         image_uri: existing.image_uri,
+        category: existing.category,
+        subcategory: existing.subcategory,
         sku: existing.sku,
       });
     }
@@ -185,6 +191,10 @@ export default function ProductsModal() {
       price: product.price,
       has_variants: product.has_variants === 1,
       is_active: product.is_active === 1 ? 0 : 1,
+      // Preserve tab + image (updateProduct writes these unconditionally).
+      category: product.category,
+      subcategory: product.subcategory,
+      image_uri: product.image_uri,
       sku: product.sku,
     });
     setProducts(await getAllProducts());

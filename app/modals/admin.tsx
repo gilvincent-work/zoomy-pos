@@ -93,7 +93,8 @@ export default function AdminModal() {
         const { voidRemoteOrder } = await import('../../utils/orders-remote');
         await voidRemoteOrder(clientUuid);
       }
-      router.dismiss();
+      // Dismiss only the admin PIN modal, returning to the Transactions screen
+      // (which reloads on focus and shows the sale now voided).
       router.dismiss();
     } else if (step === 'new_pin') {
       if (newPin.length < 4) {

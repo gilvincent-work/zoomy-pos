@@ -6,6 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
+import { PullToRefresh } from '../../components/PullToRefresh';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
 import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
 import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
@@ -383,17 +384,22 @@ export default function TransactionsModal() {
         </TouchableOpacity>
       )}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(t) => String(t.id)}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <TransactionRow transaction={item} onPress={setSelected} />
+      <PullToRefresh onRefresh={loadTransactions}>
+        {(scroll) => (
+          <FlatList
+            {...scroll}
+            data={filtered}
+            keyExtractor={(t) => String(t.id)}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <TransactionRow transaction={item} onPress={setSelected} />
+            )}
+            ListEmptyComponent={
+              <Text style={styles.empty}>No transactions for this period.</Text>
+            }
+          />
         )}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No transactions for this period.</Text>
-        }
-      />
+      </PullToRefresh>
 
       <Modal
         visible={!!selected}

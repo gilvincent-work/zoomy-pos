@@ -14,6 +14,19 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-09
 
+### Transactions: pull-to-refresh + modal nav fixes — `feat(transactions)` / `fix(nav)`
+- **Pull-to-refresh** on the Transactions list (reuses the product-grid gesture):
+  pull down to re-pull Coop + re-read local, so another device's sale/void shows
+  without leaving the screen.
+- **Back button gone after reload** (`fix(nav)`): reloading the PWA directly on a
+  modal route (e.g. `/modals/transactions`) opened it with no screen beneath, so
+  the header back button vanished. Anchored the stack to `index`
+  (`unstable_settings.anchor`), so Back always returns to the POS. Fixes every
+  modal, not just Transactions.
+- **Void returned to the home screen** (`fix(nav)`): the void flow dismissed twice
+  (popping the PIN modal *and* Transactions). It now dismisses once, returning to
+  the Transactions screen, which reloads on focus and shows the sale voided.
+
 ### Void / Remarks any sale from any device — `feat(transactions)`
 - Voiding and adding remarks now work on sales made on **another device**, not
   just the local one. Both write to Coop (by the shared `client_uuid`) so the

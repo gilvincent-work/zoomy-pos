@@ -77,8 +77,16 @@ describe('updateProduct', () => {
   it('updates name, price, has_variants and is_active by id', async () => {
     await updateProduct(1, { name: 'Big Cake', price: 150, has_variants: false, is_active: 0 });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
-      ['Big Cake', 150, 0, 0, null, null, null, null, 1]
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+      ['Big Cake', 150, 0, 0, null, null, null, null, null, 1]
+    );
+  });
+
+  it('updates the emoji when provided', async () => {
+    await updateProduct(1, { name: 'Beef', price: 200, has_variants: false, is_active: 1, emoji: '🥩' });
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+      ['Beef', 200, 0, 1, '🥩', null, null, null, null, 1]
     );
   });
 });

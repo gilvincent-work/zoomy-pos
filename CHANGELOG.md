@@ -14,6 +14,21 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
+### Product name/price/emoji/listing edits now sync across devices — `feat(sync)`
+- POS-side product edits (name, price, emoji, and the list/unlist toggle) were
+  local-only — a change on one device never reached Coop or any other device.
+  Each edit now pushes to Coop (best-effort, fire-and-forget) via
+  `rename_product` / `reprice_product` / `set_product_listing` (the same RPCs
+  Coop's own dashboard uses) and a new `set_product_emoji` RPC. Only fires for
+  products that already have a `sku` (i.e. have been through at least one sync).
+- **Emoji now fully converges** across devices: the catalog pull always applies
+  Coop's current emoji (when set), so whichever device — or the Coop dashboard —
+  edited it most recently wins everywhere on the next sync. This replaces the
+  earlier "POS keeps its own edit forever" rule; a device's emoji choice can now
+  be overwritten by a later edit made elsewhere. Coop DB: new `set_product_emoji`
+  RPC (granted anon), mirrored in `supabase/pos_schema.sql`; verified via anon
+  round-trip alongside `rename_product`/`reprice_product`.
+
 ### Fix: web build crashed on load ("getEnabledPaymentMethods is not a function") — `fix(settings)`
 - `db/settings.web.ts` is a platform override Metro prefers over `db/settings.ts`
   for web builds; the new payment-config functions (`getEnabledPaymentMethods`,

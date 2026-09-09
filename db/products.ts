@@ -236,15 +236,17 @@ export async function applyCatalogUpdate(u: {
   stock: number;
 }): Promise<number> {
   const db = await getDatabase();
-  // Emoji is deliberately NOT in this UPDATE: Coop seeds it on insert (below),
-  // but a POS emoji edit must survive later syncs, so an existing row keeps its
-  // local emoji. (Name / price / category / stock stay Coop-authoritative —
-  // stock always overwrites, since it changes constantly and there's no local
-  // "POS override" concept for it like there is for emoji.)
+  // Coop is the merge point for every field, including emoji: a POS edit
+  // pushes to Coop (utils/products-sync.ts), and this pull applies whatever
+  // Coop currently has, so the most recently edited value (from any device or
+  // the Coop dashboard) converges everywhere. COALESCE only preserves the
+  // local value when Coop's is unset (e.g. legacy rows with no emoji yet) —
+  // it never resets emoji to a default.
   const res = await db.runAsync(
     "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, " +
-      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END, stock = ? WHERE sku = ?',
-    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.stock, u.sku]
+      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END, ' +
+      'emoji = COALESCE(?, emoji), stock = ? WHERE sku = ?',
+    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.emoji, u.stock, u.sku]
   );
   if (res.changes > 0) return res.changes;
 

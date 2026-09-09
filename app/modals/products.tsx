@@ -12,6 +12,7 @@ import {
   updateBundleEmoji, getSavedBundleById, SavedBundle,
 } from '../../db/saved-bundles';
 import { pushBundle, deleteBundleRemote } from '../../utils/bundles-sync';
+import { pushProductRename, pushProductReprice, pushProductEmoji, pushProductListing } from '../../utils/products-sync';
 import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
@@ -123,10 +124,11 @@ export default function ProductsModal() {
 
   // ─── Product actions ──────────────────────────────────────────────────────
 
-  // The POS edits only a product's display name and price (creation, photos and
-  // variants are Coop-owned). A product's other fields are preserved untouched:
-  // for the rare variant product, its variant pricing and null base price stay as
-  // they are and only the name is updated.
+  // The POS edits a product's display name, price, and emoji (creation, photos
+  // and variants are Coop-owned). Each changed field also pushes to Coop
+  // (best-effort, fire-and-forget) so the edit shows on the Coop dashboard and
+  // reaches every other device on their next catalog pull — only possible once
+  // the product has a sku (i.e. it has been through at least one sync).
   async function handleSaveProduct() {
     const name = productForm.name.trim();
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
@@ -134,6 +136,7 @@ export default function ProductsModal() {
 
     const existing = products.find((p) => p.id === editingId)!;
     const emoji = clampEmoji(productForm.emoji) || '🍬';
+    let price: number | null = null;
 
     if (existing.has_variants === 1) {
       await updateProduct(editingId, {
@@ -151,7 +154,7 @@ export default function ProductsModal() {
         // No variants array: updateProduct leaves the existing variants intact.
       });
     } else {
-      const price = parseFloat(productForm.price);
+      price = parseFloat(productForm.price);
       if (isNaN(price) || price <= 0) {
         Alert.alert('Invalid price', 'Enter a valid price.'); return;
       }
@@ -168,22 +171,32 @@ export default function ProductsModal() {
       });
     }
 
+    if (existing.sku) {
+      if (name !== existing.name) pushProductRename(existing.sku, name);
+      if (existing.has_variants !== 1 && price !== null && price !== existing.price) {
+        pushProductReprice(existing.sku, price);
+      }
+      if (emoji !== existing.emoji) pushProductEmoji(existing.sku, emoji);
+    }
+
     await refreshAll();
     cancelForm();
   }
 
   async function handleToggleProduct(product: Product) {
+    const nextActive = product.is_active === 1 ? 0 : 1;
     await updateProduct(product.id, {
       name: product.name,
       price: product.price,
       has_variants: product.has_variants === 1,
-      is_active: product.is_active === 1 ? 0 : 1,
+      is_active: nextActive,
       // Preserve tab + image (updateProduct writes these unconditionally).
       category: product.category,
       subcategory: product.subcategory,
       image_uri: product.image_uri,
       sku: product.sku,
     });
+    if (product.sku) pushProductListing(product.sku, nextActive === 1);
     setProducts(await getAllProducts());
   }
 

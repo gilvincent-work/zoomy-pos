@@ -342,6 +342,23 @@ begin
 end;
 $$;
 
+-- set_product_emoji: lets the POS push its own emoji choice up to Coop,
+-- mirroring rename_product/reprice_product. Combined with the catalog pull
+-- always overwriting a product's local emoji from Coop's value (when set),
+-- this makes emoji fully convergent: whichever device (or Coop) edited it
+-- most recently wins everywhere on the next sync.
+create or replace function public.set_product_emoji(p_product_id text, p_emoji text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update pos_products set emoji = nullif(p_emoji, ''), updated_at = now()
+    where product_id = p_product_id;
+end;
+$$;
+
 -- receive_lot: new dated lot + a 'receipt' stock movement.
 create or replace function public.receive_lot(p_product_id text, p_expires_on date, p_qty integer, p_lot_code text)
 returns uuid
@@ -602,6 +619,7 @@ grant execute on function public.receive_lot(text, date, integer, text)     to a
 grant execute on function public.recount_lot(uuid, integer, text, text)     to anon;
 grant execute on function public.record_sync(text, text, jsonb, text)       to anon;
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
+grant execute on function public.set_product_emoji(text, text)              to anon;
 grant execute on function public.void_pos_order(text)                       to anon;
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
 grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;

@@ -6,14 +6,18 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
+import { PullToRefresh } from '../../components/PullToRefresh';
 import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
+import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
+import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
 import {
   DateFilter, DateRange, getFilterRange, formatRangeLabel, formatRangeForFilename,
 } from '../../utils/date-range';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 type MethodFilter = 'all' | PaymentMethod;
 
@@ -26,17 +30,21 @@ const DATE_FILTERS: { key: DateFilter; label: string }[] = [
 ];
 
 const METHOD_FILTERS: { key: MethodFilter; label: string; iconName?: keyof typeof Ionicons.glyphMap }[] = [
+  // Only the four tap-to-record methods (matches the cart Pay control). BPI and
+  // bank_transfer still exist on old records but aren't offered as quick filters.
   { key: 'all', label: 'All methods', iconName: 'wallet-outline' },
   { key: 'cash', label: 'Cash', iconName: 'cash-outline' },
+  { key: 'qrph', label: 'QRPH', iconName: 'qr-code-outline' },
   { key: 'gcash', label: 'GCash', iconName: 'phone-portrait-outline' },
   { key: 'maya', label: 'Maya', iconName: 'phone-portrait-outline' },
-  { key: 'bpi', label: 'BPI', iconName: 'business-outline' },
-  { key: 'bank_transfer', label: 'Bank', iconName: 'business-outline' },
+  { key: 'card', label: 'Card', iconName: 'card-outline' },
 ];
 
 function getMethodDisplayName(method: PaymentMethod): string {
   switch (method) {
+    case 'qrph': return 'QRPH';
     case 'gcash': return 'GCash';
+    case 'card': return 'Card';
     case 'maya': return 'Maya';
     case 'bpi': return 'BPI';
     case 'bank_transfer': return 'Bank Transfer';
@@ -47,6 +55,8 @@ function getMethodDisplayName(method: PaymentMethod): string {
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView>(null);
   const [zoomed, setZoomed] = useState(false);
 
@@ -107,6 +117,8 @@ function Dropdown<T extends string>({
   leadingIcon?: keyof typeof Ionicons.glyphMap;
   onSelect: (key: T) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -121,9 +133,9 @@ function Dropdown<T extends string>({
   return (
     <View style={styles.ddWrap}>
       <TouchableOpacity ref={triggerRef} style={styles.ddTrigger} onPress={handleOpen} activeOpacity={0.7}>
-        {leadingIcon && <Ionicons name={leadingIcon} size={F.sm} color={C.textSecondary} />}
+        {leadingIcon && <Ionicons name={leadingIcon} size={F.sm} color={colors.textSecondary} />}
         <Text style={styles.ddTriggerText} numberOfLines={1}>{displayLabel}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={F.sm} color={C.textMuted} />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={F.sm} color={colors.textMuted} />
       </TouchableOpacity>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -140,12 +152,12 @@ function Dropdown<T extends string>({
                     activeOpacity={0.7}
                   >
                     {opt.iconName && (
-                      <Ionicons name={opt.iconName} size={F.sm} color={active ? C.pink : C.textMuted} />
+                      <Ionicons name={opt.iconName} size={F.sm} color={active ? colors.pink : colors.textMuted} />
                     )}
                     <Text style={[styles.ddItemText, active && styles.ddItemTextActive]} numberOfLines={1}>
                       {opt.label}
                     </Text>
-                    {active && <Ionicons name="checkmark" size={F.sm} color={C.pink} style={styles.ddCheck} />}
+                    {active && <Ionicons name="checkmark" size={F.sm} color={colors.pink} style={styles.ddCheck} />}
                   </TouchableOpacity>
                 );
               })}
@@ -158,6 +170,8 @@ function Dropdown<T extends string>({
 }
 
 export default function TransactionsModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
@@ -177,8 +191,18 @@ export default function TransactionsModal() {
     importResultTimer.current = setTimeout(() => setImportResult(null), 4000);
   }
 
+  // Local sales are the rich source; Coop fills in sales made on other devices,
+  // so every device shows the same list. Remote is best-effort (offline -> local
+  // only). Local resolves first for an instant paint, then the merge fills in.
+  const loadTransactions = useCallback(async () => {
+    const local = await getAllTransactions();
+    setTransactions(local);
+    const remote = await fetchRemoteOrders();
+    if (remote.length > 0) setTransactions(mergeTransactions(local, remote));
+  }, []);
+
   useFocusEffect(
-    useCallback(() => { getAllTransactions().then(setTransactions); }, [])
+    useCallback(() => { loadTransactions(); }, [loadTransactions])
   );
 
   const filtered = useMemo(() => {
@@ -232,8 +256,7 @@ export default function TransactionsModal() {
       // User cancelled file picker — silent return
       if (imported === 0 && skipped === 0 && failed === 0 && photosMissing === 0) return;
 
-      const all = await getAllTransactions();
-      setTransactions(all);
+      await loadTransactions();
 
       const lines: string[] = [];
       if (imported > 0) lines.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
@@ -268,19 +291,31 @@ export default function TransactionsModal() {
   async function handleSaveRemarks() {
     if (!selected) return;
     const trimmed = remarksInput.trim() || null;
-    await updateTransactionRemarks(selected.id, trimmed);
+    // Local rows persist to SQLite; any synced row (has a client_uuid) also
+    // writes to Coop so the note shows on every device.
+    if (isLocalTransaction(selected)) {
+      await updateTransactionRemarks(selected.id, trimmed);
+    }
+    if (selected.client_uuid) {
+      await setRemoteOrderRemarks(selected.client_uuid, trimmed);
+    }
     const updated = { ...selected, remarks: trimmed };
     setSelected(updated);
     setTransactions((prev) => prev.map((t) => t.id === selected.id ? updated : t));
     setRemarksModalVisible(false);
   }
 
+  // A sale can be voided from any device: locally if it lives here, and on Coop
+  // (by client_uuid) so other devices see it. The admin PIN gate does both.
+  const canVoid = !!selected && selected.status === 'completed' && (isLocalTransaction(selected) || !!selected.client_uuid);
+
   function handleVoid() {
     if (!selected) return;
+    const { id, client_uuid } = selected;
     setSelected(null);
     router.push({
       pathname: '/modals/admin',
-      params: { action: 'void_transaction', transactionId: String(selected.id) },
+      params: { action: 'void_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
     });
   }
 
@@ -313,14 +348,16 @@ export default function TransactionsModal() {
           <Text style={styles.summaryTotal}>₱{filteredTotal.toFixed(2)}</Text>
         </View>
         <View style={styles.summaryActions}>
+          {/* Import hidden for now (kept for easy restore). Export only.
           <TouchableOpacity style={styles.exportBtn} onPress={handleImport} disabled={importing}>
             <Text style={styles.exportBtnText}>
-              <Ionicons name="arrow-down" size={F.xs} color={C.textSecondary} /> {importing ? 'Importing…' : 'Import'}
+              <Ionicons name="arrow-down" size={F.xs} color={colors.textSecondary} /> {importing ? 'Importing…' : 'Import'}
             </Text>
           </TouchableOpacity>
+          */}
           <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
             <Text style={styles.exportBtnText}>
-              <Ionicons name="arrow-up" size={F.xs} color={C.textSecondary} /> Export
+              <Ionicons name="arrow-up" size={F.xs} color={colors.textSecondary} /> Export
             </Text>
           </TouchableOpacity>
         </View>
@@ -345,21 +382,26 @@ export default function TransactionsModal() {
               <Text style={styles.importBannerMsg}>{importResult.message}</Text>
             )}
           </View>
-          <Ionicons name="close" size={F.sm} color={C.textSecondary} />
+          <Ionicons name="close" size={F.sm} color={colors.textSecondary} />
         </TouchableOpacity>
       )}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(t) => String(t.id)}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <TransactionRow transaction={item} onPress={setSelected} />
+      <PullToRefresh onRefresh={loadTransactions}>
+        {(scroll) => (
+          <FlatList
+            {...scroll}
+            data={filtered}
+            keyExtractor={(t) => String(t.id)}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <TransactionRow transaction={item} onPress={setSelected} />
+            )}
+            ListEmptyComponent={
+              <Text style={styles.empty}>No transactions for this period.</Text>
+            }
+          />
         )}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No transactions for this period.</Text>
-        }
-      />
+      </PullToRefresh>
 
       <Modal
         visible={!!selected}
@@ -371,7 +413,9 @@ export default function TransactionsModal() {
           <View style={styles.sheet}>
             {selected && (
               <>
-                <Text style={styles.sheetTitle}>Transaction #{selected.id}</Text>
+                <Text style={styles.sheetTitle}>
+                  {isLocalTransaction(selected) ? `Transaction #${selected.id}` : 'Transaction'}
+                </Text>
                 <View style={styles.sheetMeta}>
                   <Text style={styles.sheetTime}>
                     {new Date(selected.created_at).toLocaleString()}
@@ -452,7 +496,7 @@ export default function TransactionsModal() {
                     <View style={styles.divider} />
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryLabel}>Furbaby / IG</Text>
-                      <Text style={[styles.summaryValue, { color: C.pink }]}>{selected.customer_handle}</Text>
+                      <Text style={[styles.summaryValue, { color: colors.pink }]}>{selected.customer_handle}</Text>
                     </View>
                   </>
                 )}
@@ -474,7 +518,7 @@ export default function TransactionsModal() {
                   <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
                     <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
                   </TouchableOpacity>
-                  {selected.status === 'completed' && (
+                  {canVoid && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
                       <Text style={styles.voidBtnText}>Void</Text>
                     </TouchableOpacity>
@@ -498,7 +542,7 @@ export default function TransactionsModal() {
               <TextInput
                 style={styles.remarksInput}
                 placeholder="e.g. free item given"
-                placeholderTextColor={C.textMuted}
+                placeholderTextColor={colors.textMuted}
                 value={remarksInput}
                 onChangeText={setRemarksInput}
                 multiline
@@ -532,8 +576,8 @@ export default function TransactionsModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
 
   filterRow: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
@@ -543,14 +587,14 @@ const styles = StyleSheet.create({
   ddTrigger: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingVertical: 11, paddingHorizontal: 12, borderRadius: R.sm,
-    backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border,
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
   },
-  ddTriggerText: { flex: 1, color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  ddTriggerText: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
   ddOverlay: { flex: 1 },
   ddMenu: {
     position: 'absolute',
-    backgroundColor: C.surface,
-    borderRadius: R.md, borderWidth: 1, borderColor: C.border,
+    backgroundColor: c.surface,
+    borderRadius: R.md, borderWidth: 1, borderColor: c.border,
     paddingVertical: 4,
     shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
     elevation: 8,
@@ -559,104 +603,105 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 11, paddingHorizontal: 12,
   },
-  ddItemActive: { backgroundColor: C.pinkSubtle },
-  ddItemText: { flex: 1, color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
-  ddItemTextActive: { color: C.textPrimary, fontWeight: '700' },
+  ddItemActive: { backgroundColor: c.pinkSubtle },
+  ddItemText: { flex: 1, color: c.textSecondary, fontSize: F.sm, fontWeight: '600' },
+  ddItemTextActive: { color: c.textPrimary, fontWeight: '700' },
   ddCheck: { marginLeft: 'auto' },
 
   summaryBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 8,
-    borderBottomWidth: 1, borderBottomColor: C.borderDark,
+    borderBottomWidth: 1, borderBottomColor: c.borderDark,
   },
   summaryLeft: { gap: 1 },
-  summaryCount: { color: C.textSecondary, fontSize: F.sm },
-  summaryTotal: { color: C.pink, fontSize: F.sm, fontWeight: '700' },
+  summaryCount: { color: c.textSecondary, fontSize: F.sm },
+  summaryTotal: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
   summaryActions: { flexDirection: 'row', gap: 8 },
   exportBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     paddingVertical: 7,
     paddingHorizontal: 12,
   },
-  exportBtnText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  exportBtnText: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
 
   importBanner: {
     marginHorizontal: 16,
     marginTop: 8,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
   },
-  importBannerSuccess: { backgroundColor: C.greenSubtle, borderColor: C.greenDim },
-  importBannerError: { backgroundColor: C.redSubtle, borderColor: C.redDim },
+  importBannerSuccess: { backgroundColor: c.greenSubtle, borderColor: c.greenDim },
+  importBannerError: { backgroundColor: c.redSubtle, borderColor: c.redDim },
   importBannerContent: { flex: 1 },
-  importBannerTitle: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
-  importBannerMsg: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+  importBannerTitle: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  importBannerMsg: { color: c.textSecondary, fontSize: F.xs, marginTop: 2 },
 
   list: { padding: 16, paddingTop: 10 },
-  empty: { color: C.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
+  empty: { color: c.textMuted, textAlign: 'center', marginTop: 40, fontSize: F.md },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderTopLeftRadius: R.xl,
     borderTopRightRadius: R.xl,
     borderTopWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     padding: 20,
     paddingBottom: 40,
   },
-  sheetTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 4 },
+  sheetTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 4 },
   sheetMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
-  sheetTime: { color: C.textSecondary, fontSize: F.sm },
+  sheetTime: { color: c.textSecondary, fontSize: F.sm },
   sheetMethodBadge: {
-    backgroundColor: C.elevated, borderRadius: R.sm,
+    backgroundColor: c.elevated, borderRadius: R.sm,
     paddingHorizontal: 8, paddingVertical: 3,
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: c.border,
   },
-  sheetMethodText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  sheetMethodText: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
   sheetBundleBadge: {
-    backgroundColor: C.pinkSubtle, borderRadius: R.sm,
+    backgroundColor: c.pinkSubtle, borderRadius: R.sm,
     paddingHorizontal: 8, paddingVertical: 3,
-    borderWidth: 1, borderColor: C.pinkDim,
+    borderWidth: 1, borderColor: c.pinkDim,
   },
-  sheetBundleText: { color: C.pink, fontSize: F.xs, fontWeight: '700' },
+  sheetBundleText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
 
   itemRow: {
     flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8,
   },
-  itemName: { color: C.textPrimary, fontSize: F.md },
-  itemPrice: { color: C.textPrimary, fontSize: F.md, fontWeight: '600' },
+  itemName: { color: c.textPrimary, fontSize: F.md },
+  itemPrice: { color: c.textPrimary, fontSize: F.md, fontWeight: '600' },
 
-  divider: { height: 1, backgroundColor: C.borderDark, marginVertical: 12 },
+  divider: { height: 1, backgroundColor: c.borderDark, marginVertical: 12 },
+  remoteNote: { color: c.textMuted, fontSize: F.sm, fontStyle: 'italic' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  summaryLabel: { color: C.textSecondary, fontSize: F.md },
-  summaryValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
+  summaryLabel: { color: c.textSecondary, fontSize: F.md },
+  summaryValue: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
 
   sheetBtns: { flexDirection: 'row', gap: 12, marginTop: 20 },
   closeBtn: {
-    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: c.border,
   },
-  closeBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  closeBtnText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
   remarksBtn: {
-    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: c.border,
   },
-  remarksBtnText: { color: C.textPrimary, fontWeight: '700', fontSize: F.sm },
+  remarksBtnText: { color: c.textPrimary, fontWeight: '700', fontSize: F.sm },
   voidBtn: {
-    flex: 1, backgroundColor: C.red, borderRadius: R.sm,
+    flex: 1, backgroundColor: c.red, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
@@ -666,41 +711,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
   remarksSheet: {
-    backgroundColor: C.surface, borderRadius: R.lg,
+    backgroundColor: c.surface, borderRadius: R.lg,
     padding: 20, width: '100%',
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  remarksTitle: { color: C.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 14 },
+  remarksTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 14 },
   remarksInput: {
-    backgroundColor: C.elevated, borderRadius: R.sm,
-    borderWidth: 1, borderColor: C.borderDark,
-    padding: 12, color: C.textPrimary, fontSize: F.md,
+    backgroundColor: c.elevated, borderRadius: R.sm,
+    borderWidth: 1, borderColor: c.borderDark,
+    padding: 12, color: c.textPrimary, fontSize: F.md,
     minHeight: 80, textAlignVertical: 'top',
     marginBottom: 16,
   },
   remarksBtnsRow: { flexDirection: 'row', gap: 10 },
   remarksCancelBtn: {
-    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 13, alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: c.border,
   },
-  remarksCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
+  remarksCancelText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
   remarksSaveBtn: {
-    flex: 2, backgroundColor: C.pink, borderRadius: R.sm,
+    flex: 2, backgroundColor: c.pink, borderRadius: R.sm,
     padding: 13, alignItems: 'center',
   },
   remarksSaveText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 
-  proofLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
+  proofLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
   proofRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   refBox: {
-    backgroundColor: C.elevated, borderRadius: R.sm,
+    backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 10, flex: 1,
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  refLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '600' },
-  refValue: { color: C.textPrimary, fontSize: F.md, fontWeight: '700', marginTop: 2 },
-  proofThumb: { width: 64, height: 64, borderRadius: R.sm, backgroundColor: C.elevated },
+  refLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '600' },
+  refValue: { color: c.textPrimary, fontSize: F.md, fontWeight: '700', marginTop: 2 },
+  proofThumb: { width: 64, height: 64, borderRadius: R.sm, backgroundColor: c.elevated },
 
   photoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.97)' },
   photoCloseBtn: {
@@ -712,5 +757,5 @@ const styles = StyleSheet.create({
   photoCloseBtnText: { color: '#fff', fontSize: F.lg, fontWeight: '700' },
   photoScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
   photoFull: { width: SCREEN_W, height: SCREEN_H * 0.75 },
-  photoHint: { color: C.textMuted, fontSize: F.sm, textAlign: 'center', paddingBottom: 40 },
+  photoHint: { color: c.textMuted, fontSize: F.sm, textAlign: 'center', paddingBottom: 40 },
 });

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect , useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert,
-  Image, ScrollView,
+  Image, ScrollView, useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -12,7 +12,8 @@ import {
   setQrUri, removeQrUri, QrMethod, QrUris, qrMethodLabel,
 } from '../../db/settings';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { exportProductsArchive } from '../../utils/export-products-csv';
 import { pickProductsZip } from '../../utils/import-products-csv';
 import { parseCatalog, ParseError } from '../../utils/products-csv-format';
@@ -25,9 +26,14 @@ type Step = 'verify' | 'new_pin' | 'settings';
 const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'backspace', '0', 'confirm'];
 
 export default function AdminModal() {
-  const { action, transactionId } = useLocalSearchParams<{
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const { action, transactionId, clientUuid } = useLocalSearchParams<{
     action: 'void_transaction' | 'change_pin' | 'settings';
     transactionId?: string;
+    clientUuid?: string;
   }>();
 
   const [step, setStep] = useState<Step>('verify');
@@ -76,9 +82,19 @@ export default function AdminModal() {
         setStep('settings');
         return;
       }
-      const { voidTransaction } = await import('../../db/transactions');
-      await voidTransaction(Number(transactionId));
-      router.dismiss();
+      // Void locally if the sale lives on this device (positive id), and on Coop
+      // (by client_uuid) so every device sees the void. Both are best-effort.
+      const localId = Number(transactionId);
+      if (Number.isFinite(localId) && localId > 0) {
+        const { voidTransaction } = await import('../../db/transactions');
+        await voidTransaction(localId);
+      }
+      if (clientUuid) {
+        const { voidRemoteOrder } = await import('../../utils/orders-remote');
+        await voidRemoteOrder(clientUuid);
+      }
+      // Dismiss only the admin PIN modal, returning to the Transactions screen
+      // (which reloads on focus and shows the sale now voided).
       router.dismiss();
     } else if (step === 'new_pin') {
       if (newPin.length < 4) {
@@ -213,7 +229,7 @@ export default function AdminModal() {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.settingsScrollView} contentContainerStyle={styles.settingsScroll}>
-          <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={C.textPrimary} /> Admin Settings</Text>
+          <Text style={styles.title}><Ionicons name="settings-outline" size={F.xl} color={colors.textPrimary} /> Admin Settings</Text>
           <Text style={styles.subtitle}>Manage PIN and payment settings</Text>
 
           <TouchableOpacity
@@ -223,6 +239,17 @@ export default function AdminModal() {
             <View>
               <Text style={styles.settingsRowTitle}>Change PIN</Text>
               <Text style={styles.settingsRowSub}>Update admin password</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => router.push('/modals/payment-settings')}
+          >
+            <View>
+              <Text style={styles.settingsRowTitle}>Payment Options</Text>
+              <Text style={styles.settingsRowSub}>Choose accepted methods and the Pay confirm step</Text>
             </View>
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>
@@ -237,7 +264,7 @@ export default function AdminModal() {
                 <View style={styles.qrRowThumb}>
                   {uri
                     ? <Image source={{ uri }} style={styles.qrThumbImage} resizeMode="contain" />
-                    : <Ionicons name="add" size={22} color={C.textMuted} />
+                    : <Ionicons name="add" size={22} color={colors.textMuted} />
                   }
                 </View>
                 <View style={styles.qrRowInfo}>
@@ -250,7 +277,7 @@ export default function AdminModal() {
                       <Text style={styles.qrBtnText}>Replace</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.qrRemoveBtn} onPress={() => handleRemoveQr(method)}>
-                      <Ionicons name="trash-outline" size={F.sm} color={C.textPrimary} />
+                      <Ionicons name="trash-outline" size={F.sm} color={colors.textPrimary} />
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -267,7 +294,7 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleExportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="download-outline" size={F.md} color={C.textPrimary} /> Export Catalog (ZIP)
+                <Ionicons name="download-outline" size={F.md} color={colors.textPrimary} /> Export Catalog (ZIP)
               </Text>
               <Text style={styles.settingsRowSub}>Save products, variants, bundles, and images</Text>
             </View>
@@ -277,7 +304,7 @@ export default function AdminModal() {
           <TouchableOpacity style={styles.settingsRow} onPress={handleImportCatalog}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsRowTitle}>
-                <Ionicons name="cloud-upload-outline" size={F.md} color={C.textPrimary} /> Import Catalog (ZIP)
+                <Ionicons name="cloud-upload-outline" size={F.md} color={colors.textPrimary} /> Import Catalog (ZIP)
               </Text>
               <Text style={styles.settingsRowSub}>Restore from a previously exported archive</Text>
             </View>
@@ -299,10 +326,10 @@ export default function AdminModal() {
     <View key={`e${i}`} style={styles.dotEmpty} />
   ));
 
-  return (
-    <SafeAreaView style={styles.container}>
+  const prompt = (
+    <View style={styles.promptBlock}>
       <Text style={styles.title}>
-        <Ionicons name="lock-closed-outline" size={F.xl} color={C.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
+        <Ionicons name="lock-closed-outline" size={F.xl} color={colors.textPrimary} />{step === 'verify' ? ' Enter Admin PIN' : ' Enter New PIN'}
       </Text>
       <Text style={styles.subtitle}>
         {step === 'verify' && action === 'void_transaction'
@@ -311,80 +338,119 @@ export default function AdminModal() {
           ? 'Enter current PIN to continue'
           : 'Enter your new PIN (min 4 digits)'}
       </Text>
-
       <View style={styles.dotsRow}>{dots}{empty}</View>
+    </View>
+  );
 
-      <View style={styles.keypad}>
-        {PIN_KEYS.map((key) => (
-          <TouchableOpacity
-            key={key}
-            style={[styles.key, key === 'confirm' && styles.keyConfirm]}
-            onPress={() => handleKey(key)}
-            activeOpacity={0.7}
-          >
-            {key === 'backspace' ? (
-              <Ionicons name="backspace-outline" size={F.xl} color={C.textPrimary} />
-            ) : key === 'confirm' ? (
-              <Ionicons name="checkmark" size={F.xl} color="#fff" />
-            ) : (
-              <Text style={styles.keyText}>{key}</Text>
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
+  const keypad = (
+    <View style={[styles.keypad, isLandscape && styles.keypadLandscape]}>
+      {PIN_KEYS.map((key) => (
+        <TouchableOpacity
+          key={key}
+          style={[styles.key, key === 'confirm' && styles.keyConfirm]}
+          onPress={() => handleKey(key)}
+          activeOpacity={0.7}
+        >
+          {key === 'backspace' ? (
+            <Ionicons name="backspace-outline" size={F.xl} color={colors.textPrimary} />
+          ) : key === 'confirm' ? (
+            <Ionicons name="checkmark" size={F.xl} color="#fff" />
+          ) : (
+            <Text style={styles.keyText}>{key}</Text>
+          )}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
-      <TouchableOpacity onPress={() => router.dismiss()} style={styles.cancelBtn}>
-        <Text style={styles.cancelText}>Cancel</Text>
-      </TouchableOpacity>
+  const cancel = (
+    <TouchableOpacity onPress={() => router.dismiss()} style={styles.cancelBtn}>
+      <Text style={styles.cancelText}>Cancel</Text>
+    </TouchableOpacity>
+  );
+
+  // Portrait stacks prompt over keypad. Landscape is short, so the vertical
+  // stack overflows and the header scrolls off — split into two columns
+  // (prompt left, keypad right) so everything fits without scrolling.
+  return (
+    <SafeAreaView style={styles.container}>
+      {isLandscape ? (
+        <View style={styles.landscapeBody}>
+          <View style={styles.landscapeLeft}>
+            {prompt}
+            {cancel}
+          </View>
+          {keypad}
+        </View>
+      ) : (
+        <>
+          {prompt}
+          {keypad}
+          {cancel}
+        </>
+      )}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: C.bg,
+    flex: 1, backgroundColor: c.bg,
     alignItems: 'center', justifyContent: 'center', padding: 24,
   },
-  title: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
-  subtitle: { color: C.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
+  title: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 8 },
+  subtitle: { color: c.textSecondary, fontSize: F.sm, textAlign: 'center', marginBottom: 32 },
+
+  // Landscape is short: lay the prompt and keypad side by side so the header
+  // stays on screen and the keys don't balloon to fill the vertical space.
+  landscapeBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 48,
+  },
+  landscapeLeft: { alignItems: 'center', justifyContent: 'center' },
+  promptBlock: { alignItems: 'center' },
 
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 40 },
-  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.pink },
-  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.pink },
+  dotEmpty: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
 
-  keypad: { width: '80%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  keypad: { width: '80%', maxWidth: 360, flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
+  keypadLandscape: { width: 300, maxWidth: 300 },
   key: {
     width: '29%', aspectRatio: 1.4,
-    backgroundColor: C.surface, borderRadius: R.sm,
+    backgroundColor: c.surface, borderRadius: R.sm,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  keyConfirm: { backgroundColor: C.pink, borderColor: C.pink },
-  keyText: { color: C.textPrimary, fontSize: F.xl, fontWeight: '700' },
+  keyConfirm: { backgroundColor: c.pink, borderColor: c.pink },
+  keyText: { color: c.textPrimary, fontSize: F.xl, fontWeight: '700' },
   keyConfirmText: { color: '#fff' },
   cancelBtn: { marginTop: 32 },
-  cancelText: { color: C.textSecondary, fontSize: F.md },
+  cancelText: { color: c.textSecondary, fontSize: F.md },
 
   settingsScrollView: { flex: 1, alignSelf: 'stretch' },
   settingsScroll: { padding: 20, alignItems: 'stretch' },
   settingsRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: C.surface, borderRadius: R.md,
+    backgroundColor: c.surface, borderRadius: R.md,
     padding: 16, marginBottom: 10,
-    borderWidth: 1, borderColor: C.borderDark,
+    borderWidth: 1, borderColor: c.borderDark,
   },
-  settingsRowTitle: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  settingsRowSub: { color: C.textSecondary, fontSize: F.sm, marginTop: 2 },
-  settingsArrow: { color: C.textSecondary, fontSize: F.xl },
-  sectionLabel: { color: C.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+  settingsRowTitle: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  settingsRowSub: { color: c.textSecondary, fontSize: F.sm, marginTop: 2 },
+  settingsArrow: { color: c.textSecondary, fontSize: F.xl },
+  sectionLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginTop: 20, marginBottom: 10 },
 
   qrRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     padding: 12,
     marginBottom: 8,
     gap: 12,
@@ -393,45 +459,45 @@ const styles = StyleSheet.create({
   qrRowThumb: {
     width: 48, height: 48,
     borderRadius: R.sm,
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   qrThumbImage: { width: 48, height: 48 },
   qrRowInfo: { flex: 1 },
-  qrRowLabel: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  qrRowLabelMuted: { color: C.textMuted },
-  qrRowStatus: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+  qrRowLabel: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  qrRowLabelMuted: { color: c.textMuted },
+  qrRowStatus: { color: c.textSecondary, fontSize: F.xs, marginTop: 2 },
   qrRowBtns: { flexDirection: 'row', gap: 6 },
   qrReplaceBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
   },
   qrRemoveBtn: {
-    backgroundColor: C.red,
+    backgroundColor: c.red,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: R.sm,
   },
   qrUploadBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: R.sm,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
   },
-  qrBtnText: { color: C.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  qrBtnText: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
 
   settingsDone: {
-    backgroundColor: C.pink, borderRadius: R.sm,
+    backgroundColor: c.pink, borderRadius: R.sm,
     padding: 15, alignItems: 'center', marginTop: 24,
   },
   settingsDoneText: { color: '#fff', fontWeight: '800', fontSize: F.md },

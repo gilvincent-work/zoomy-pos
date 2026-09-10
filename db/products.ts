@@ -11,6 +11,10 @@ export type Product = {
   subcategory: string | null;
   is_active: number;
   created_at: string;
+  /** The Coop-side pos_products.product_id (SKU Code), once catalog sync assigns one. */
+  sku: string | null;
+  /** Cached Coop stock (pos_inventory), refreshed on every catalog pull. 0 until synced. */
+  stock: number;
 };
 
 /** A category and its (possibly empty) list of subcategories, both sorted alphabetically. */
@@ -102,13 +106,14 @@ export async function createProduct(input: {
   emoji?: string;
   category?: string | null;
   subcategory?: string | null;
+  sku?: string | null;
   variants?: { name: string; price: number }[];
 }): Promise<number> {
   const db = await getDatabase();
   const now = new Date().toISOString();
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji ?? '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, input.category ?? null, input.subcategory ?? null, now]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji ?? '🍬', input.image_uri ?? null, input.has_variants ? 1 : 0, input.category ?? null, input.subcategory ?? null, input.sku ?? null, now]
   );
   const productId = result.lastInsertRowId;
 
@@ -131,16 +136,25 @@ export async function updateProduct(
     price: number | null;
     has_variants: boolean;
     is_active: number;
+    emoji?: string;
     image_uri?: string | null;
     category?: string | null;
     subcategory?: string | null;
+    sku?: string | null;
     variants?: { id?: number; name: string; price: number }[];
   }
 ): Promise<void> {
   const db = await getDatabase();
+  // COALESCE preserves the current value when the caller omits a field, so an
+  // edit that only touches name/price/listing (or just the emoji) can't wipe the
+  // product's tab (category/subcategory), image, or emoji. Callers that mean to
+  // change these still pass a value. (There is no "clear to null" path here; the
+  // catalog is Coop-authoritative for category via applyCatalogUpdate.)
   await db.runAsync(
-    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, image_uri = ?, category = ?, subcategory = ? WHERE id = ?',
-    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, id]
+    'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, ' +
+      'emoji = COALESCE(?, emoji), image_uri = COALESCE(?, image_uri), ' +
+      'category = COALESCE(?, category), subcategory = COALESCE(?, subcategory), sku = ? WHERE id = ?',
+    [fields.name, fields.price, fields.has_variants ? 1 : 0, fields.is_active, fields.emoji ?? null, fields.image_uri ?? null, fields.category ?? null, fields.subcategory ?? null, fields.sku ?? null, id]
   );
 
   if (fields.has_variants && fields.variants) {
@@ -191,6 +205,84 @@ export async function getProductByName(name: string): Promise<Product | null> {
   return row ?? null;
 }
 
+export async function getProductBySku(sku: string): Promise<Product | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<Product>(
+    'SELECT * FROM products WHERE sku = ? LIMIT 1',
+    [sku]
+  );
+  return row ?? null;
+}
+
+/**
+ * Apply a catalog pull from Coop to the local row matched by SKU: Coop is
+ * authoritative for name, price, listed and now category/subcategory (the POS
+ * tab). Name and price fall back to the existing local value when the pull
+ * carries a blank/absent one (so a bad row never wipes a tile's name or price).
+ * Category is overwritten only when Coop provides one (null = unknown -> keep
+ * local); subcategory is set exactly alongside it (so moving a product off
+ * Freeze Dried clears its stale subcategory). When no local row carries the SKU,
+ * the Coop-created product is INSERTed with a default emoji. Returns rows changed
+ * (1 on update or insert). See utils/catalog-sync.ts.
+ */
+export async function applyCatalogUpdate(u: {
+  sku: string;
+  name: string;
+  price: number | null;
+  active: boolean;
+  category: string | null;
+  subcategory: string | null;
+  emoji: string | null;
+  stock: number;
+}): Promise<number> {
+  const db = await getDatabase();
+  // Coop is the merge point for every field, including emoji: a POS edit
+  // pushes to Coop (utils/products-sync.ts), and this pull applies whatever
+  // Coop currently has, so the most recently edited value (from any device or
+  // the Coop dashboard) converges everywhere. COALESCE only preserves the
+  // local value when Coop's is unset (e.g. legacy rows with no emoji yet) —
+  // it never resets emoji to a default.
+  const res = await db.runAsync(
+    "UPDATE products SET name = COALESCE(NULLIF(?, ''), name), price = COALESCE(?, price), is_active = ?, " +
+      'category = COALESCE(?, category), subcategory = CASE WHEN ? IS NOT NULL THEN ? ELSE subcategory END, ' +
+      'emoji = COALESCE(?, emoji), stock = ? WHERE sku = ?',
+    [u.name, u.price, u.active ? 1 : 0, u.category, u.category, u.subcategory, u.emoji, u.stock, u.sku]
+  );
+  if (res.changes > 0) return res.changes;
+
+  // No local row for this SKU — insert the Coop-created product so it appears on
+  // the tiles, seeded with Coop's emoji (falling back to the default) and stock.
+  // Skip nameless rows.
+  if (!u.name) return 0;
+  const ins = await db.runAsync(
+    'INSERT INTO products (name, price, emoji, has_variants, category, subcategory, sku, is_active, stock, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
+    [u.name, u.price, u.emoji || '🍬', u.category, u.subcategory, u.sku, u.active ? 1 : 0, u.stock, new Date().toISOString()]
+  );
+  return ins.changes;
+}
+
+/**
+ * Decrement the local stock cache right after a sale is recorded, so the tile
+ * warning reflects this device's own sale immediately — without waiting for
+ * the next catalog pull (which only reconciles against Coop periodically).
+ * Coop's own stock already deducted server-side the moment the sale reached
+ * it (apply_pos_order); this just keeps the *local* cache from reading stale
+ * between syncs. Allowed to go negative, mirroring Coop's oversell behavior —
+ * an oversold local cache is exactly what should show "Oversold" on the tile.
+ * A later catalog pull always overwrites this with Coop's authoritative count.
+ */
+export async function decrementStock(items: { productId: number; quantity: number }[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDatabase();
+  const totals = new Map<number, number>();
+  for (const item of items) {
+    totals.set(item.productId, (totals.get(item.productId) ?? 0) + item.quantity);
+  }
+  for (const [productId, qty] of totals) {
+    await db.runAsync('UPDATE products SET stock = stock - ? WHERE id = ?', [qty, productId]);
+  }
+}
+
 export async function getVariantByProductIdAndName(
   productId: number,
   name: string
@@ -211,6 +303,7 @@ export type UpsertProductInput = {
   image_uri?: string | null;
   category?: string | null;
   subcategory?: string | null;
+  sku?: string | null;
 };
 
 export type UpsertResult = { id: number; inserted: boolean };
@@ -222,20 +315,20 @@ export async function upsertProduct(input: UpsertProductInput): Promise<UpsertRe
   if (existing) {
     if (hasImageUri) {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, input.category ?? null, input.subcategory ?? null, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, image_uri = ?, category = ?, subcategory = ?, sku = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.image_uri ?? null, input.category ?? null, input.subcategory ?? null, input.sku ?? existing.sku, existing.id]
       );
     } else {
       await db.runAsync(
-        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, category = ?, subcategory = ?, is_active = 1 WHERE id = ?',
-        [input.price, input.emoji, input.has_variants, input.category ?? null, input.subcategory ?? null, existing.id]
+        'UPDATE products SET price = ?, emoji = ?, has_variants = ?, category = ?, subcategory = ?, sku = ?, is_active = 1 WHERE id = ?',
+        [input.price, input.emoji, input.has_variants, input.category ?? null, input.subcategory ?? null, input.sku ?? existing.sku, existing.id]
       );
     }
     return { id: existing.id, inserted: false };
   }
   const result = await db.runAsync(
-    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, input.category ?? null, input.subcategory ?? null, new Date().toISOString()]
+    'INSERT INTO products (name, price, emoji, image_uri, has_variants, category, subcategory, sku, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+    [input.name, input.price, input.emoji, input.image_uri ?? null, input.has_variants, input.category ?? null, input.subcategory ?? null, input.sku ?? null, new Date().toISOString()]
   );
   return { id: result.lastInsertRowId, inserted: true };
 }

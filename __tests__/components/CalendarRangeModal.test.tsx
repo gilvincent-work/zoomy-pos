@@ -4,6 +4,23 @@ import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 
 const initial = { start: new Date(2026, 5, 1), end: new Date(2026, 5, 1) };
 
+// The calendar opens on "today" when no range is given, so pin the clock to
+// June 2026 to keep the cal-day-2026-5-* testIDs stable regardless of run date.
+// Only Date is faked; timers stay real so RN async rendering is unaffected.
+beforeAll(() => {
+  jest.useFakeTimers({
+    doNotFake: [
+      'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+      'setImmediate', 'clearImmediate', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'queueMicrotask', 'nextTick',
+    ],
+  });
+  jest.setSystemTime(new Date(2026, 5, 15));
+});
+afterAll(() => {
+  jest.useRealTimers();
+});
+
 describe('CalendarRangeModal', () => {
   it('applies a range after tapping a start and end day', () => {
     const onApply = jest.fn();

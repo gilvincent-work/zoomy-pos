@@ -118,6 +118,31 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE saved_bundles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`
   ).catch(() => {});
 
+  // Pick bundles: "buy any N flavors from selected product lines" for a fixed
+  // price. Legacy bundles stay bundle_type 'fixed' (items_json is the item list);
+  // 'pick' bundles use pick_count + line_categories and select flavors at sale time.
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN bundle_type TEXT NOT NULL DEFAULT 'fixed'`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN pick_count INTEGER`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN line_categories TEXT`
+  ).catch(() => {});
+
+  // Shared id (matches Coop pos_bundles.bundle_id) so a bundle created on one
+  // device syncs to the others, plus an editable tile emoji.
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN bundle_uuid TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE saved_bundles ADD COLUMN emoji TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE products ADD COLUMN image_uri TEXT`
   ).catch(() => {});
@@ -131,8 +156,34 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE products ADD COLUMN subcategory TEXT`
   ).catch(() => {});
 
+  // Coop integration: the SKU Code that identifies this product as
+  // pos_products.product_id once catalog sync (Phase 2) is wired up.
+  // Nullable — locally-created products have none until synced.
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN sku TEXT`
+  ).catch(() => {});
+
+  await db.execAsync(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku) WHERE sku IS NOT NULL`
+  );
+
+  // Local cache of Coop's on-hand stock (pos_inventory), refreshed on every
+  // catalog pull. Coop-authoritative — unlike emoji, the pull always overwrites
+  // this. Powers the low/oversold tile warning; 0 for locally-created products
+  // with no SKU yet (never synced, so no stock signal to show).
+  await db.runAsync(
+    `ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0`
+  ).catch(() => {});
+
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN remarks TEXT`
+  ).catch(() => {});
+
+  // Idempotency key shared with Coop's pos_orders.client_uuid. Lets the
+  // Transactions screen merge this device's sales with the ones pulled back
+  // from Coop (other devices) without double-counting a sale it also pushed.
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN client_uuid TEXT`
   ).catch(() => {});
 
   await db.runAsync(

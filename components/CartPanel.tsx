@@ -1,16 +1,25 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
+import type { PaymentMethod } from '../db/transactions';
+import { quickMethodMeta } from '../constants/payment';
+import { PaymentMethodTabs } from './PaymentMethodTabs';
 
 type Props = {
-  /** One-tap instant cash: record the sale as paid-in-cash. */
+  /** Selected quick payment method. */
+  method: PaymentMethod;
+  onMethodChange: (method: PaymentMethod) => void;
+  /** Methods to offer, from Settings -> Payment Options. Defaults to all. */
+  enabledMethods?: PaymentMethod[];
+  /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
-  /** Secondary path to the full payment modal (GCash QR, change, receipt photo). */
-  onMorePayment?: () => void;
   /** Compact spacing for the narrow landscape side pane. */
   compact?: boolean;
+  /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
+  canIncrement?: (productId: number) => boolean;
 };
 
 /**
@@ -18,13 +27,20 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, compact, canIncrement }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
+  const meta = quickMethodMeta(method);
+  // On a short viewport (landscape phone) the fixed total + Charge block crowds
+  // the receipt, so tighten those and give the scrolling lines more room.
+  const { height } = useWindowDimensions();
+  const tight = height < 500;
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, tight && styles.headerTight]}>
         <Text style={styles.headerLabel}>Current Sale</Text>
       </View>
 
@@ -40,10 +56,12 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
             {items.map((item) => {
               const key = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
               const lineTotal = item.price * item.quantity;
+              // Variants have no per-variant stock tracking, so they're always incrementable.
+              const atStockLimit = !item.variantId && canIncrement && !canIncrement(item.productId);
               return (
                 <View key={key} style={styles.line}>
                   <View style={styles.lineInfo}>
-                    <Text style={styles.lineName} numberOfLines={1}>
+                    <Text style={styles.lineName} numberOfLines={2}>
                       {item.productName}
                       {item.variantName ? ` · ${item.variantName}` : ''}
                     </Text>
@@ -61,7 +79,8 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
                     <Text style={styles.stepQty}>{item.quantity}</Text>
                     <TouchableOpacity
                       testID={`cart-plus-${key}`}
-                      style={[styles.stepBtn, styles.stepPlus]}
+                      style={[styles.stepBtn, styles.stepPlus, atStockLimit && styles.stepBtnDisabled]}
+                      disabled={atStockLimit}
                       onPress={() =>
                         addItem({
                           id: item.productId,
@@ -84,7 +103,7 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     accessibilityLabel={`Remove ${item.productName}`}
                   >
-                    <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                    <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
               );
@@ -116,48 +135,36 @@ export function CartPanel({ onCharge, onMorePayment, compact }: Props) {
         )}
       </ScrollView>
 
-      <View style={[styles.footer, compact && styles.footerCompact]}>
+      <View style={[styles.footer, compact && styles.footerCompact, tight && styles.footerTight]}>
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>₱{total.toFixed(2)}</Text>
+          <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
+        <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
         <TouchableOpacity
           testID="cart-charge"
-          style={[styles.charge, isEmpty && styles.chargeDisabled]}
+          style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
           disabled={isEmpty}
           onPress={onCharge}
-          onLongPress={onMorePayment}
-          delayLongPress={350}
           activeOpacity={0.85}
         >
-          <Text style={styles.chargeText}>💵  Cash · Paid</Text>
+          <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
         </TouchableOpacity>
-        {onMorePayment && (
-          <TouchableOpacity
-            testID="cart-more-payment"
-            style={styles.moreBtn}
-            onPress={onMorePayment}
-            disabled={isEmpty}
-          >
-            <Text style={[styles.moreText, isEmpty && styles.moreTextDisabled]}>
-              GCash / other · change
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   header: {
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 8,
   },
+  headerTight: { paddingTop: 6, paddingBottom: 4 },
   headerLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
@@ -166,7 +173,7 @@ const styles = StyleSheet.create({
   lines: { flex: 1 },
   linesContent: { paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
   empty: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.sm,
     paddingVertical: 24,
     paddingHorizontal: 4,
@@ -177,17 +184,17 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: C.borderDark,
+    borderBottomColor: c.borderDark,
   },
   lineInfo: { flex: 1, minWidth: 0, gap: 2 },
-  lineName: { color: C.textPrimary, fontSize: F.sm, fontWeight: '600' },
-  lineUnit: { color: C.textMuted, fontSize: F.xs },
-  bundleTag: { color: C.pink, fontWeight: '800' },
+  lineName: { color: c.textPrimary, fontSize: F.sm, fontWeight: '600', lineHeight: 17 },
+  lineUnit: { color: c.textMuted, fontSize: F.xs },
+  bundleTag: { color: c.pink, fontWeight: '800' },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -197,26 +204,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepPlus: { backgroundColor: C.pink },
-  stepMinus: { color: C.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  stepPlus: { backgroundColor: c.pink },
+  stepBtnDisabled: { opacity: 0.35 },
+  stepMinus: { color: c.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepPlusText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepQty: {
     minWidth: 26,
     textAlign: 'center',
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     fontWeight: '800',
   },
   bundleRemove: {
     borderWidth: 1,
-    borderColor: C.redDim,
-    backgroundColor: C.redSubtle,
+    borderColor: c.redDim,
+    backgroundColor: c.redSubtle,
     borderRadius: 8,
     width: 26,
     height: 26,
   },
   lineTotal: {
-    color: C.textPrimary,
+    color: c.textPrimary,
     fontSize: F.sm,
     fontWeight: '800',
     minWidth: 56,
@@ -231,28 +239,29 @@ const styles = StyleSheet.create({
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
+    borderTopColor: c.borderDark,
     padding: 14,
     gap: 10,
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
   },
   footerCompact: { padding: 12, gap: 8 },
+  footerTight: { padding: 10, gap: 6 },
   totalRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
   },
-  totalLabel: { color: C.textSecondary, fontSize: F.sm, fontWeight: '700' },
-  totalValue: { color: C.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  totalLabel: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  totalValue: { color: c.textPrimary, fontSize: F.xxl, fontWeight: '800' },
+  totalValueTight: { fontSize: F.xl },
   charge: {
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     borderRadius: R.md,
     paddingVertical: 15,
     alignItems: 'center',
   },
-  chargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  chargeTight: { paddingVertical: 10 },
+  chargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   chargeText: { color: '#fff', fontSize: F.lg, fontWeight: '800' },
-  moreBtn: { alignItems: 'center', paddingVertical: 4 },
-  moreText: { color: C.textSecondary, fontSize: F.xs, fontWeight: '700' },
-  moreTextDisabled: { color: C.textMuted },
+  chargeTextDisabled: { color: c.textMuted },
 });

@@ -1,15 +1,23 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder,
   useWindowDimensions, Pressable,
 } from 'react-native';
-import { C, F, R } from '../constants/theme';
+import { F, R, type Palette } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 import { CartPanel } from './CartPanel';
+import { PaymentMethodTabs } from './PaymentMethodTabs';
+import type { PaymentMethod } from '../db/transactions';
+import { quickMethodMeta } from '../constants/payment';
 
 type Props = {
+  method: PaymentMethod;
+  onMethodChange: (method: PaymentMethod) => void;
+  enabledMethods?: PaymentMethod[];
   onCharge: () => void;
-  onMorePayment?: () => void;
+  /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
+  canIncrement?: (productId: number) => boolean;
 };
 
 /**
@@ -17,8 +25,11 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ onCharge, onMorePayment }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, canIncrement }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
+  const meta = quickMethodMeta(method);
   const { height } = useWindowDimensions();
   const sheetHeight = Math.min(height * 0.7, 520);
   const [expanded, setExpanded] = useState(false);
@@ -92,6 +103,9 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
         {...peekPan.panHandlers}
       >
         <View style={styles.grabber} />
+        <View style={styles.peekMethods}>
+          <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={cartCount === 0} compact />
+        </View>
         <View style={styles.peekRow}>
           <Pressable
             testID="cart-sheet-peek"
@@ -110,10 +124,8 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
             style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
             disabled={cartCount === 0}
             onPress={onCharge}
-            onLongPress={onMorePayment}
-            delayLongPress={350}
           >
-            <Text style={styles.peekChargeText}>Cash · Paid</Text>
+            <Text style={[styles.peekChargeText, cartCount === 0 && styles.peekChargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -136,21 +148,22 @@ export function CartSheet({ onCharge, onMorePayment }: Props) {
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={styles.grabber} />
         </View>
-        <CartPanel onCharge={onCharge} onMorePayment={onMorePayment} />
+        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} canIncrement={canIncrement} />
       </Animated.View>
     </>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) => StyleSheet.create({
   peek: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
     borderTopWidth: 1,
-    borderTopColor: C.borderDark,
-    backgroundColor: C.surface,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
   },
+  peekMethods: { marginBottom: 10 },
   peekRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -161,20 +174,21 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: C.border,
+    backgroundColor: c.border,
     alignSelf: 'center',
     marginBottom: 10,
   },
-  peekCount: { color: C.textSecondary, fontSize: F.xs, fontWeight: '600' },
-  peekTotal: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  peekCount: { color: c.textSecondary, fontSize: F.xs, fontWeight: '600' },
+  peekTotal: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800' },
   peekCharge: {
-    backgroundColor: C.green,
+    backgroundColor: c.green,
     borderRadius: R.sm,
     paddingVertical: 13,
     paddingHorizontal: 20,
   },
-  peekChargeDisabled: { backgroundColor: C.elevated, borderWidth: 1, borderColor: C.border },
+  peekChargeDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
   peekChargeText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
+  peekChargeTextDisabled: { color: c.textMuted },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -184,11 +198,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: C.bg,
+    backgroundColor: c.bg,
     borderTopLeftRadius: R.xl,
     borderTopRightRadius: R.xl,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
     overflow: 'hidden',
   },
   dragHandleArea: {

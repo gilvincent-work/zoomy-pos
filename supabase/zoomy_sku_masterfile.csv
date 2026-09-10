@@ -1,0 +1,27 @@
+SKU Code,Status,Product Name,Brand,Category,Format / Product Line,Protein,Cut,Size,Unit,Seq No.,Bundle?,Bundle Qty,Barcode,Image,Date Added,Decoded Description,Notes
+ZMYFDFDRCHKBRT01,Active,Freeze-Dried Chicken Breast Cubes ,ZMY,FD,FDR,CHK,BRT,40,G,01,No,,731788893071,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Chicken | Breast | 40g | Variant 01,Example - first chicken breast recipe
+ZMYFDFDRCHKLVR01,Active,Freeze-Dried Chicken Liver Cubes ,ZMY,FD,FDR,CHK,LVR,40,G,01,No,,731788893088,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Chicken | Liver | 40g | Variant 01,"Example - same protein+cut, disambiguated via Seq No."
+ZMYFDFDRDCKBRT01,Active,Freeze-Dried Duck Breast Cubes ,ZMY,FD,FDR,DCK,BRT,40,G,01,No,,731788893095,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Duck | Breast | 40g | Variant 01,"Example - different cut, Seq No. resets to 01"
+ZMYFDFDRBEFLVR01,Active,Freeze-Dried Beef Liver Cubes ,ZMY,FD,FDR,BEF,LVR,40,G,01,No,,731788893101,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Beef | Liver | 40g | Variant 01,
+ZMYFDFDRLMBLVR01,Active,Freeze-Dried Lamb Liver Cubes ,ZMY,FD,FDR,LMB,LVR,40,G,01,No,,731788893118,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Lamb | Liver | 40g | Variant 01,
+ZMYFDFDRCGRCUB01,Active,Freeze-Dried Cat Grass Cubes ,ZMY,FD,FDR,CGR,CUB,40,G,01,No,,731788893125,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | CGR | CUB | 40g | Variant 01,
+ZMYFDFDRCGRSTK01,Active,Freeze-Dried Cat Grass Stick ,ZMY,FD,FDR,CGR,STK,40,G,01,No,,731788893132,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | CGR | Steak | 40g | Variant 01,
+ZMYFDFDRYOGWHL01,Active,Freeze-Dried Yoghurt Cubes ,ZMY,FD,FDR,YOG,WHL,40,G,01,No,,731788893149,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | YOG | Whole / Mixed (Default) | 40g | Variant 01,
+ZMYFDFDRCAPWHL01,Active,Freeze-Dried Capelin,ZMY,FD,FDR,CAP,WHL,40,G,01,No,,731788893156,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | CAP | Whole / Mixed (Default) | 40g | Variant 01,
+ZMYFDFDRSLMCUB01,Active,Freeze-Dried Salmon Cubes,ZMY,FD,FDR,SLM,CUB,40,G,01,No,,731788893163,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Salmon | CUB | 40g | Variant 01,
+ZMYFDFDRSLMWHL01,Active,Freeze-Dried Salmon Steak,ZMY,FD,FDR,SLM,WHL,40,G,01,No,,731788893170,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Salmon | Whole / Mixed (Default) | 40g | Variant 01,
+ZMYFDJRKCHKCAR01,Active,Super Duo Bites Chicken Carrot,ZMY,FD,JRK,CHK,CAR,80,G,01,No,,731788893187,,2026-08-14,Zoomy | Food & Treats | Jerky | Chicken | CAR | 80g | Variant 01,
+ZMYFDJRKDCKCAR01,Active,Super Duo Bites Duck Carrot,ZMY,FD,JRK,DCK,CAR,80,G,01,No,,731788893194,,2026-08-14,Zoomy | Food & Treats | Jerky | Duck | CAR | 80g | Variant 01,
+ZMYFDJRKDCKPER01,Active,Super Duo Bites Duck Pear,ZMY,FD,JRK,DCK,PER,80,G,01,No,,731788893200,,2026-08-14,Zoomy | Food & Treats | Jerky | Duck | Pear | 80g | Variant 01,
+ZMYFDMEATBEFWHL01,Active,Meaty Treats Beef,ZMY,FD,MEAT,BEF,WHL,80,G,01,No,,731788893217,,2026-08-14,Zoomy | Food & Treats | MEAT | Beef | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDMEATCHKWHL01,Active,Meaty Treats Chicken,ZMY,FD,MEAT,CHK,WHL,80,G,01,No,,731788893224,,2026-08-14,Zoomy | Food & Treats | MEAT | Chicken | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDMEATDCKWHL01,Active,Meaty Treats Duck,ZMY,FD,MEAT,DCK,WHL,80,G,01,No,,731788893231,,2026-08-14,Zoomy | Food & Treats | MEAT | Duck | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDMEATSLMWHL01,Active,Meaty Treats Salmon,ZMY,FD,MEAT,SLM,WHL,80,G,01,No,,731788893248,,2026-08-14,Zoomy | Food & Treats | MEAT | Salmon | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDJRKCHKWHL01,Active,Tasty Treats Chicken Jerky,ZMY,FD,JRK,CHK,WHL,80,G,01,No,,731788893255,,2026-08-14,Zoomy | Food & Treats | Jerky | Chicken | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDJRKDCKWHL01,Active,Tasty Treats Duck Jerky,ZMY,FD,JRK,DCK,WHL,80,G,01,No,,731788893262,,2026-08-14,Zoomy | Food & Treats | Jerky | Duck | Whole / Mixed (Default) | 80g | Variant 01,
+ZMYFDFDRCHKEGG01,Active,Freeze-Dried Chicken & Egg,ZMY,FD,FDR,CHK,EGG,40,G,01,No,,731788893200,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Chicken | EGG | 40g | Variant 01,
+ZMYFDFDRBEFBLU01,Active,Freeze-Dried Beef Blueberry,ZMY,FD,FDR,BEF,BLU,40,G,01,No,,,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Beef | BLU | 40g | Variant 01,
+ZMYFDFDRCHKCRA01,Active,Freeze-Dried Chicken Cranberry,ZMY,FD,FDR,CHK,CRA,40,G,01,No,,,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Chicken | CRA | 40g | Variant 01,
+ZMYFDFDRCHKPUM01,Active,Freeze-Dried Chicken Pumpkin,ZMY,FD,FDR,CHK,PUM,40,G,01,No,,,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Chicken | PUM | 40g | Variant 01,
+ZMYFDFDRDCKPER01,Active,Freeze-Dried Duck Pear,ZMY,FD,FDR,DCK,PER,40,G,01,No,,,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Duck | Pear | 40g | Variant 01,
+ZMYFDFDRDCKAPP01,Active,Freeze-Dried Duck Apple,ZMY,FD,FDR,DCK,APP,40,G,01,No,,,,2026-08-14,Zoomy | Food & Treats | Freeze-Dried | Duck | APP | 40g | Variant 01,

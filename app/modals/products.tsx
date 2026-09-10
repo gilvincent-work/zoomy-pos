@@ -1,45 +1,46 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Image,
+  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
-import { getAllProducts, createProduct, updateProduct, deleteProduct, Product, ProductVariant, getAllVariantsByProductId } from '../../db/products';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
+import { bundleLineSummary, lineEmojis } from '../../utils/bundles';
+import { getAllProducts, updateProduct, deleteProduct, Product } from '../../db/products';
 import {
-  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
+  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle,
+  updateBundleEmoji, getSavedBundleById, SavedBundle,
 } from '../../db/saved-bundles';
-import { copyToDocumentDir } from '../../utils/photos';
+import { pushBundle, deleteBundleRemote } from '../../utils/bundles-sync';
+import { pushProductRename, pushProductReprice, pushProductEmoji, pushProductListing } from '../../utils/products-sync';
+import { categoryOf } from '../../utils/catalog-filter';
+import { CategoryTabs } from '../../components/CategoryTabs';
+import { SubcategoryFilter } from '../../components/SubcategoryFilter';
+import { PullToRefresh } from '../../components/PullToRefresh';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../constants/emoji';
 import { Ionicons } from '@expo/vector-icons';
-import { C, F, R } from '../../constants/theme';
+import { F, R, type Palette } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 
-async function confirmAction(
-  title: string,
-  message: string,
-  destructiveLabel: string
-): Promise<boolean> {
-  if (Platform.OS === 'web') {
-    return window.confirm(`${title}\n\n${message}`);
-  }
-  return new Promise((resolve) => {
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
-    ]);
-  });
-}
+/** Pseudo-pill that shows every product line at once; the default view. */
+const ALL_LINES = 'All';
+/** Pseudo-pill that shows the Bundle Presets instead of individual products. */
+const BUNDLES_LINE = 'Bundles';
 
-type VariantFormRow = { id?: number; name: string; price: string };
-type ProductForm = { name: string; price: string; hasVariants: boolean; variants: VariantFormRow[]; imageUri: string | null };
+type ProductForm = { name: string; price: string; emoji: string };
 type BundleForm = { name: string; price: string };
 type FormMode = 'product' | 'bundle';
 
-const EMPTY_PRODUCT: ProductForm = { name: '', price: '', hasVariants: false, variants: [], imageUri: null };
+const EMPTY_PRODUCT: ProductForm = { name: '', price: '', emoji: '🍬' };
 const EMPTY_BUNDLE: BundleForm = { name: '', price: '' };
 
 export default function ProductsModal() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { showToast } = useToast();
+  const navigation = useNavigation();
   const [products, setProducts] = useState<(Product & { variant_count: number })[]>([]);
   const [bundles, setBundles] = useState<SavedBundle[]>([]);
   const [productForm, setProductForm] = useState<ProductForm>(EMPTY_PRODUCT);
@@ -47,6 +48,22 @@ export default function ProductsModal() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formMode, setFormMode] = useState<FormMode>('product');
   const [showForm, setShowForm] = useState(false);
+  // Bundle emoji editor (tap-only palette in a small modal).
+  const [emojiBundle, setEmojiBundle] = useState<SavedBundle | null>(null);
+  const [emojiDraft, setEmojiDraft] = useState('');
+  // Delete confirm (product or bundle) — one shared modal, see handleConfirmDelete.
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'product' | 'bundle'; id: number; name: string } | null>(null);
+  // Which product line's pills is active on the list view. "All" shows everything.
+  const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
+  // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
+  const [activeSub, setActiveSub] = useState<string | null>(null);
+
+  // The form is an in-place sub-view, not its own route. Hide the modal's native
+  // "Products" header while it's open so the form's own back arrow is the single
+  // affordance, and it returns to the product list (not out to the POS page).
+  useEffect(() => {
+    navigation.setOptions({ headerShown: !showForm });
+  }, [navigation, showForm]);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,126 +71,112 @@ export default function ProductsModal() {
     }, [])
   );
 
+  // Pills, derived from the loaded catalog: "All", each distinct product line
+  // (alphabetical), then a "Bundles" pill (only when presets exist). Lets staff
+  // jump straight to a line or the bundles instead of scrolling one long list.
+  const lineNames = useMemo(() => {
+    const lines = Array.from(new Set(products.map(categoryOf))).sort((a, b) => a.localeCompare(b));
+    return [ALL_LINES, ...lines, ...(bundles.length > 0 ? [BUNDLES_LINE] : [])];
+  }, [products, bundles]);
+
+  // "All" shows both sections; a product line shows only its products; "Bundles"
+  // shows only the presets.
+  const showProducts = activeLine !== BUNDLES_LINE;
+  const showBundles = activeLine === ALL_LINES || activeLine === BUNDLES_LINE;
+
+  // Subcategory chips for the active line (e.g. Freeze Dried has Fish / Meats /
+  // Cat Grass · Yogurt / Super Food). Empty for "All", "Bundles", and lines with
+  // no subcategories, so no secondary row shows there.
+  const subNames = useMemo(() => {
+    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return [];
+    const subs = new Set<string>();
+    for (const p of products) {
+      if (categoryOf(p) === activeLine && p.subcategory && p.subcategory.trim()) {
+        subs.add(p.subcategory);
+      }
+    }
+    return Array.from(subs).sort((a, b) => a.localeCompare(b));
+  }, [products, activeLine]);
+
+  const visibleProducts = useMemo(() => {
+    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return products;
+    return products.filter((p) => {
+      if (categoryOf(p) !== activeLine) return false;
+      return activeSub == null || p.subcategory === activeSub;
+    });
+  }, [products, activeLine, activeSub]);
+
+  // Switching lines clears any subcategory narrowing; tapping the active
+  // subcategory again clears back to the whole line.
+  function selectLine(line: string) {
+    setActiveLine(line);
+    setActiveSub(null);
+  }
+  function selectSub(sub: string) {
+    setActiveSub((cur) => (cur === sub ? null : sub));
+  }
+
   async function refreshAll() {
     const [p, b] = await Promise.all([getAllProducts(), getAllSavedBundles()]);
     setProducts(p);
     setBundles(b);
   }
 
-  // ─── Image picker ─────────────────────────────────────────────────────────
-
-  function pickImage() {
-    if (Platform.OS === 'web') {
-      // On iOS PWA, Alert callbacks are async and lose the user-gesture context,
-      // blocking programmatic input.click(). Trigger the file input directly here
-      // so the click happens in the same synchronous user-gesture stack.
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (file) {
-          const uri = URL.createObjectURL(file);
-          const saved = await copyToDocumentDir(uri, `product_${Date.now()}.jpg`);
-          setProductForm((f) => ({ ...f, imageUri: saved }));
-        }
-      };
-      input.click();
-      return;
-    }
-
-    Alert.alert('Product Photo', 'Choose a source', [
-      {
-        text: 'Take Photo',
-        onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('Permission needed', 'Camera access is required to take photos.');
-            return;
-          }
-          const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-          if (!result.canceled && result.assets[0]) {
-            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
-            setProductForm((f) => ({ ...f, imageUri: saved }));
-          }
-        },
-      },
-      {
-        text: 'Choose from Library',
-        onPress: async () => {
-          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.7 });
-          if (!result.canceled && result.assets[0]) {
-            const saved = await copyToDocumentDir(result.assets[0].uri, `product_${Date.now()}.jpg`);
-            setProductForm((f) => ({ ...f, imageUri: saved }));
-          }
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }
-
   // ─── Product actions ──────────────────────────────────────────────────────
 
+  // The POS edits a product's display name, price, and emoji (creation, photos
+  // and variants are Coop-owned). Each changed field also pushes to Coop
+  // (best-effort, fire-and-forget) so the edit shows on the Coop dashboard and
+  // reaches every other device on their next catalog pull — only possible once
+  // the product has a sku (i.e. it has been through at least one sync).
   async function handleSaveProduct() {
     const name = productForm.name.trim();
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
+    if (editingId === null) return; // creation is Coop-only; no create path here.
 
-    if (productForm.hasVariants) {
-      const validVariants = productForm.variants.filter((v) => v.name.trim());
-      if (validVariants.length === 0) {
-        Alert.alert('Required', 'Add at least one variant.');
-        return;
-      }
-      for (const v of validVariants) {
-        const p = parseFloat(v.price);
-        if (isNaN(p) || p <= 0) {
-          Alert.alert('Invalid price', `Enter a valid price for "${v.name}".`);
-          return;
-        }
-      }
-      const parsedVariants = validVariants.map((v) => ({
-        id: v.id,
-        name: v.name.trim(),
-        price: parseFloat(v.price),
-      }));
+    const existing = products.find((p) => p.id === editingId)!;
+    const emoji = clampEmoji(productForm.emoji) || '🍬';
+    let price: number | null = null;
 
-      if (editingId !== null) {
-        const existing = products.find((p) => p.id === editingId)!;
-        await updateProduct(editingId, {
-          name,
-          price: null,
-          has_variants: true,
-          is_active: existing.is_active,
-          image_uri: productForm.imageUri,
-          variants: parsedVariants,
-        });
-      } else {
-        await createProduct({
-          name,
-          price: null,
-          has_variants: true,
-          image_uri: productForm.imageUri,
-          variants: parsedVariants,
-        });
-      }
+    if (existing.has_variants === 1) {
+      await updateProduct(editingId, {
+        name,
+        price: null,
+        has_variants: true,
+        is_active: existing.is_active,
+        emoji,
+        image_uri: existing.image_uri,
+        // Preserve the product's tab; updateProduct writes category/subcategory
+        // unconditionally, so omitting these wiped them to Uncategorized.
+        category: existing.category,
+        subcategory: existing.subcategory,
+        sku: existing.sku,
+        // No variants array: updateProduct leaves the existing variants intact.
+      });
     } else {
-      const price = parseFloat(productForm.price);
+      price = parseFloat(productForm.price);
       if (isNaN(price) || price <= 0) {
         Alert.alert('Invalid price', 'Enter a valid price.'); return;
       }
+      await updateProduct(editingId, {
+        name,
+        price,
+        has_variants: false,
+        is_active: existing.is_active,
+        emoji,
+        image_uri: existing.image_uri,
+        category: existing.category,
+        subcategory: existing.subcategory,
+        sku: existing.sku,
+      });
+    }
 
-      if (editingId !== null) {
-        const existing = products.find((p) => p.id === editingId)!;
-        await updateProduct(editingId, {
-          name,
-          price,
-          has_variants: false,
-          is_active: existing.is_active,
-          image_uri: productForm.imageUri,
-        });
-      } else {
-        await createProduct({ name, price, has_variants: false, image_uri: productForm.imageUri });
+    if (existing.sku) {
+      if (name !== existing.name) pushProductRename(existing.sku, name);
+      if (existing.has_variants !== 1 && price !== null && price !== existing.price) {
+        pushProductReprice(existing.sku, price);
       }
+      if (emoji !== existing.emoji) pushProductEmoji(existing.sku, emoji);
     }
 
     await refreshAll();
@@ -181,51 +184,35 @@ export default function ProductsModal() {
   }
 
   async function handleToggleProduct(product: Product) {
+    const nextActive = product.is_active === 1 ? 0 : 1;
     await updateProduct(product.id, {
       name: product.name,
       price: product.price,
       has_variants: product.has_variants === 1,
-      is_active: product.is_active === 1 ? 0 : 1,
+      is_active: nextActive,
+      // Preserve tab + image (updateProduct writes these unconditionally).
+      category: product.category,
+      subcategory: product.subcategory,
+      image_uri: product.image_uri,
+      sku: product.sku,
     });
+    if (product.sku) pushProductListing(product.sku, nextActive === 1);
     setProducts(await getAllProducts());
   }
 
-  async function startEditProduct(product: Product) {
-    let variants: VariantFormRow[] = [];
-    if (product.has_variants) {
-      const dbVariants = await getAllVariantsByProductId(product.id);
-      variants = dbVariants.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: String(v.price),
-      }));
-    }
+  function startEditProduct(product: Product) {
     setProductForm({
       name: product.name,
       price: product.price != null ? String(product.price) : '',
-      hasVariants: product.has_variants === 1,
-      variants,
-      imageUri: product.image_uri ?? null,
+      emoji: product.emoji || '🍬',
     });
     setEditingId(product.id);
     setFormMode('product');
     setShowForm(true);
   }
 
-  async function confirmDeleteProduct(id: number, name: string) {
-    const ok = await confirmAction('Delete Product', `Remove "${name}" permanently?`, 'Delete');
-    if (!ok) return;
-    try {
-      await deleteProduct(id);
-      await refreshAll();
-      showToast({ variant: 'success', title: 'Product deleted' });
-    } catch (e) {
-      showToast({
-        variant: 'error',
-        title: 'Delete failed',
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
+  function confirmDeleteProduct(id: number, name: string) {
+    setDeleteTarget({ type: 'product', id, name });
   }
 
   // ─── Bundle actions ───────────────────────────────────────────────────────
@@ -237,8 +224,9 @@ export default function ProductsModal() {
     if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
 
     if (editingId !== null) {
-      const existing = bundles.find((b) => b.id === editingId)!;
-      await updateSavedBundle(editingId, { name, price, items: existing.items });
+      await updateSavedBundle(editingId, { name, price, items: bundles.find((b) => b.id === editingId)!.items });
+      const saved = await getSavedBundleById(editingId);
+      if (saved) pushBundle(saved); // share the edit to Coop / other devices
     }
     await refreshAll();
     cancelForm();
@@ -246,23 +234,44 @@ export default function ProductsModal() {
 
   async function handleToggleBundle(bundle: SavedBundle) {
     await toggleSavedBundle(bundle.id, bundle.is_active === 1 ? 0 : 1);
+    const saved = await getSavedBundleById(bundle.id);
+    if (saved) pushBundle(saved);
     setBundles(await getAllSavedBundles());
   }
 
   function startEditBundle(bundle: SavedBundle) {
+    // Pick bundles carry lines and an amount, so edit them in the full Add Bundle
+    // screen; the inline form only handles a legacy fixed bundle's name and price.
+    if (bundle.bundle_type === 'pick') {
+      router.push(`/modals/bundle?editId=${bundle.id}`);
+      return;
+    }
     setBundleForm({ name: bundle.name, price: String(bundle.price) });
     setEditingId(bundle.id);
     setFormMode('bundle');
     setShowForm(true);
   }
 
-  async function confirmDeleteBundle(id: number, name: string) {
-    const ok = await confirmAction('Delete Bundle', `Remove "${name}" preset permanently?`, 'Delete');
-    if (!ok) return;
+  function confirmDeleteBundle(id: number, name: string) {
+    setDeleteTarget({ type: 'bundle', id, name });
+  }
+
+  // Single confirm modal backs both delete flows; onConfirm dispatches by type.
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const { type, id } = deleteTarget;
+    setDeleteTarget(null);
     try {
-      await deleteSavedBundle(id);
+      if (type === 'product') {
+        await deleteProduct(id);
+        showToast({ variant: 'success', title: 'Product deleted' });
+      } else {
+        const uuid = bundles.find((b) => b.id === id)?.bundle_uuid ?? null;
+        await deleteSavedBundle(id);
+        deleteBundleRemote(uuid); // remove it from Coop / other devices too
+        showToast({ variant: 'success', title: 'Bundle deleted' });
+      }
       await refreshAll();
-      showToast({ variant: 'success', title: 'Bundle deleted' });
     } catch (e) {
       showToast({
         variant: 'error',
@@ -270,6 +279,21 @@ export default function ProductsModal() {
         message: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  function openBundleEmoji(bundle: SavedBundle) {
+    setEmojiBundle(bundle);
+    setEmojiDraft(bundle.emoji ?? '');
+  }
+
+  async function saveBundleEmoji() {
+    if (!emojiBundle) return;
+    const emoji = clampEmoji(emojiDraft) || null; // empty clears -> derive from lines
+    await updateBundleEmoji(emojiBundle.id, emoji);
+    const saved = await getSavedBundleById(emojiBundle.id);
+    if (saved) pushBundle(saved);
+    setEmojiBundle(null);
+    await refreshAll();
   }
 
   // ─── Shared ───────────────────────────────────────────────────────────────
@@ -292,37 +316,62 @@ export default function ProductsModal() {
     const isBundle = formMode === 'bundle';
     return (
       <SafeAreaView style={styles.container}>
+        {/* Own back arrow (native header is hidden while the form is open) so
+            "back" returns to the product list rather than out to the POS page. */}
+        <View style={styles.formHeader}>
+          <TouchableOpacity onPress={cancelForm} style={styles.backBtn} accessibilityLabel="Back to products">
+            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.formHeaderTitle}>{isBundle ? 'Edit Bundle Preset' : 'Edit Product'}</Text>
+        </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <View style={styles.form}>
-            <Text style={styles.formTitle}>
-              {isBundle ? 'Edit Bundle Preset' : (editingId ? 'Edit Product' : 'New Product')}
-            </Text>
-
-            {!isBundle && (
-              <View style={styles.imagePickerRow}>
-                {productForm.imageUri ? (
-                  <View style={styles.imagePreviewWrap}>
-                    <Image source={{ uri: productForm.imageUri }} style={styles.imagePreview} resizeMode="cover" />
+          <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+            {!isBundle && (() => {
+              const chosen = emojiGraphemes(productForm.emoji);
+              const full = chosen.length >= MAX_EMOJI;
+              return (
+                <>
+                  <Text style={styles.fieldLabel}>Emoji</Text>
+                  <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. No typing needed.</Text>
+                  <View style={styles.emojiPreviewRow}>
+                    <View style={styles.emojiPreview}>
+                      <Text style={styles.emojiPreviewText}>{productForm.emoji || '🍬'}</Text>
+                    </View>
                     <TouchableOpacity
-                      style={styles.imageRemoveBtn}
-                      onPress={() => setProductForm((f) => ({ ...f, imageUri: null }))}
+                      style={styles.emojiClearBtn}
+                      onPress={() =>
+                        setProductForm((f) => ({ ...f, emoji: emojiGraphemes(f.emoji).slice(0, -1).join('') }))
+                      }
+                      disabled={chosen.length === 0}
+                      accessibilityLabel="Remove last emoji"
                     >
-                      <Ionicons name="close" size={14} color="#fff" />
+                      <Ionicons name="backspace-outline" size={18} color={chosen.length === 0 ? colors.textMuted : colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
-                ) : (
-                  <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
-                    <Ionicons name="camera-outline" size={22} color={C.pink} />
-                    <Text style={styles.imagePickerText}>Add Photo</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
+                  <View style={styles.emojiGrid}>
+                    {PRODUCT_EMOJIS.map((e) => (
+                      <TouchableOpacity
+                        key={e}
+                        style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                        // Append until 3 are chosen; then further taps are ignored
+                        // (backspace clears). Keeps the "max 3" rule obvious.
+                        onPress={() => !full && setProductForm((f) => ({ ...f, emoji: clampEmoji(f.emoji + e) }))}
+                        disabled={full}
+                        accessibilityLabel={`Add ${e}`}
+                      >
+                        <Text style={styles.emojiPickText}>{e}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              );
+            })()}
 
+            <Text style={styles.fieldLabel}>Display name</Text>
             <TextInput
               style={styles.input}
               placeholder={isBundle ? 'Bundle name' : 'Product name'}
-              placeholderTextColor={C.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={isBundle ? bundleForm.name : productForm.name}
               onChangeText={(v) =>
                 isBundle
@@ -331,104 +380,30 @@ export default function ProductsModal() {
               }
             />
 
-            {!isBundle && (
-              <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Has variants?</Text>
-                <Switch
-                  value={productForm.hasVariants}
-                  onValueChange={(v) => setProductForm((f) => ({
-                    ...f,
-                    hasVariants: v,
-                    price: v ? '' : f.price,
-                    variants: v && f.variants.length === 0 ? [{ name: '', price: '' }] : f.variants,
-                  }))}
-                  trackColor={{ false: C.borderDark, true: C.pink }}
-                  thumbColor="#fff"
-                />
-              </View>
-            )}
+            <Text style={styles.fieldLabel}>Price</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Price (e.g. 120)"
+              placeholderTextColor={colors.textMuted}
+              value={isBundle ? bundleForm.price : productForm.price}
+              onChangeText={(v) =>
+                isBundle
+                  ? setBundleForm((f) => ({ ...f, price: v }))
+                  : setProductForm((f) => ({ ...f, price: v }))
+              }
+              keyboardType="decimal-pad"
+            />
+          </ScrollView>
 
-            {(!isBundle && productForm.hasVariants) ? (
-              <View style={styles.variantSection}>
-                <Text style={styles.variantLabel}>VARIANTS</Text>
-                {productForm.variants.map((v, i) => (
-                  <View key={i} style={styles.variantRow}>
-                    <TextInput
-                      style={[styles.input, { flex: 2 }]}
-                      placeholder="Variant name"
-                      placeholderTextColor={C.textMuted}
-                      value={v.name}
-                      onChangeText={(text) =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.map((vr, vi) =>
-                            vi === i ? { ...vr, name: text } : vr
-                          ),
-                        }))
-                      }
-                    />
-                    <TextInput
-                      style={[styles.input, { flex: 1 }]}
-                      placeholder="Price"
-                      placeholderTextColor={C.textMuted}
-                      value={v.price}
-                      onChangeText={(text) =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.map((vr, vi) =>
-                            vi === i ? { ...vr, price: text } : vr
-                          ),
-                        }))
-                      }
-                      keyboardType="decimal-pad"
-                    />
-                    <TouchableOpacity
-                      style={styles.variantDeleteBtn}
-                      onPress={() =>
-                        setProductForm((f) => ({
-                          ...f,
-                          variants: f.variants.filter((_, vi) => vi !== i),
-                        }))
-                      }
-                    >
-                      <Ionicons name="close" size={F.lg} color={C.pink} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                <TouchableOpacity
-                  style={styles.addVariantBtn}
-                  onPress={() =>
-                    setProductForm((f) => ({
-                      ...f,
-                      variants: [...f.variants, { name: '', price: '' }],
-                    }))
-                  }
-                >
-                  <Text style={styles.addVariantText}>+ Add Variant</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TextInput
-                style={styles.input}
-                placeholder="Price (e.g. 120)"
-                placeholderTextColor={C.textMuted}
-                value={isBundle ? bundleForm.price : productForm.price}
-                onChangeText={(v) =>
-                  isBundle
-                    ? setBundleForm((f) => ({ ...f, price: v }))
-                    : setProductForm((f) => ({ ...f, price: v }))
-                }
-                keyboardType="decimal-pad"
-              />
-            )}
-            <View style={styles.formBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Pinned footer (outside the ScrollView, like the bundle builder) so
+              Save is always reachable without scrolling past the emoji grid. */}
+          <View style={styles.formBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <Text style={styles.saveBtnText}>{isBundle ? 'Update bundle' : 'Update product'}</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -437,23 +412,49 @@ export default function ProductsModal() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <PullToRefresh onRefresh={refreshAll}>
+        {(scroll) => (
+      <ScrollView {...scroll} contentContainerStyle={styles.scrollContent}>
+        {/* Product creation is Coop-only (POS co-edits name/price/listing and unlists,
+            but never creates). Hidden, not deleted, so it can be restored if that
+            ownership decision changes.
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => { setFormMode('product'); setShowForm(true); }}
         >
           <Text style={styles.addBtnText}>+ New Product</Text>
         </TouchableOpacity>
+        */}
+
+        {/* Product-line pills: filter the list by line so staff don't scroll one
+            long alphabetical list (e.g. every "Beef ..." at once). */}
+        {lineNames.length > 1 && (
+          <View style={styles.pillRow}>
+            <CategoryTabs categories={lineNames} active={activeLine} onSelect={selectLine} />
+          </View>
+        )}
+
+        {/* Secondary chips for lines that have subcategories (e.g. Freeze Dried). */}
+        {subNames.length > 0 && (
+          <View style={styles.subRow}>
+            <SubcategoryFilter subcategories={subNames} active={activeSub} onSelect={selectSub} />
+          </View>
+        )}
 
         {/* Products section */}
+        {showProducts && (
+        <>
         <Text style={styles.sectionLabel}>Products</Text>
-        {products.length === 0 && (
-          <Text style={styles.emptyHint}>No products yet.</Text>
+        {visibleProducts.length === 0 && (
+          <Text style={styles.emptyHint}>
+            {products.length === 0 ? 'No products yet.' : 'No products in this line.'}
+          </Text>
         )}
-        {products.map((item) => (
+        {visibleProducts.map((item) => (
           <View key={item.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <View>
+              <Text style={styles.itemEmoji}>{item.emoji || '🍬'}</Text>
+              <View style={styles.itemText}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemSub}>
                   {item.has_variants
@@ -464,76 +465,148 @@ export default function ProductsModal() {
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditProduct(item)}>
-                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteProduct(item.id, item.name)}
               >
-                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={item.is_active === 1}
                 onValueChange={() => handleToggleProduct(item)}
-                trackColor={{ false: C.borderDark, true: C.pink }}
+                trackColor={{ false: colors.borderDark, true: colors.pink }}
                 thumbColor="#fff"
               />
             </View>
           </View>
         ))}
 
+        </>
+        )}
+
         {/* Bundle Presets section */}
-        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Bundle Presets</Text>
+        {showBundles && (
+        <>
+        <Text style={[styles.sectionLabel, showProducts && { marginTop: 20 }]}>Bundle Presets</Text>
         {bundles.length === 0 && (
           <Text style={styles.emptyHint}>No bundle presets yet. Create one from the POS screen.</Text>
         )}
         {bundles.map((bundle) => (
           <View key={bundle.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Ionicons name="cube-outline" size={28} color={C.textSecondary} style={{ marginRight: 12 }} />
-              <View>
+              <TouchableOpacity onPress={() => openBundleEmoji(bundle)} accessibilityLabel={`Edit emoji for ${bundle.name}`}>
+                <Text style={styles.itemEmoji}>
+                  {bundle.emoji || lineEmojis(products, bundle.line_categories ?? []).join('') || '🎁'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.itemText}>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
-                  ₱{bundle.price.toFixed(2)} · {bundle.items.length} item{bundle.items.length !== 1 ? 's' : ''}
+                  {bundle.bundle_type === 'pick'
+                    ? `₱${bundle.price.toFixed(2)} · Any ${bundle.pick_count ?? 0} · ${bundleLineSummary(bundle.line_categories ?? [])}`
+                    : `₱${bundle.price.toFixed(2)} · ${bundle.items.length} item${bundle.items.length !== 1 ? 's' : ''}`}
                 </Text>
               </View>
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => startEditBundle(bundle)}>
-                <Ionicons name="create-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 onPress={() => confirmDeleteBundle(bundle.id, bundle.name)}
               >
-                <Ionicons name="trash-outline" size={14} color={C.textSecondary} />
+                <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
               </TouchableOpacity>
               <Switch
                 value={bundle.is_active === 1}
                 onValueChange={() => handleToggleBundle(bundle)}
-                trackColor={{ false: C.borderDark, true: C.pink }}
+                trackColor={{ false: colors.borderDark, true: colors.pink }}
                 thumbColor="#fff"
               />
             </View>
           </View>
         ))}
+        </>
+        )}
       </ScrollView>
+        )}
+      </PullToRefresh>
+
+      {/* Bundle emoji editor: tap-only palette, up to 3 (matches the product picker). */}
+      <Modal visible={!!emojiBundle} transparent animationType="fade" onRequestClose={() => setEmojiBundle(null)}>
+        <TouchableOpacity style={styles.emojiOverlay} activeOpacity={1} onPress={() => setEmojiBundle(null)}>
+          <TouchableOpacity style={styles.emojiCard} activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.emojiCardTitle}>Bundle emoji</Text>
+            <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. Leave empty to use the line emojis.</Text>
+            <View style={styles.emojiPreviewRow}>
+              <View style={styles.emojiPreview}>
+                <Text style={styles.emojiPreviewText}>
+                  {emojiDraft || (emojiBundle ? lineEmojis(products, emojiBundle.line_categories ?? []).join('') : '') || '🎁'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.emojiClearBtn}
+                onPress={() => setEmojiDraft((d) => emojiGraphemes(d).slice(0, -1).join(''))}
+                disabled={emojiDraft.length === 0}
+                accessibilityLabel="Remove last emoji"
+              >
+                <Ionicons name="backspace-outline" size={18} color={emojiDraft.length === 0 ? colors.textMuted : colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.emojiGrid}>
+              {PRODUCT_EMOJIS.map((e) => {
+                const full = emojiGraphemes(emojiDraft).length >= MAX_EMOJI;
+                return (
+                  <TouchableOpacity
+                    key={e}
+                    style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                    onPress={() => !full && setEmojiDraft((d) => clampEmoji(d + e))}
+                    disabled={full}
+                  >
+                    <Text style={styles.emojiPickText}>{e}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.formBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEmojiBundle(null)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveBundleEmoji}>
+                <Text style={styles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <ConfirmModal
+        visible={!!deleteTarget}
+        title={deleteTarget?.type === 'bundle' ? 'Delete Bundle' : 'Delete Product'}
+        message={`Remove "${deleteTarget?.name}" permanently?`}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   scrollContent: { padding: 16, paddingBottom: 32 },
 
   addBtn: {
-    backgroundColor: C.pink, borderRadius: R.sm,
+    backgroundColor: c.pink, borderRadius: R.sm,
     padding: 15, alignItems: 'center', marginBottom: 20,
   },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 
   sectionLabel: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
     letterSpacing: 1,
@@ -541,7 +614,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyHint: {
-    color: C.textMuted,
+    color: c.textMuted,
     fontSize: F.sm,
     textAlign: 'center',
     paddingVertical: 16,
@@ -551,122 +624,98 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: C.surface,
+    backgroundColor: c.surface,
     borderRadius: R.md,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: C.borderDark,
+    borderColor: c.borderDark,
   },
   itemInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  itemEmoji: {},
-  itemName: { color: C.textPrimary, fontSize: F.md, fontWeight: '700' },
-  itemSub: { color: C.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
+  itemEmoji: { fontSize: 24, width: 30, textAlign: 'center' },
+  itemText: { flex: 1, minWidth: 0 },
+  itemName: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  itemSub: { color: c.pink, fontSize: F.sm, marginTop: 2, fontWeight: '600' },
 
   itemActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionBtn: {
-    backgroundColor: C.elevated,
+    backgroundColor: c.elevated,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: c.border,
     borderRadius: R.sm,
     padding: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnDanger: { borderColor: C.borderDark },
+  actionBtnDanger: { borderColor: c.borderDark },
   actionIcon: {},
 
-  toggleRow: {
+  pillRow: { marginBottom: 16 },
+  subRow: { marginTop: -8, marginBottom: 16 },
+
+  formHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: C.surface,
-    borderRadius: R.sm,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.border,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: c.borderDark,
   },
-  toggleLabel: {
-    color: C.textPrimary,
-    fontSize: F.md,
-    fontWeight: '600',
-  },
-  variantSection: { gap: 8 },
-  variantLabel: {
-    color: C.textMuted,
+  backBtn: { padding: 4 },
+  formHeaderTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
+
+  form: { padding: 20, paddingBottom: 20, gap: 8 },
+  fieldLabel: {
+    color: c.textMuted,
     fontSize: F.xs,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 1,
     textTransform: 'uppercase',
+    marginTop: 8,
   },
-  variantRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  variantDeleteBtn: {
-    padding: 10,
-  },
-  variantDeleteText: {
-    color: C.pink,
-    fontSize: F.lg,
-    fontWeight: '700',
-  },
-  addVariantBtn: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: C.pink,
-    borderRadius: R.sm,
-    padding: 12,
-    alignItems: 'center',
-  },
-  addVariantText: {
-    color: C.pink,
-    fontWeight: '700',
-    fontSize: F.md,
-  },
-
-  imagePickerRow: { alignItems: 'flex-start' },
-  imagePickerBtn: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: C.pink,
-    borderRadius: R.sm,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    width: 90,
-    height: 90,
-  },
-  imagePickerText: { color: C.pink, fontWeight: '700', fontSize: F.xs },
-  imagePreviewWrap: { width: 90, height: 90, borderRadius: R.sm, overflow: 'hidden' },
-  imagePreview: { width: '100%', height: '100%' },
-  imageRemoveBtn: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  form: { padding: 20, gap: 12 },
-  formTitle: { color: C.textPrimary, fontSize: F.xl, fontWeight: '800', marginBottom: 6 },
   input: {
-    backgroundColor: C.surface, color: C.textPrimary, borderRadius: R.sm,
-    padding: 14, fontSize: F.md, borderWidth: 1, borderColor: C.border,
+    backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
+    padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
-  formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  emojiOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emojiCard: {
+    width: '100%', maxWidth: 380, backgroundColor: c.surface, borderRadius: R.lg,
+    borderWidth: 1, borderColor: c.borderDark, padding: 20, gap: 4,
+  },
+  emojiCardTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
+  emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 4 },
+  emojiPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  emojiPreview: {
+    minWidth: 96, height: 48, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12,
+  },
+  emojiPreviewText: { fontSize: 26 },
+  emojiClearBtn: {
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  emojiPick: {
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border,
+  },
+  emojiPickDisabled: { opacity: 0.4 },
+  emojiPickText: { fontSize: 22 },
+  formBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
+  },
   cancelBtn: {
-    flex: 1, backgroundColor: C.elevated, borderRadius: R.sm,
-    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border,
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: c.border,
   },
-  cancelText: { color: C.textSecondary, fontWeight: '700', fontSize: F.md },
-  saveBtn: { flex: 2, backgroundColor: C.pink, borderRadius: R.sm, padding: 14, alignItems: 'center' },
+  cancelText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
+  saveBtn: { flex: 2, backgroundColor: c.pink, borderRadius: R.sm, padding: 14, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
 });

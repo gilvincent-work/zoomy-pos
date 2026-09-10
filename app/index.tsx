@@ -24,7 +24,7 @@ import {
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
-import { insertTransaction, type PaymentMethod } from '../db/transactions';
+import { insertTransaction, markTransactionSynced, type PaymentMethod } from '../db/transactions';
 import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
 import { buildInsertItems } from '../utils/cart-transaction';
@@ -287,6 +287,10 @@ export default function POSScreen() {
             title: 'Not synced to Coop',
             message: 'Sale saved on this device. Check the connection.',
           });
+        } else {
+          // Confirmed on Coop: safe from here on for the Transactions screen to
+          // prune this row locally if Coop's copy is later deleted.
+          markTransactionSynced(clientUuid).catch(() => {});
         }
       });
     } catch {

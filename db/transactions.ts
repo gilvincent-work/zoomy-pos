@@ -27,6 +27,8 @@ export type Transaction = {
   created_at: string;
   remarks: string | null;
   client_uuid: string | null;
+  /** Set only once pushSale() confirms Coop has this sale; null = never confirmed synced. */
+  synced_at: string | null;
   items: TransactionItem[];
 };
 
@@ -125,6 +127,31 @@ export async function voidTransaction(id: number): Promise<void> {
   );
 }
 
+/** Marks a sale as confirmed-synced once pushSale() succeeds. See the schema
+ *  migration for why this exists: it's the sole gate for pruning a local row
+ *  when Coop no longer has it. */
+export async function markTransactionSynced(clientUuid: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    'UPDATE transactions SET synced_at = ? WHERE client_uuid = ?',
+    [new Date().toISOString(), clientUuid]
+  );
+}
+
+/** Permanently removes local transactions (and their items) by client_uuid.
+ *  Only ever called for rows already proven safe to prune — see
+ *  utils/merge-transactions.ts transactionsToPrune(). */
+export async function deleteTransactionsByClientUuids(clientUuids: string[]): Promise<void> {
+  if (clientUuids.length === 0) return;
+  const db = await getDatabase();
+  const placeholders = clientUuids.map(() => '?').join(',');
+  await db.runAsync(
+    `DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE client_uuid IN (${placeholders}))`,
+    clientUuids
+  );
+  await db.runAsync(`DELETE FROM transactions WHERE client_uuid IN (${placeholders})`, clientUuids);
+}
+
 export async function getAllTransactions(): Promise<Transaction[]> {
   const db = await getDatabase();
 
@@ -142,6 +169,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     t_created: string;
     t_remarks: string | null;
     t_client_uuid: string | null;
+    t_synced_at: string | null;
     ti_id: number | null;
     transaction_id: number | null;
     product_id: number | null;
@@ -162,7 +190,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
             t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
             t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
             t.status AS t_status, t.created_at AS t_created, t.remarks AS t_remarks,
-            t.client_uuid AS t_client_uuid,
+            t.client_uuid AS t_client_uuid, t.synced_at AS t_synced_at,
             ti.id AS ti_id, ti.transaction_id, ti.product_id,
             COALESCE(p.name, ti.product_name) AS product_name,
             ti.price, ti.quantity, ti.variant_id,
@@ -191,6 +219,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         created_at: row.t_created,
         remarks: row.t_remarks ?? null,
         client_uuid: row.t_client_uuid ?? null,
+        synced_at: row.t_synced_at ?? null,
         items: [],
       });
     }

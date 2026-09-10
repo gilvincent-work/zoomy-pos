@@ -8,11 +8,17 @@ import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactio
  * mirrors the sales push: local rows stay the rich source (cash tendered, proof,
  * remarks), and these fill in the sales made on other devices.
  *
- * Returns [] when Supabase is unconfigured or unreachable — the screen then
- * falls back to the local list, keeping it usable offline.
+ * Result is `{ok: false}` when Supabase is unconfigured/unreachable/the query
+ * failed — the screen then falls back to the local list, keeping it usable
+ * offline. `{ok: true, orders: []}` is a real, distinct outcome (Coop genuinely
+ * has zero orders) — callers use that to safely prune local rows Coop no longer
+ * has; collapsing it with the failure case would risk deleting sales just
+ * because a fetch failed.
  */
 
 const MAX_ORDERS = 500; // bound the pull; the list paginates visually anyway
+
+export type RemoteOrdersResult = {ok: true; orders: Transaction[]} | {ok: false};
 
 type OrderRow = {
   client_uuid: string | null;
@@ -32,9 +38,9 @@ type ItemRow = {
   unit_price: number | null;
 };
 
-export async function fetchRemoteOrders(): Promise<Transaction[]> {
+export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
   const sb = getSupabase();
-  if (!sb) return [];
+  if (!sb) return {ok: false};
 
   try {
     // pos_orders keyed for dedup by client_uuid; join items by the order id.
@@ -43,10 +49,10 @@ export async function fetchRemoteOrders(): Promise<Transaction[]> {
       .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, created_at')
       .order('created_at', {ascending: false})
       .limit(MAX_ORDERS);
-    if (ordersErr || !orders) return [];
+    if (ordersErr || !orders) return {ok: false};
 
     const ids = orders.map((o) => o.id as string);
-    if (ids.length === 0) return [];
+    if (ids.length === 0) return {ok: true, orders: []};
 
     const [{data: items}, {data: products}] = await Promise.all([
       sb.from('pos_order_items').select('order_id, product_id, qty, unit_price').in('order_id', ids),
@@ -75,7 +81,7 @@ export async function fetchRemoteOrders(): Promise<Transaction[]> {
       itemsByOrder.set(it.order_id, arr);
     }
 
-    return (orders as (OrderRow & {id: string})[]).map((o): Transaction => {
+    const remoteOrders = (orders as (OrderRow & {id: string})[]).map((o): Transaction => {
       const total = Number(o.total ?? 0);
       return {
         id: 0, // placeholder; the merge assigns a stable negative id per remote row
@@ -91,11 +97,13 @@ export async function fetchRemoteOrders(): Promise<Transaction[]> {
         created_at: o.created_at,
         remarks: o.remarks ?? null,
         client_uuid: o.client_uuid ?? null,
+        synced_at: null, // not meaningful for a remote-sourced row; the local copy carries it
         items: itemsByOrder.get(o.id) ?? [],
       };
     });
+    return {ok: true, orders: remoteOrders};
   } catch {
-    return [];
+    return {ok: false};
   }
 }
 

@@ -54,3 +54,18 @@ export function mergeTransactions(local: Transaction[], remote: Transaction[]): 
 export function isLocalTransaction(t: Transaction): boolean {
   return t.id > 0;
 }
+
+/**
+ * Local rows Coop no longer has, safe to permanently delete: previously
+ * confirmed synced (`synced_at` set — see db/transactions.ts markTransactionSynced)
+ * and now absent from a *successful* remote fetch (`remoteUuids` must only be
+ * built from a `{ok: true}` RemoteOrdersResult — never call this with an empty
+ * set standing in for a failed fetch, or every synced sale would be pruned).
+ *
+ * A row that was never confirmed synced (synced_at null — e.g. still offline,
+ * or the push hasn't resolved yet) is never a candidate, regardless of what
+ * remoteUuids says, so a pending sale can never be mistaken for a deletion.
+ */
+export function transactionsToPrune(local: Transaction[], remoteUuids: ReadonlySet<string>): Transaction[] {
+  return local.filter((t) => t.client_uuid && t.synced_at && !remoteUuids.has(t.client_uuid));
+}

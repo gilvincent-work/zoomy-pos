@@ -186,6 +186,15 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE transactions ADD COLUMN client_uuid TEXT`
   ).catch(() => {});
 
+  // Set only once pushSale() confirms Coop actually has this sale (never at
+  // insert time). This is the safety gate for pulling deletions from Coop: a
+  // local row only gets pruned when it was confirmed synced AND is now absent
+  // from a successful remote fetch, so a not-yet-pushed or offline sale can
+  // never be mistaken for "Coop deleted it" and wiped.
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN synced_at TEXT`
+  ).catch(() => {});
+
   await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]

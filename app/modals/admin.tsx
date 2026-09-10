@@ -243,6 +243,17 @@ export default function AdminModal() {
             <Text style={styles.settingsArrow}>→</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => router.push('/modals/payment-settings')}
+          >
+            <View>
+              <Text style={styles.settingsRowTitle}>Payment Options</Text>
+              <Text style={styles.settingsRowSub}>Choose accepted methods and the Pay confirm step</Text>
+            </View>
+            <Text style={styles.settingsArrow}>→</Text>
+          </TouchableOpacity>
+
           <Text style={styles.sectionLabel}>QR CODES</Text>
 
           {(['gcash', 'maya', 'bpi'] as QrMethod[]).map((method) => {

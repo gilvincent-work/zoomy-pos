@@ -4,6 +4,7 @@ import {
   getCategoriesWithSubcategories,
   createProduct,
   updateProduct,
+  decrementStock,
 } from '../../db/products';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
@@ -77,7 +78,7 @@ describe('updateProduct', () => {
   it('updates name, price, has_variants and is_active by id', async () => {
     await updateProduct(1, { name: 'Big Cake', price: 150, has_variants: false, is_active: 0 });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = COALESCE(?, image_uri), category = COALESCE(?, category), subcategory = COALESCE(?, subcategory), sku = ? WHERE id = ?',
       ['Big Cake', 150, 0, 0, null, null, null, null, null, 1]
     );
   });
@@ -85,8 +86,28 @@ describe('updateProduct', () => {
   it('updates the emoji when provided', async () => {
     await updateProduct(1, { name: 'Beef', price: 200, has_variants: false, is_active: 1, emoji: '🥩' });
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = ?, category = ?, subcategory = ?, sku = ? WHERE id = ?',
+      'UPDATE products SET name = ?, price = ?, has_variants = ?, is_active = ?, emoji = COALESCE(?, emoji), image_uri = COALESCE(?, image_uri), category = COALESCE(?, category), subcategory = COALESCE(?, subcategory), sku = ? WHERE id = ?',
       ['Beef', 200, 0, 1, '🥩', null, null, null, null, 1]
     );
+  });
+});
+
+describe('decrementStock', () => {
+  it('subtracts the sold quantity from each product', async () => {
+    await decrementStock([{ productId: 1, quantity: 2 }, { productId: 2, quantity: 1 }]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock - ? WHERE id = ?', [2, 1]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock - ? WHERE id = ?', [1, 2]);
+    expect(mockDb.runAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('sums quantities for the same product before decrementing (e.g. bundle + individual line)', async () => {
+    await decrementStock([{ productId: 1, quantity: 2 }, { productId: 1, quantity: 3 }]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock - ? WHERE id = ?', [5, 1]);
+    expect(mockDb.runAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for an empty sale', async () => {
+    await decrementStock([]);
+    expect(mockDb.runAsync).not.toHaveBeenCalled();
   });
 });

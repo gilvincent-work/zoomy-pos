@@ -6,14 +6,15 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { getCategoriesWithSubcategories, UNCATEGORIZED } from '../../db/products';
+import { getCategoriesWithSubcategories, getActiveProducts, UNCATEGORIZED, type Product } from '../../db/products';
 import {
   savePickBundle, updatePickBundle, getSavedBundleById, validatePickBundleInput,
 } from '../../db/saved-bundles';
-import { bundlePreviewText } from '../../utils/bundles';
+import { bundlePreviewText, lineEmojis } from '../../utils/bundles';
 import { useToast } from '../../components/Toast';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../constants/emoji';
 
 const MIN_ITEMS = 1;
 
@@ -25,19 +26,22 @@ export default function BundleModal() {
   const { showToast } = useToast();
 
   const [lines, setLines] = useState<string[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [pickCount, setPickCount] = useState(2);
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+  const [emoji, setEmoji] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      getCategoriesWithSubcategories().then(async (groups) => {
+      Promise.all([getCategoriesWithSubcategories(), getActiveProducts()]).then(async ([groups, prods]) => {
         if (cancelled) return;
         const lineNames = groups.map((g) => g.category).filter((c) => c !== UNCATEGORIZED);
         setLines(lineNames);
+        setProducts(prods);
         if (editingId != null && !loaded) {
           const bundle = await getSavedBundleById(editingId);
           if (bundle && !cancelled) {
@@ -45,6 +49,7 @@ export default function BundleModal() {
             setPrice(String(bundle.price));
             setPickCount(bundle.pick_count ?? 2);
             setSelectedLines(new Set(bundle.line_categories ?? []));
+            setEmoji(bundle.emoji ?? '');
           }
         }
         setLoaded(true);
@@ -72,6 +77,7 @@ export default function BundleModal() {
       price: parsedPrice,
       pickCount,
       lineCategories: selectedList,
+      emoji: clampEmoji(emoji) || null,
     };
     const error = validatePickBundleInput(input);
     if (error) {
@@ -79,11 +85,10 @@ export default function BundleModal() {
       return;
     }
     try {
-      if (editingId != null) {
-        await updatePickBundle(editingId, input);
-      } else {
-        await savePickBundle(input);
-      }
+      const bundleId = editingId != null ? (await updatePickBundle(editingId, input), editingId) : await savePickBundle(input);
+      // Share it to Coop so other POS devices see it (best-effort, online-only).
+      const saved = await getSavedBundleById(bundleId);
+      if (saved) { const { pushBundle } = await import('../../utils/bundles-sync'); pushBundle(saved); }
       showToast({
         variant: 'success',
         title: editingId != null ? 'Bundle updated' : 'Bundle saved',
@@ -175,6 +180,42 @@ export default function BundleModal() {
               );
             })
           )}
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Tile emoji</Text>
+          <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. Leave empty to use the line emojis.</Text>
+          <View style={styles.emojiPreviewRow}>
+            <View style={styles.emojiPreview}>
+              <Text style={styles.emojiPreviewText}>
+                {emoji || lineEmojis(products, selectedList).join('') || '🎁'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.emojiClearBtn}
+              onPress={() => setEmoji((e) => emojiGraphemes(e).slice(0, -1).join(''))}
+              disabled={emoji.length === 0}
+              accessibilityLabel="Remove last emoji"
+            >
+              <Ionicons name="backspace-outline" size={18} color={emoji.length === 0 ? colors.textMuted : colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.emojiGrid}>
+            {PRODUCT_EMOJIS.map((e) => {
+              const full = emojiGraphemes(emoji).length >= MAX_EMOJI;
+              return (
+                <TouchableOpacity
+                  key={e}
+                  style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                  onPress={() => !full && setEmoji((cur) => clampEmoji(cur + e))}
+                  disabled={full}
+                  accessibilityLabel={`Add ${e}`}
+                >
+                  <Text style={styles.emojiPickText}>{e}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         <Text style={styles.preview}>
@@ -291,6 +332,25 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     justifyContent: 'center',
   },
   checkOn: { backgroundColor: c.pink, borderColor: c.pink },
+
+  emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2 },
+  emojiPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  emojiPreview: {
+    minWidth: 96, height: 48, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12,
+  },
+  emojiPreviewText: { fontSize: 26 },
+  emojiClearBtn: {
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  emojiPick: {
+    width: 44, height: 44, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border,
+  },
+  emojiPickDisabled: { opacity: 0.4 },
+  emojiPickText: { fontSize: 22 },
 
   preview: {
     color: c.textSecondary,

@@ -20,15 +20,17 @@ import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
-  getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId,
+  getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId, decrementStock,
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction, type PaymentMethod } from '../db/transactions';
-import { quickMethodMeta } from '../constants/payment';
+import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
+import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
 import { buildInsertItems } from '../utils/cart-transaction';
 import { pushSale } from '../utils/sales-sync';
 import { lineEmojis } from '../utils/bundles';
+import { emojiGraphemes } from '../constants/emoji';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../utils/catalog-filter';
@@ -93,10 +95,25 @@ export default function POSScreen() {
   const [variantList, setVariantList] = useState<ProductVariant[]>([]);
 
   // Quick payment method for the one-tap Pay button. Cash is the bazaar default;
-  // GCash / Card record just as fast (no ref # — the full modal handles that).
+  // which methods are offered (and their order) comes from Settings -> Payment
+  // Options, loaded below.
   const [payMethod, setPayMethod] = useState<PaymentMethod>('cash');
-  // Gate the Pay press behind a confirm so a stray tap can't book a sale.
+  const [enabledMethods, setEnabledMethods] = useState<PaymentMethod[]>(DEFAULT_ENABLED_PAYMENT_METHODS);
+  // Gate the Pay press behind a confirm so a stray tap can't book a sale; also
+  // configurable in Settings -> Payment Options.
   const [confirmPay, setConfirmPay] = useState(false);
+  const [confirmOnPay, setConfirmOnPay] = useState(true);
+  const [customerHandle, setCustomerHandle] = useState('');
+
+  // Re-read Settings -> Payment Options on every focus (a device that just came
+  // back from that screen should reflect the change immediately). If the
+  // selected method got disabled, fall back to the first enabled one.
+  const loadPaymentConfig = useCallback(async () => {
+    const [methods, confirm] = await Promise.all([getEnabledPaymentMethods(), getConfirmOnPay()]);
+    setEnabledMethods(methods);
+    setConfirmOnPay(confirm);
+    setPayMethod((cur) => (methods.includes(cur) ? cur : methods[0]));
+  }, []);
 
   const loadCatalog = useCallback(async () => {
     const [prods, grps, deals] = await Promise.all([
@@ -107,12 +124,15 @@ export default function POSScreen() {
     setProducts(prods);
     setGroups(grps);
     setPickBundles(deals);
-    // Keep the current category if it still exists, otherwise reset to the first.
+    // Keep the current category if it still exists, otherwise reset to the
+    // default: Bundles when there's an active deal (the bazaar-day promo is
+    // what staff want front and center), else the first product line.
     setSel((prev) => {
       const stillValid =
         (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
         (prev.category && grps.some((g) => g.category === prev.category));
-      return stillValid ? prev : initialSelection(grps);
+      if (stillValid) return prev;
+      return deals.length > 0 ? { category: BUNDLES_CATEGORY, subcategory: null } : initialSelection(grps);
     });
   }, []);
 
@@ -133,7 +153,8 @@ export default function POSScreen() {
   useFocusEffect(
     useCallback(() => {
       loadCatalog();
-    }, [loadCatalog])
+      loadPaymentConfig();
+    }, [loadCatalog, loadPaymentConfig])
   );
 
   // A catalog pull from Coop (price / listing) updates local SQLite; re-read so
@@ -142,8 +163,8 @@ export default function POSScreen() {
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
   const categoryNames = [
-    ...groups.map((g) => g.category),
     ...(pickBundles.length > 0 ? [BUNDLES_CATEGORY] : []),
+    ...groups.map((g) => g.category),
   ];
   const visibleProducts = showingBundles
     ? []
@@ -152,6 +173,15 @@ export default function POSScreen() {
 
   const getBadge = (productId: number) =>
     items.filter((i) => i.productId === productId).reduce((sum, i) => sum + i.quantity, 0);
+
+  // Shared stock-ceiling check for every "+" surface (tile tap, cart stepper):
+  // stock is only a real signal once a product has synced with Coop at least
+  // once (sku set) — an unsynced row defaults to 0 and isn't "confirmed empty".
+  const canIncrementItem = (productId: number) => {
+    const product = products.find((p) => p.id === productId);
+    if (!product || !product.sku) return true;
+    return product.stock - getBadge(productId) > 0;
+  };
 
   const variantInitialQuantities: Record<number, number> = {};
   if (variantProduct) {
@@ -168,6 +198,14 @@ export default function POSScreen() {
       setVariantList(variants);
       setVariantProduct(product);
     } else {
+      if (!canIncrementItem(product.id)) {
+        showToast({
+          variant: 'error',
+          title: 'No stock left',
+          message: `${product.name} is out of stock. Restock it in Coop to sell more.`,
+        });
+        return;
+      }
       addItem({ id: product.id, name: product.name, price: product.price! });
     }
   }
@@ -193,10 +231,15 @@ export default function POSScreen() {
     setVariantList([]);
   }
 
-  // Tapping Pay opens the confirm guard instead of booking immediately.
+  // Tapping Pay opens the confirm guard instead of booking immediately, unless
+  // that guard is turned off in Settings -> Payment Options.
   function handleRequestPay() {
     if (items.length === 0 && bundles.length === 0) return;
-    setConfirmPay(true);
+    if (confirmOnPay) {
+      setConfirmPay(true);
+    } else {
+      handleConfirmPay();
+    }
   }
 
   // Confirmed: record the sale with the selected quick method, then push to Coop.
@@ -216,11 +259,20 @@ export default function POSScreen() {
         cashTendered: saleTotal,
         change: 0,
         paymentMethod: method,
+        customerHandle: customerHandle.trim() || undefined,
         isBundle: bundles.length > 0,
         clientUuid,
         items: saleItems,
       });
+      // Reflect this sale on the local stock cache right away, so the tile
+      // warning is correct on the very next tap — it doesn't wait for the next
+      // catalog pull (Coop's own stock already deducted server-side when the
+      // sale reaches it; this just keeps this device from reading stale
+      // between syncs).
+      await decrementStock(saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })));
+      await loadCatalog();
       clearCart();
+      setCustomerHandle('');
       showToast({
         variant: 'success',
         title: 'Sale recorded',
@@ -244,10 +296,6 @@ export default function POSScreen() {
         message: 'Please try again.',
       });
     }
-  }
-
-  function handleMorePayment() {
-    router.push('/modals/payment');
   }
 
   const productPane = (
@@ -293,7 +341,7 @@ export default function POSScreen() {
                 id={item.id}
                 name={item.name}
                 price={item.price}
-                lineEmojis={lineEmojis(products, item.line_categories ?? [])}
+                lineEmojis={item.emoji ? emojiGraphemes(item.emoji) : lineEmojis(products, item.line_categories ?? [])}
                 onPress={() => router.push(`/modals/bundle-select?bundleId=${item.id}`)}
               />
             </View>
@@ -322,6 +370,7 @@ export default function POSScreen() {
                 imageUri={item.image_uri ?? null}
                 emoji={item.emoji}
                 badgeCount={getBadge(item.id)}
+                stock={item.sku ? item.stock : undefined}
                 onPress={() => handleProductPress(item)}
                 onLongPress={() => removeItem(item.id)}
                 onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
@@ -370,6 +419,13 @@ export default function POSScreen() {
           <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
             <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
+            style={styles.headerBtn}
+            accessibilityLabel="Settings"
+          >
+            <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -380,8 +436,9 @@ export default function POSScreen() {
             <CartPanel
               method={payMethod}
               onMethodChange={setPayMethod}
+              enabledMethods={enabledMethods}
               onCharge={handleRequestPay}
-              onMorePayment={handleMorePayment}
+              canIncrement={canIncrementItem}
               compact
             />
           </View>
@@ -392,8 +449,9 @@ export default function POSScreen() {
           <CartSheet
             method={payMethod}
             onMethodChange={setPayMethod}
+            enabledMethods={enabledMethods}
             onCharge={handleRequestPay}
-            onMorePayment={handleMorePayment}
+            canIncrement={canIncrementItem}
           />
         </View>
       )}
@@ -402,6 +460,8 @@ export default function POSScreen() {
         visible={confirmPay}
         method={payMethod}
         total={total}
+        customerHandle={customerHandle}
+        onChangeCustomerHandle={setCustomerHandle}
         onConfirm={handleConfirmPay}
         onCancel={() => setConfirmPay(false)}
       />

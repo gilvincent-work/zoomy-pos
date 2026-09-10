@@ -12,6 +12,11 @@ type Props = {
   imageUri?: string | null;
   emoji?: string | null;
   badgeCount: number;
+  /** Cached Coop stock (Product.stock). Omit when there's no real stock
+   *  signal yet (e.g. never synced with Coop) or it's not meaningful (variant
+   *  products, where stock isn't tracked per variant) — this skips the
+   *  out-of-stock tag/greying and the last-stock warning entirely. */
+  stock?: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
   onMinus?: (id: number) => void;
@@ -19,18 +24,38 @@ type Props = {
   onRemove?: (id: number) => void;
 };
 
-export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, onPress, onLongPress, onMinus, onRemove }: Props) {
+export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, badgeCount, stock, onPress, onLongPress, onMinus, onRemove }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const active = badgeCount > 0;
+  // Stock signals: `stock` is the local cache, only meaningful once a
+  // product has actually been synced with Coop (the caller omits it for
+  // never-synced rows, so a fresh/imported product with a default of 0
+  // isn't mistaken for "confirmed empty"). Refreshed on every catalog pull
+  // and decremented immediately after this device's own sales (see
+  // db/products.ts decrementStock), so it's accurate without a live query.
+  // Variant products have no per-variant stock, so they're excluded too.
+  const stockKnown = !hasVariants && stock != null;
+  // Nothing in the cart yet, but the cache already reads empty/negative —
+  // grey out the tile and show a persistent tag, so a cashier can spot a
+  // depleted item (and flag it for restock in Coop) before even tapping it.
+  // Selling past stock is no longer allowed (see app/index.tsx
+  // handleProductPress), so this can no longer happen once already active.
+  const isOutOfStock = stockKnown && !active && stock! <= 0;
+  const isLastStock = stockKnown && active && stock! <= badgeCount;
   return (
     <TouchableOpacity
       testID="tile"
-      style={[styles.tile, active && styles.tileActive]}
+      style={[styles.tile, active && styles.tileActive, isOutOfStock && styles.tileOutOfStock]}
       onPress={() => onPress(id)}
       onLongPress={() => onLongPress(id)}
       activeOpacity={0.7}
     >
+      {isOutOfStock && (
+        <View style={styles.outOfStockTag} testID="out-of-stock-tag">
+          <Text style={styles.outOfStockText} numberOfLines={1}>No Stock</Text>
+        </View>
+      )}
       {imageUri ? (
         <>
           <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
@@ -97,6 +122,11 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
           <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
         </View>
       ))}
+      {isLastStock && (
+        <View style={[styles.stockWarning, styles.stockWarningLast]} testID="stock-warning">
+          <Text style={styles.stockWarningText} numberOfLines={1}>Last stock</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -116,6 +146,11 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   tileActive: {
     borderColor: c.pink,
     backgroundColor: c.pinkSubtle,
+  },
+  // Depleted stock, nothing in the cart: dim the whole tile so it visually
+  // reads as unavailable, while the red tag on top still explains why.
+  tileOutOfStock: {
+    opacity: 0.45,
   },
   photo: {
     width: '100%',
@@ -204,6 +239,40 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     minWidth: 15,
     textAlign: 'center',
   },
+  // Non-blocking "at the ceiling" heads-up, pinned along the tile's bottom
+  // edge so it never collides with the top-corner qty/clear controls. Amber
+  // since it's informative, not an error — there's no warning token in the
+  // palette, so this is a literal color.
+  stockWarning: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 4,
+  },
+  stockWarningLast: { backgroundColor: '#f5a524' },
+  stockWarningText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
+  // Persistent "already out of stock" tag, pinned to the top edge — distinct
+  // from the bottom in-cart warning band above, and only shown before
+  // anything's tapped (top corners are free then; the qty/clear controls that
+  // would collide only render once active).
+  outOfStockTag: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: c.red,
+    zIndex: 10,
+    elevation: 4,
+  },
+  outOfStockText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
   name: {
     color: c.textPrimary,
     fontSize: F.sm,

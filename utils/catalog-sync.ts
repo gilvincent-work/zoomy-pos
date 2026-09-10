@@ -23,6 +23,7 @@ export type RemoteCatalogRow = {
   category: string | null; // Coop's explicit POS category (authoritative when set)
   subcategory: string | null;
   emoji: string | null; // Coop's tile emoji; used only when the POS inserts a new product
+  stock: number; // Coop's on-hand count (pos_inventory); always overwrites locally
 };
 
 export type CatalogUpdate = {
@@ -33,6 +34,7 @@ export type CatalogUpdate = {
   category: string | null; // POS category — Coop's explicit value, else mapped from line
   subcategory: string | null; // POS subcategory (Coop's, Freeze-Dried only)
   emoji: string | null; // seeds a newly-inserted tile; existing tiles keep their local emoji
+  stock: number; // Coop-authoritative; always overwrites the local cache
 };
 
 /**
@@ -89,6 +91,7 @@ export function reconcileCatalog(remote: RemoteCatalogRow[]): CatalogUpdate[] {
       category: r.category ?? categoryForLine(r.product_line),
       subcategory: r.subcategory,
       emoji: r.emoji,
+      stock: r.stock,
     }));
 }
 
@@ -102,7 +105,7 @@ function normalizeRemoteRow(r: {
   subcategory: string | null;
   emoji: string | null;
   pos_prices: {price: number | null} | {price: number | null}[] | null;
-}): RemoteCatalogRow {
+}, stock: number): RemoteCatalogRow {
   const priceRel = Array.isArray(r.pos_prices) ? r.pos_prices[0] : r.pos_prices;
   const price = priceRel && priceRel.price != null ? Number(priceRel.price) : null;
   return {
@@ -114,17 +117,28 @@ function normalizeRemoteRow(r: {
     category: r.category ?? null,
     subcategory: r.subcategory ?? null,
     emoji: r.emoji ?? null,
+    stock,
   };
 }
 
 async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   const sb = getSupabase();
   if (!sb) return [];
-  const {data, error} = await sb
-    .from('pos_products')
-    .select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)');
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(normalizeRemoteRow as never);
+  const [productsRes, inventoryRes] = await Promise.all([
+    sb.from('pos_products').select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)'),
+    sb.from('pos_inventory').select('product_id, stock'),
+  ]);
+  if (productsRes.error) throw new Error(productsRes.error.message);
+  if (inventoryRes.error) throw new Error(inventoryRes.error.message);
+
+  const stockBySku = new Map<string, number>();
+  for (const row of inventoryRes.data ?? []) {
+    stockBySku.set(row.product_id as string, Number(row.stock ?? 0));
+  }
+
+  return (productsRes.data ?? []).map((r) =>
+    normalizeRemoteRow(r as never, stockBySku.get((r as {product_id: string}).product_id) ?? 0)
+  );
 }
 
 // Listeners notified after a pull actually changes local rows, so open screens
@@ -157,6 +171,12 @@ export async function pullCatalog(): Promise<{updated: number} | null> {
   for (const u of updates) {
     updated += await applyCatalogUpdate(u);
   }
+
+  // Mirror Coop's shared bundles into the local store too (best-effort; a null
+  // result just leaves the local bundles as they are).
+  const {pullBundles} = await import('./bundles-sync');
+  const bundleChanges = await pullBundles();
+  if (bundleChanges && bundleChanges > 0) updated += bundleChanges;
 
   await markSynced();
 

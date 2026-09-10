@@ -1,19 +1,23 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform,
+  StyleSheet, SafeAreaView, Switch, Alert, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { bundleLineSummary } from '../../utils/bundles';
+import { bundleLineSummary, lineEmojis } from '../../utils/bundles';
 import { getAllProducts, updateProduct, deleteProduct, Product } from '../../db/products';
 import {
-  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle, SavedBundle,
+  getAllSavedBundles, toggleSavedBundle, updateSavedBundle, deleteSavedBundle,
+  updateBundleEmoji, getSavedBundleById, SavedBundle,
 } from '../../db/saved-bundles';
+import { pushBundle, deleteBundleRemote } from '../../utils/bundles-sync';
+import { pushProductRename, pushProductReprice, pushProductEmoji, pushProductListing } from '../../utils/products-sync';
 import { categoryOf } from '../../utils/catalog-filter';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import { PullToRefresh } from '../../components/PullToRefresh';
+import { ConfirmModal } from '../../components/ConfirmModal';
 import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../constants/emoji';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
@@ -24,22 +28,6 @@ import { useToast } from '../../components/Toast';
 const ALL_LINES = 'All';
 /** Pseudo-pill that shows the Bundle Presets instead of individual products. */
 const BUNDLES_LINE = 'Bundles';
-
-async function confirmAction(
-  title: string,
-  message: string,
-  destructiveLabel: string
-): Promise<boolean> {
-  if (Platform.OS === 'web') {
-    return window.confirm(`${title}\n\n${message}`);
-  }
-  return new Promise((resolve) => {
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
-    ]);
-  });
-}
 
 type ProductForm = { name: string; price: string; emoji: string };
 type BundleForm = { name: string; price: string };
@@ -60,6 +48,11 @@ export default function ProductsModal() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formMode, setFormMode] = useState<FormMode>('product');
   const [showForm, setShowForm] = useState(false);
+  // Bundle emoji editor (tap-only palette in a small modal).
+  const [emojiBundle, setEmojiBundle] = useState<SavedBundle | null>(null);
+  const [emojiDraft, setEmojiDraft] = useState('');
+  // Delete confirm (product or bundle) — one shared modal, see handleConfirmDelete.
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'product' | 'bundle'; id: number; name: string } | null>(null);
   // Which product line's pills is active on the list view. "All" shows everything.
   const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
   // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
@@ -131,10 +124,11 @@ export default function ProductsModal() {
 
   // ─── Product actions ──────────────────────────────────────────────────────
 
-  // The POS edits only a product's display name and price (creation, photos and
-  // variants are Coop-owned). A product's other fields are preserved untouched:
-  // for the rare variant product, its variant pricing and null base price stay as
-  // they are and only the name is updated.
+  // The POS edits a product's display name, price, and emoji (creation, photos
+  // and variants are Coop-owned). Each changed field also pushes to Coop
+  // (best-effort, fire-and-forget) so the edit shows on the Coop dashboard and
+  // reaches every other device on their next catalog pull — only possible once
+  // the product has a sku (i.e. it has been through at least one sync).
   async function handleSaveProduct() {
     const name = productForm.name.trim();
     if (!name) { Alert.alert('Required', 'Product name is required.'); return; }
@@ -142,6 +136,7 @@ export default function ProductsModal() {
 
     const existing = products.find((p) => p.id === editingId)!;
     const emoji = clampEmoji(productForm.emoji) || '🍬';
+    let price: number | null = null;
 
     if (existing.has_variants === 1) {
       await updateProduct(editingId, {
@@ -151,11 +146,15 @@ export default function ProductsModal() {
         is_active: existing.is_active,
         emoji,
         image_uri: existing.image_uri,
+        // Preserve the product's tab; updateProduct writes category/subcategory
+        // unconditionally, so omitting these wiped them to Uncategorized.
+        category: existing.category,
+        subcategory: existing.subcategory,
         sku: existing.sku,
         // No variants array: updateProduct leaves the existing variants intact.
       });
     } else {
-      const price = parseFloat(productForm.price);
+      price = parseFloat(productForm.price);
       if (isNaN(price) || price <= 0) {
         Alert.alert('Invalid price', 'Enter a valid price.'); return;
       }
@@ -166,8 +165,18 @@ export default function ProductsModal() {
         is_active: existing.is_active,
         emoji,
         image_uri: existing.image_uri,
+        category: existing.category,
+        subcategory: existing.subcategory,
         sku: existing.sku,
       });
+    }
+
+    if (existing.sku) {
+      if (name !== existing.name) pushProductRename(existing.sku, name);
+      if (existing.has_variants !== 1 && price !== null && price !== existing.price) {
+        pushProductReprice(existing.sku, price);
+      }
+      if (emoji !== existing.emoji) pushProductEmoji(existing.sku, emoji);
     }
 
     await refreshAll();
@@ -175,13 +184,19 @@ export default function ProductsModal() {
   }
 
   async function handleToggleProduct(product: Product) {
+    const nextActive = product.is_active === 1 ? 0 : 1;
     await updateProduct(product.id, {
       name: product.name,
       price: product.price,
       has_variants: product.has_variants === 1,
-      is_active: product.is_active === 1 ? 0 : 1,
+      is_active: nextActive,
+      // Preserve tab + image (updateProduct writes these unconditionally).
+      category: product.category,
+      subcategory: product.subcategory,
+      image_uri: product.image_uri,
       sku: product.sku,
     });
+    if (product.sku) pushProductListing(product.sku, nextActive === 1);
     setProducts(await getAllProducts());
   }
 
@@ -196,20 +211,8 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  async function confirmDeleteProduct(id: number, name: string) {
-    const ok = await confirmAction('Delete Product', `Remove "${name}" permanently?`, 'Delete');
-    if (!ok) return;
-    try {
-      await deleteProduct(id);
-      await refreshAll();
-      showToast({ variant: 'success', title: 'Product deleted' });
-    } catch (e) {
-      showToast({
-        variant: 'error',
-        title: 'Delete failed',
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
+  function confirmDeleteProduct(id: number, name: string) {
+    setDeleteTarget({ type: 'product', id, name });
   }
 
   // ─── Bundle actions ───────────────────────────────────────────────────────
@@ -221,8 +224,9 @@ export default function ProductsModal() {
     if (isNaN(price) || price <= 0) { Alert.alert('Invalid price', 'Enter a valid price.'); return; }
 
     if (editingId !== null) {
-      const existing = bundles.find((b) => b.id === editingId)!;
-      await updateSavedBundle(editingId, { name, price, items: existing.items });
+      await updateSavedBundle(editingId, { name, price, items: bundles.find((b) => b.id === editingId)!.items });
+      const saved = await getSavedBundleById(editingId);
+      if (saved) pushBundle(saved); // share the edit to Coop / other devices
     }
     await refreshAll();
     cancelForm();
@@ -230,6 +234,8 @@ export default function ProductsModal() {
 
   async function handleToggleBundle(bundle: SavedBundle) {
     await toggleSavedBundle(bundle.id, bundle.is_active === 1 ? 0 : 1);
+    const saved = await getSavedBundleById(bundle.id);
+    if (saved) pushBundle(saved);
     setBundles(await getAllSavedBundles());
   }
 
@@ -246,13 +252,26 @@ export default function ProductsModal() {
     setShowForm(true);
   }
 
-  async function confirmDeleteBundle(id: number, name: string) {
-    const ok = await confirmAction('Delete Bundle', `Remove "${name}" preset permanently?`, 'Delete');
-    if (!ok) return;
+  function confirmDeleteBundle(id: number, name: string) {
+    setDeleteTarget({ type: 'bundle', id, name });
+  }
+
+  // Single confirm modal backs both delete flows; onConfirm dispatches by type.
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const { type, id } = deleteTarget;
+    setDeleteTarget(null);
     try {
-      await deleteSavedBundle(id);
+      if (type === 'product') {
+        await deleteProduct(id);
+        showToast({ variant: 'success', title: 'Product deleted' });
+      } else {
+        const uuid = bundles.find((b) => b.id === id)?.bundle_uuid ?? null;
+        await deleteSavedBundle(id);
+        deleteBundleRemote(uuid); // remove it from Coop / other devices too
+        showToast({ variant: 'success', title: 'Bundle deleted' });
+      }
       await refreshAll();
-      showToast({ variant: 'success', title: 'Bundle deleted' });
     } catch (e) {
       showToast({
         variant: 'error',
@@ -260,6 +279,21 @@ export default function ProductsModal() {
         message: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  function openBundleEmoji(bundle: SavedBundle) {
+    setEmojiBundle(bundle);
+    setEmojiDraft(bundle.emoji ?? '');
+  }
+
+  async function saveBundleEmoji() {
+    if (!emojiBundle) return;
+    const emoji = clampEmoji(emojiDraft) || null; // empty clears -> derive from lines
+    await updateBundleEmoji(emojiBundle.id, emoji);
+    const saved = await getSavedBundleById(emojiBundle.id);
+    if (saved) pushBundle(saved);
+    setEmojiBundle(null);
+    await refreshAll();
   }
 
   // ─── Shared ───────────────────────────────────────────────────────────────
@@ -291,7 +325,7 @@ export default function ProductsModal() {
           <Text style={styles.formHeaderTitle}>{isBundle ? 'Edit Bundle Preset' : 'Edit Product'}</Text>
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <View style={styles.form}>
+          <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
             {!isBundle && (() => {
               const chosen = emojiGraphemes(productForm.emoji);
               const full = chosen.length >= MAX_EMOJI;
@@ -359,15 +393,17 @@ export default function ProductsModal() {
               }
               keyboardType="decimal-pad"
             />
+          </ScrollView>
 
-            <View style={styles.formBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Pinned footer (outside the ScrollView, like the bundle builder) so
+              Save is always reachable without scrolling past the emoji grid. */}
+          <View style={styles.formBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={cancelForm}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <Text style={styles.saveBtnText}>{isBundle ? 'Update bundle' : 'Update product'}</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -460,8 +496,12 @@ export default function ProductsModal() {
         {bundles.map((bundle) => (
           <View key={bundle.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
-              <Ionicons name="cube-outline" size={28} color={colors.textSecondary} style={{ marginRight: 12 }} />
-              <View>
+              <TouchableOpacity onPress={() => openBundleEmoji(bundle)} accessibilityLabel={`Edit emoji for ${bundle.name}`}>
+                <Text style={styles.itemEmoji}>
+                  {bundle.emoji || lineEmojis(products, bundle.line_categories ?? []).join('') || '🎁'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.itemText}>
                 <Text style={styles.itemName}>{bundle.name}</Text>
                 <Text style={styles.itemSub}>
                   {bundle.bundle_type === 'pick'
@@ -494,6 +534,63 @@ export default function ProductsModal() {
       </ScrollView>
         )}
       </PullToRefresh>
+
+      {/* Bundle emoji editor: tap-only palette, up to 3 (matches the product picker). */}
+      <Modal visible={!!emojiBundle} transparent animationType="fade" onRequestClose={() => setEmojiBundle(null)}>
+        <TouchableOpacity style={styles.emojiOverlay} activeOpacity={1} onPress={() => setEmojiBundle(null)}>
+          <TouchableOpacity style={styles.emojiCard} activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.emojiCardTitle}>Bundle emoji</Text>
+            <Text style={styles.emojiHint}>Tap to pick up to {MAX_EMOJI}. Leave empty to use the line emojis.</Text>
+            <View style={styles.emojiPreviewRow}>
+              <View style={styles.emojiPreview}>
+                <Text style={styles.emojiPreviewText}>
+                  {emojiDraft || (emojiBundle ? lineEmojis(products, emojiBundle.line_categories ?? []).join('') : '') || '🎁'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.emojiClearBtn}
+                onPress={() => setEmojiDraft((d) => emojiGraphemes(d).slice(0, -1).join(''))}
+                disabled={emojiDraft.length === 0}
+                accessibilityLabel="Remove last emoji"
+              >
+                <Ionicons name="backspace-outline" size={18} color={emojiDraft.length === 0 ? colors.textMuted : colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.emojiGrid}>
+              {PRODUCT_EMOJIS.map((e) => {
+                const full = emojiGraphemes(emojiDraft).length >= MAX_EMOJI;
+                return (
+                  <TouchableOpacity
+                    key={e}
+                    style={[styles.emojiPick, full && styles.emojiPickDisabled]}
+                    onPress={() => !full && setEmojiDraft((d) => clampEmoji(d + e))}
+                    disabled={full}
+                  >
+                    <Text style={styles.emojiPickText}>{e}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.formBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEmojiBundle(null)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveBundleEmoji}>
+                <Text style={styles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <ConfirmModal
+        visible={!!deleteTarget}
+        title={deleteTarget?.type === 'bundle' ? 'Delete Bundle' : 'Delete Product'}
+        message={`Remove "${deleteTarget?.name}" permanently?`}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -569,7 +666,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   backBtn: { padding: 4 },
   formHeaderTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
 
-  form: { padding: 20, gap: 8 },
+  form: { padding: 20, paddingBottom: 20, gap: 8 },
   fieldLabel: {
     color: c.textMuted,
     fontSize: F.xs,
@@ -582,6 +679,12 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm,
     padding: 14, fontSize: F.md, borderWidth: 1, borderColor: c.border,
   },
+  emojiOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emojiCard: {
+    width: '100%', maxWidth: 380, backgroundColor: c.surface, borderRadius: R.lg,
+    borderWidth: 1, borderColor: c.borderDark, padding: 20, gap: 4,
+  },
+  emojiCardTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
   emojiHint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 4 },
   emojiPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   emojiPreview: {
@@ -600,7 +703,14 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   emojiPickDisabled: { opacity: 0.4 },
   emojiPickText: { fontSize: 22 },
-  formBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  formBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: c.borderDark,
+    backgroundColor: c.surface,
+  },
   cancelBtn: {
     flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
     padding: 14, alignItems: 'center', borderWidth: 1, borderColor: c.border,

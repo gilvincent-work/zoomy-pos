@@ -27,10 +27,10 @@ function ThemedStack() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.textPrimary }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="modals/payment" options={{ presentation: 'modal', title: 'Payment' }} />
         <Stack.Screen name="modals/products" options={{ presentation: 'modal', title: 'Products' }} />
         <Stack.Screen name="modals/transactions" options={{ presentation: 'modal', title: 'Transactions' }} />
         <Stack.Screen name="modals/admin" options={{ presentation: 'modal', title: '' }} />
+        <Stack.Screen name="modals/payment-settings" options={{ presentation: 'modal', title: 'Payment Options' }} />
         <Stack.Screen name="modals/bundle" options={{ presentation: 'modal', title: 'Add Bundle' }} />
         <Stack.Screen name="modals/bundle-select" options={{ presentation: 'modal', title: 'Choose Flavors' }} />
         <Stack.Screen name="modals/scan"   options={{ presentation: 'modal', headerShown: false }} />

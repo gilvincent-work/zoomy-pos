@@ -89,4 +89,88 @@ describe('ProductTile', () => {
     );
     expect(queryByTestId('remove-btn')).toBeNull();
   });
+
+  describe('stock warning', () => {
+    it('shows no warning below the stock count', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={5} badgeCount={3} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+
+    it('shows "Last stock" when the cart quantity exactly meets stock', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={3} badgeCount={3} />);
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Last stock');
+    });
+
+    it('shows the persistent tag instead of the in-cart warning before anything is added, at 0 stock', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+      expect(queryByTestId('out-of-stock-tag')).toBeTruthy();
+    });
+
+    it('skips the warning for variant products (no per-variant stock)', () => {
+      const { queryByTestId } = render(
+        <ProductTile {...baseProps} hasVariants stock={1} badgeCount={3} />
+      );
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+
+    it('skips the warning when stock is not provided', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} badgeCount={3} />);
+      expect(queryByTestId('stock-warning')).toBeNull();
+    });
+  });
+
+  describe('out-of-stock tag', () => {
+    it('shows the tag when stock is 0 and nothing is in the cart', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      expect(getByTestId('out-of-stock-tag').props.children.props.children).toBe('No Stock');
+    });
+
+    it('shows the tag for a negative (already-oversold) stock too', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={-2} badgeCount={0} />);
+      expect(getByTestId('out-of-stock-tag')).toBeTruthy();
+    });
+
+    it('does not show the tag once there is stock', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={5} badgeCount={0} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+    });
+
+    it('does not show the tag once the item is already in the cart (in-cart warning takes over)', () => {
+      const { queryByTestId, getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={2} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Last stock');
+    });
+
+    it('still allows tapping the tile when out of stock', () => {
+      const onPress = jest.fn();
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} onPress={onPress} />);
+      fireEvent.press(getByTestId('tile'));
+      expect(onPress).toHaveBeenCalledWith(1);
+    });
+
+    it('greys out the tile when out of stock', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      const style = [].concat(getByTestId('tile').props.style);
+      expect(style).toContainEqual(expect.objectContaining({ opacity: 0.45 }));
+    });
+
+    it('does not grey out an active tile at its stock ceiling', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={2} badgeCount={2} />);
+      const style = [].concat(getByTestId('tile').props.style);
+      expect(style).not.toContainEqual(expect.objectContaining({ opacity: 0.45 }));
+    });
+
+    it('skips the tag for variant products (no per-variant stock)', () => {
+      const { queryByTestId } = render(
+        <ProductTile {...baseProps} hasVariants stock={0} badgeCount={0} />
+      );
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+    });
+
+    it('skips the tag when stock is not provided', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} badgeCount={0} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+    });
+  });
 });

@@ -9,6 +9,9 @@ type Props = {
   /** Currently selected quick method. */
   value: PaymentMethod;
   onChange: (method: PaymentMethod) => void;
+  /** Which methods to offer, in order (Settings -> Payment Options). Defaults
+   *  to every quick method when omitted. */
+  items?: PaymentMethod[];
   /** Grey out + block taps (e.g. empty cart). */
   disabled?: boolean;
   /** Tighter padding for the portrait peek bar. */
@@ -16,17 +19,19 @@ type Props = {
 };
 
 /**
- * Segmented Cash / GCash / Card selector that sits above the Pay button. The
- * active segment lifts to the app background with the brand pink label, so the
+ * Segmented method selector that sits above the Pay button. The active
+ * segment lifts to the app background with the brand pink label, so the
  * chosen method reads at a glance before the cashier commits the sale.
  */
-export function PaymentMethodTabs({ value, onChange, disabled, compact }: Props) {
+export function PaymentMethodTabs({ value, onChange, items, disabled, compact }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const enabledSet = items ? new Set(items) : null;
+  const methods = enabledSet ? QUICK_PAYMENT_METHODS.filter((m) => enabledSet.has(m.key)) : QUICK_PAYMENT_METHODS;
 
   return (
     <View style={[styles.track, compact && styles.trackCompact, disabled && styles.trackDisabled]}>
-      {QUICK_PAYMENT_METHODS.map((m) => {
+      {methods.map((m) => {
         const active = m.key === value;
         return (
           <TouchableOpacity

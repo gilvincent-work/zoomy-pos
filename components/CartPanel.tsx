@@ -9,15 +9,17 @@ import { quickMethodMeta } from '../constants/payment';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
 
 type Props = {
-  /** Selected quick payment method (Cash / GCash / Card). */
+  /** Selected quick payment method. */
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
+  /** Methods to offer, from Settings -> Payment Options. Defaults to all. */
+  enabledMethods?: PaymentMethod[];
   /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
-  /** Secondary path to the full payment modal (GCash QR, change, receipt photo). */
-  onMorePayment?: () => void;
   /** Compact spacing for the narrow landscape side pane. */
   compact?: boolean;
+  /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
+  canIncrement?: (productId: number) => boolean;
 };
 
 /**
@@ -25,7 +27,7 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, compact }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, compact, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
@@ -54,6 +56,8 @@ export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, com
             {items.map((item) => {
               const key = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
               const lineTotal = item.price * item.quantity;
+              // Variants have no per-variant stock tracking, so they're always incrementable.
+              const atStockLimit = !item.variantId && canIncrement && !canIncrement(item.productId);
               return (
                 <View key={key} style={styles.line}>
                   <View style={styles.lineInfo}>
@@ -75,7 +79,8 @@ export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, com
                     <Text style={styles.stepQty}>{item.quantity}</Text>
                     <TouchableOpacity
                       testID={`cart-plus-${key}`}
-                      style={[styles.stepBtn, styles.stepPlus]}
+                      style={[styles.stepBtn, styles.stepPlus, atStockLimit && styles.stepBtnDisabled]}
+                      disabled={atStockLimit}
                       onPress={() =>
                         addItem({
                           id: item.productId,
@@ -135,14 +140,12 @@ export function CartPanel({ method, onMethodChange, onCharge, onMorePayment, com
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
-        <PaymentMethodTabs value={method} onChange={onMethodChange} disabled={isEmpty} />
+        <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
         <TouchableOpacity
           testID="cart-charge"
           style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
           disabled={isEmpty}
           onPress={onCharge}
-          onLongPress={onMorePayment}
-          delayLongPress={350}
           activeOpacity={0.85}
         >
           <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
@@ -202,6 +205,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     justifyContent: 'center',
   },
   stepPlus: { backgroundColor: c.pink },
+  stepBtnDisabled: { opacity: 0.35 },
   stepMinus: { color: c.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepPlusText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepQty: {

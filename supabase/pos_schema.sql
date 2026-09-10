@@ -29,12 +29,16 @@ create table public.pos_products (
 );
 
 create table public.pos_bundles (
-  bundle_id   text primary key,
-  name        text not null,
-  price       numeric not null,
-  active      boolean not null default true,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  bundle_id       text primary key,   -- the POS's shared bundle_uuid
+  name            text not null,
+  price           numeric not null,
+  active          boolean not null default true,
+  bundle_type     text not null default 'fixed', -- 'fixed' | 'pick' (Buy Any N)
+  pick_count      integer,            -- Buy Any N (pick bundles only)
+  line_categories jsonb,              -- eligible POS lines (pick bundles only)
+  emoji           text,               -- tile emoji (1-3); null = derive from lines
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
 );
 
 create table public.pos_bundle_items (
@@ -338,6 +342,23 @@ begin
 end;
 $$;
 
+-- set_product_emoji: lets the POS push its own emoji choice up to Coop,
+-- mirroring rename_product/reprice_product. Combined with the catalog pull
+-- always overwriting a product's local emoji from Coop's value (when set),
+-- this makes emoji fully convergent: whichever device (or Coop) edited it
+-- most recently wins everywhere on the next sync.
+create or replace function public.set_product_emoji(p_product_id text, p_emoji text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update pos_products set emoji = nullif(p_emoji, ''), updated_at = now()
+    where product_id = p_product_id;
+end;
+$$;
+
 -- receive_lot: new dated lot + a 'receipt' stock movement.
 create or replace function public.receive_lot(p_product_id text, p_expires_on date, p_qty integer, p_lot_code text)
 returns uuid
@@ -504,6 +525,64 @@ begin
 end;
 $$;
 
+-- Upsert a bundle + replace its fixed items, keyed by the POS's bundle_uuid.
+-- Lets bundles created on one POS device sync to the others (via Coop).
+create or replace function public.apply_pos_bundle(p_bundle jsonb, p_items jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id text := p_bundle->>'bundle_id';
+begin
+  if v_id is null or v_id = '' then
+    raise exception 'bundle_id is required';
+  end if;
+
+  insert into pos_bundles (bundle_id, name, price, active, bundle_type, pick_count, line_categories, emoji, created_at, updated_at)
+  values (
+    v_id,
+    coalesce(p_bundle->>'name', ''),
+    coalesce((p_bundle->>'price')::numeric, 0),
+    coalesce((p_bundle->>'active')::boolean, true),
+    coalesce(nullif(p_bundle->>'bundle_type', ''), 'fixed'),
+    nullif(p_bundle->>'pick_count', '')::integer,
+    case when p_bundle ? 'line_categories' then p_bundle->'line_categories' else null end,
+    nullif(p_bundle->>'emoji', ''),
+    now(), now()
+  )
+  on conflict (bundle_id) do update set
+    name = excluded.name,
+    price = excluded.price,
+    active = excluded.active,
+    bundle_type = excluded.bundle_type,
+    pick_count = excluded.pick_count,
+    line_categories = excluded.line_categories,
+    emoji = excluded.emoji,
+    updated_at = now();
+
+  delete from pos_bundle_items where bundle_id = v_id;
+  insert into pos_bundle_items (bundle_id, product_id, qty)
+  select v_id, (it->>'product_id'), coalesce((it->>'qty')::integer, 1)
+  from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) as it
+  where (it->>'product_id') is not null;
+end;
+$$;
+
+-- Remove a bundle (and its items) by bundle_uuid.
+create or replace function public.delete_pos_bundle(p_bundle_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from pos_bundle_items where bundle_id = p_bundle_id;
+  delete from pos_bundles where bundle_id = p_bundle_id;
+end;
+$$;
+
 -- =========================================================================
 -- 4. Row Level Security — default deny; anon gets SELECT-only on catalog/
 --    inventory/orders reads, plus EXECUTE on the RPCs. No anon INSERT/
@@ -540,5 +619,8 @@ grant execute on function public.receive_lot(text, date, integer, text)     to a
 grant execute on function public.recount_lot(uuid, integer, text, text)     to anon;
 grant execute on function public.record_sync(text, text, jsonb, text)       to anon;
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
+grant execute on function public.set_product_emoji(text, text)              to anon;
 grant execute on function public.void_pos_order(text)                       to anon;
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
+grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;
+grant execute on function public.delete_pos_bundle(text)                    to anon;

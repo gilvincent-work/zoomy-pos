@@ -7,7 +7,8 @@ export const PRODUCT_EMOJIS = [
   '🐟', '🐠', '🍤', '🦐', '🦑', '🦀',
   '🐔', '🦆', '🦃', '🥚', '🧀', '🥛',
   '🌿', '🍀', '🥕', '🫐', '🍓', '🍎',
-  '🎃', '🍠', '🥦', '🥜', '🍯', '🧊',
+  '🍐', '🎃', '🍠', '🥦', '🥜', '🍯',
+  '🥢', '🧊',
 ] as const;
 
 /** A tile can show up to 3 emoji (like the bundle tiles). */

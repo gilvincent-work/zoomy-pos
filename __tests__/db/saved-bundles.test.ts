@@ -119,7 +119,9 @@ describe('savePickBundle', () => {
       'pick',
       4,
       '["Freeze Dried","Meaty Treats"]',
-      expect.any(String),
+      expect.any(String), // bundle_uuid
+      null, // emoji (none set)
+      expect.any(String), // created_at
     ]);
   });
 });
@@ -128,7 +130,7 @@ describe('updatePickBundle', () => {
   it('updates name, price, pick_count and line_categories', async () => {
     await updatePickBundle(3, validInput);
     const [sql, params] = mockDb.runAsync.mock.calls[0];
-    expect(sql).toContain('UPDATE saved_bundles SET name = ?, price = ?, pick_count = ?, line_categories = ?');
-    expect(params).toEqual(['Buy Any 4', 570, 4, '["Freeze Dried","Meaty Treats"]', 3]);
+    expect(sql).toContain('UPDATE saved_bundles SET name = ?, price = ?, pick_count = ?, line_categories = ?, emoji = ?');
+    expect(params).toEqual(['Buy Any 4', 570, 4, '["Freeze Dried","Meaty Treats"]', null, 3]);
   });
 });

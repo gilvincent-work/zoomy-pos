@@ -20,7 +20,7 @@ import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
-  getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId,
+  getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId, decrementStock,
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
@@ -245,6 +245,13 @@ export default function POSScreen() {
         clientUuid,
         items: saleItems,
       });
+      // Reflect this sale on the local stock cache right away, so the tile
+      // warning is correct on the very next tap — it doesn't wait for the next
+      // catalog pull (Coop's own stock already deducted server-side when the
+      // sale reaches it; this just keeps this device from reading stale
+      // between syncs).
+      await decrementStock(saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })));
+      await loadCatalog();
       clearCart();
       showToast({
         variant: 'success',

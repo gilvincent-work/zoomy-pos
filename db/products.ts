@@ -261,6 +261,28 @@ export async function applyCatalogUpdate(u: {
   return ins.changes;
 }
 
+/**
+ * Decrement the local stock cache right after a sale is recorded, so the tile
+ * warning reflects this device's own sale immediately — without waiting for
+ * the next catalog pull (which only reconciles against Coop periodically).
+ * Coop's own stock already deducted server-side the moment the sale reached
+ * it (apply_pos_order); this just keeps the *local* cache from reading stale
+ * between syncs. Allowed to go negative, mirroring Coop's oversell behavior —
+ * an oversold local cache is exactly what should show "Oversold" on the tile.
+ * A later catalog pull always overwrites this with Coop's authoritative count.
+ */
+export async function decrementStock(items: { productId: number; quantity: number }[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDatabase();
+  const totals = new Map<number, number>();
+  for (const item of items) {
+    totals.set(item.productId, (totals.get(item.productId) ?? 0) + item.quantity);
+  }
+  for (const [productId, qty] of totals) {
+    await db.runAsync('UPDATE products SET stock = stock - ? WHERE id = ?', [qty, productId]);
+  }
+}
+
 export async function getVariantByProductIdAndName(
   productId: number,
   name: string

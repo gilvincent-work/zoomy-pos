@@ -14,6 +14,28 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
+### Fix: local stock cache went stale immediately after a sale — `fix(stock)`
+- Reported scenario: sell 5 (last stock), sell 1 more (oversold), tap Paid, then
+  ring up 5 again — the tile still showed "Last stock" even though the real
+  count was already 0/negative. Cause: a **local** sale never touched the
+  **local** stock cache — only the periodic catalog pull did, and that pull
+  hadn't run yet. Coop's own stock was already correct in real time (its
+  `apply_pos_order` RPC decrements inventory atomically on every sale); the POS
+  just wasn't reflecting that for its own just-completed sale.
+- Considered querying Coop live per tile instead, but that would add a network
+  round-trip to every render of a bazaar-speed, offline-first UI — the wrong
+  tradeoff. Instead, `decrementStock` now updates the local cache immediately
+  after a sale commits (either payment path), so the very next tap sees the
+  correct count without any network call; the next catalog pull still
+  reconciles fully against Coop (and corrects for sales made on *other*
+  devices, which this local decrement can't know about).
+- Added a **persistent "No Stock" tag** at the top of a tile whenever the
+  cached stock is already ≤ 0 and nothing is in the cart yet — distinct from
+  the existing bottom Last-stock/Oversold banner, which only shows once
+  something's actually been tapped. The tile stays fully tappable either way;
+  this is a heads-up for the cashier (and a future signal to restock in Coop),
+  not a block.
+
 ### Product name/price/emoji/listing edits now sync across devices — `feat(sync)`
 - POS-side product edits (name, price, emoji, and the list/unlist toggle) were
   local-only — a change on one device never reached Coop or any other device.

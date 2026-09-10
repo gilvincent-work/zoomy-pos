@@ -9,6 +9,7 @@ import * as Crypto from 'expo-crypto';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
+import { decrementStock } from '../../db/products';
 import { pushSale } from '../../utils/sales-sync';
 import { getAllQrUris, QrUris, QrMethod, qrMethodLabel } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
@@ -160,6 +161,9 @@ export default function PaymentModal() {
         clientUuid,
         items: itemsForInsert,
       });
+      // Reflect this sale on the local stock cache right away (the main POS
+      // screen re-reads it on focus when this modal is dismissed).
+      await decrementStock(itemsForInsert.map((i) => ({ productId: i.productId, quantity: i.quantity })));
       clearCart();
       setConfirmed(snapshot);
       // Write the sale up to Coop (online-only), in the background. The local

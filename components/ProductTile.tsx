@@ -27,12 +27,20 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const active = badgeCount > 0;
-  // Non-blocking stock warning: the cashier can still ring it up, but sees a
-  // heads-up once the quantity in the cart meets or passes what's on hand.
-  // Variant products have no per-variant stock, so they're excluded.
-  const stockKnown = !hasVariants && stock != null && active;
-  const isOversold = stockKnown && stock! < badgeCount;
-  const isLastStock = stockKnown && !isOversold && stock === badgeCount;
+  // Non-blocking stock signals: the cashier can always still ring it up, but
+  // sees a heads-up. Variant products have no per-variant stock, so they're
+  // excluded from all three. `stock` is the local cache — refreshed on every
+  // catalog pull and decremented immediately after this device's own sales
+  // (see db/products.ts decrementStock), so it's accurate for this device
+  // without needing a live query.
+  const stockKnown = !hasVariants && stock != null;
+  // Nothing in the cart yet, but the cache already reads empty/negative — a
+  // persistent top tag, distinct from the in-cart warnings below, so a
+  // cashier can spot a depleted item (and flag it for restock in Coop) before
+  // even tapping it.
+  const isOutOfStock = stockKnown && !active && stock! <= 0;
+  const isOversold = stockKnown && active && stock! < badgeCount;
+  const isLastStock = stockKnown && active && !isOversold && stock === badgeCount;
   return (
     <TouchableOpacity
       testID="tile"
@@ -41,6 +49,11 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
       onLongPress={() => onLongPress(id)}
       activeOpacity={0.7}
     >
+      {isOutOfStock && (
+        <View style={styles.outOfStockTag} testID="out-of-stock-tag">
+          <Text style={styles.outOfStockText} numberOfLines={1}>No Stock</Text>
+        </View>
+      )}
       {imageUri ? (
         <>
           <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
@@ -242,6 +255,23 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   stockWarningLast: { backgroundColor: '#f5a524' },
   stockWarningOversold: { backgroundColor: c.red },
   stockWarningText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
+  // Persistent "already out of stock" tag, pinned to the top edge — distinct
+  // from the bottom in-cart warning band above, and only shown before
+  // anything's tapped (top corners are free then; the qty/clear controls that
+  // would collide only render once active).
+  outOfStockTag: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: c.red,
+    zIndex: 10,
+    elevation: 4,
+  },
+  outOfStockText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
   name: {
     color: c.textPrimary,
     fontSize: F.sm,

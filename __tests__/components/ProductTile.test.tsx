@@ -111,9 +111,10 @@ describe('ProductTile', () => {
       expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
     });
 
-    it('shows nothing before anything is added to the cart, even at 0 stock', () => {
+    it('shows the persistent tag instead of the in-cart warning before anything is added, at 0 stock', () => {
       const { queryByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
       expect(queryByTestId('stock-warning')).toBeNull();
+      expect(queryByTestId('out-of-stock-tag')).toBeTruthy();
     });
 
     it('skips the warning for variant products (no per-variant stock)', () => {
@@ -126,6 +127,48 @@ describe('ProductTile', () => {
     it('skips the warning when stock is not provided', () => {
       const { queryByTestId } = render(<ProductTile {...baseProps} badgeCount={3} />);
       expect(queryByTestId('stock-warning')).toBeNull();
+    });
+  });
+
+  describe('out-of-stock tag', () => {
+    it('shows the tag when stock is 0 and nothing is in the cart', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      expect(getByTestId('out-of-stock-tag').props.children.props.children).toBe('No Stock');
+    });
+
+    it('shows the tag for a negative (already-oversold) stock too', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={-2} badgeCount={0} />);
+      expect(getByTestId('out-of-stock-tag')).toBeTruthy();
+    });
+
+    it('does not show the tag once there is stock', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} stock={5} badgeCount={0} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+    });
+
+    it('does not show the tag once the item is already in the cart (in-cart warning takes over)', () => {
+      const { queryByTestId, getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={2} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
+    });
+
+    it('still allows tapping the tile when out of stock', () => {
+      const onPress = jest.fn();
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} onPress={onPress} />);
+      fireEvent.press(getByTestId('tile'));
+      expect(onPress).toHaveBeenCalledWith(1);
+    });
+
+    it('skips the tag for variant products (no per-variant stock)', () => {
+      const { queryByTestId } = render(
+        <ProductTile {...baseProps} hasVariants stock={0} badgeCount={0} />
+      );
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
+    });
+
+    it('skips the tag when stock is not provided', () => {
+      const { queryByTestId } = render(<ProductTile {...baseProps} badgeCount={0} />);
+      expect(queryByTestId('out-of-stock-tag')).toBeNull();
     });
   });
 });

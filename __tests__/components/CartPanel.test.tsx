@@ -45,12 +45,6 @@ describe('CartPanel', () => {
     expect(onCharge).not.toHaveBeenCalled();
   });
 
-  it('does not render the secondary payment label (long-press on Charge instead)', () => {
-    const { queryByTestId, queryByText } = renderPanel({ onMorePayment: jest.fn() });
-    expect(queryByTestId('cart-more-payment')).toBeNull();
-    expect(queryByText('GCash / other · change')).toBeNull();
-  });
-
   describe('stock ceiling on the "+" stepper', () => {
     it('disables "+" once canIncrement reports no stock left', () => {
       const canIncrement = jest.fn().mockReturnValue(false);

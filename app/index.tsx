@@ -103,6 +103,7 @@ export default function POSScreen() {
   // configurable in Settings -> Payment Options.
   const [confirmPay, setConfirmPay] = useState(false);
   const [confirmOnPay, setConfirmOnPay] = useState(true);
+  const [customerHandle, setCustomerHandle] = useState('');
 
   // Re-read Settings -> Payment Options on every focus (a device that just came
   // back from that screen should reflect the change immediately). If the
@@ -258,6 +259,7 @@ export default function POSScreen() {
         cashTendered: saleTotal,
         change: 0,
         paymentMethod: method,
+        customerHandle: customerHandle.trim() || undefined,
         isBundle: bundles.length > 0,
         clientUuid,
         items: saleItems,
@@ -270,6 +272,7 @@ export default function POSScreen() {
       await decrementStock(saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })));
       await loadCatalog();
       clearCart();
+      setCustomerHandle('');
       showToast({
         variant: 'success',
         title: 'Sale recorded',
@@ -293,10 +296,6 @@ export default function POSScreen() {
         message: 'Please try again.',
       });
     }
-  }
-
-  function handleMorePayment() {
-    router.push('/modals/payment');
   }
 
   const productPane = (
@@ -439,7 +438,6 @@ export default function POSScreen() {
               onMethodChange={setPayMethod}
               enabledMethods={enabledMethods}
               onCharge={handleRequestPay}
-              onMorePayment={handleMorePayment}
               canIncrement={canIncrementItem}
               compact
             />
@@ -453,7 +451,6 @@ export default function POSScreen() {
             onMethodChange={setPayMethod}
             enabledMethods={enabledMethods}
             onCharge={handleRequestPay}
-            onMorePayment={handleMorePayment}
             canIncrement={canIncrementItem}
           />
         </View>
@@ -463,6 +460,8 @@ export default function POSScreen() {
         visible={confirmPay}
         method={payMethod}
         total={total}
+        customerHandle={customerHandle}
+        onChangeCustomerHandle={setCustomerHandle}
         onConfirm={handleConfirmPay}
         onCancel={() => setConfirmPay(false)}
       />

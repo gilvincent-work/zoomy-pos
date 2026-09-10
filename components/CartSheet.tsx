@@ -16,7 +16,6 @@ type Props = {
   onMethodChange: (method: PaymentMethod) => void;
   enabledMethods?: PaymentMethod[];
   onCharge: () => void;
-  onMorePayment?: () => void;
   /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
   canIncrement?: (productId: number) => boolean;
 };
@@ -26,7 +25,7 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, canIncrement }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
@@ -125,8 +124,6 @@ export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, on
             style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
             disabled={cartCount === 0}
             onPress={onCharge}
-            onLongPress={onMorePayment}
-            delayLongPress={350}
           >
             <Text style={[styles.peekChargeText, cartCount === 0 && styles.peekChargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
           </TouchableOpacity>
@@ -151,7 +148,7 @@ export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, on
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={styles.grabber} />
         </View>
-        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} onMorePayment={onMorePayment} canIncrement={canIncrement} />
+        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} canIncrement={canIncrement} />
       </Animated.View>
     </>
   );

@@ -16,8 +16,6 @@ type Props = {
   enabledMethods?: PaymentMethod[];
   /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
-  /** Secondary path to the full payment modal (GCash QR, change, receipt photo). */
-  onMorePayment?: () => void;
   /** Compact spacing for the narrow landscape side pane. */
   compact?: boolean;
   /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
@@ -29,7 +27,7 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, compact, canIncrement }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, compact, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
@@ -148,8 +146,6 @@ export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, on
           style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
           disabled={isEmpty}
           onPress={onCharge}
-          onLongPress={onMorePayment}
-          delayLongPress={350}
           activeOpacity={0.85}
         >
           <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>

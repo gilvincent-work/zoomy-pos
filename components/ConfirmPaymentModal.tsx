@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import type { PaymentMethod } from '../db/transactions';
@@ -9,6 +9,8 @@ type Props = {
   visible: boolean;
   method: PaymentMethod;
   total: number;
+  customerHandle: string;
+  onChangeCustomerHandle: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -18,7 +20,7 @@ type Props = {
  * the amount so an accidental Pay press can be waved off. Tapping the backdrop
  * cancels; only the green Paid button records.
  */
-export function ConfirmPaymentModal({ visible, method, total, onConfirm, onCancel }: Props) {
+export function ConfirmPaymentModal({ visible, method, total, customerHandle, onChangeCustomerHandle, onConfirm, onCancel }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const meta = quickMethodMeta(method);
@@ -35,6 +37,20 @@ export function ConfirmPaymentModal({ visible, method, total, onConfirm, onCance
             <Text style={styles.method}>{meta.emoji}  {meta.label}</Text>
             <Text style={styles.total}>₱{total.toFixed(2)}</Text>
           </View>
+
+          <Text style={styles.handleLabel}>
+            FURBABY / IG HANDLE <Text style={styles.optionalTag}>optional</Text>
+          </Text>
+          <TextInput
+            testID="confirm-pay-handle"
+            style={styles.handleInput}
+            placeholder="@username or furbaby name"
+            placeholderTextColor={colors.textMuted}
+            value={customerHandle}
+            onChangeText={onChangeCustomerHandle}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
           <View style={styles.actions}>
             <TouchableOpacity
@@ -95,6 +111,25 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   method: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
   total: { color: c.textPrimary, fontSize: F.xl, fontWeight: '800' },
+  handleLabel: {
+    color: c.textMuted,
+    fontSize: F.xs,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  optionalTag: { color: c.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
+  handleInput: {
+    backgroundColor: c.elevated,
+    color: c.textPrimary,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: c.border,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    fontSize: F.md,
+  },
   actions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   btn: {
     flex: 1,

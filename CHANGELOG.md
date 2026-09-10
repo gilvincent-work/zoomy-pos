@@ -14,6 +14,22 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
+### Removed the full Payment page; quick tap is now the only checkout flow — `feat(payment)`
+- Deleted `app/modals/payment.tsx` and its route entirely, along with the
+  Charge button's long-press that opened it (`onMorePayment` removed from
+  `CartPanel`/`CartSheet`). Every Pay action is now a single quick tap — there
+  are no more secondary long-press affordances anywhere in the checkout flow.
+- The Furbaby / IG handle field (previously only reachable via that removed
+  page) moved into the quick `ConfirmPaymentModal`, as an optional field
+  between the price summary and the Cancel/Paid buttons. It's wired straight
+  into `insertTransaction`'s existing `customerHandle` column, same as before.
+- This intentionally drops the Payment page's other features (GCash/Maya QR
+  full-screen display, reference number entry, receipt photo capture, cash
+  tendered/change calculator) — the quick flow already recorded the sale
+  under whichever method was selected via the payment method tabs, just
+  without those extras. Settings' QR upload (Admin) is untouched, since it's
+  independent of this page.
+
 ### Out-of-stock tiles are greyed out, and overselling is now blocked — `feat(stock)`
 - Per PO direction, this replaces the "warn but still allow" approach shipped
   earlier today: a depleted product's tile is now dimmed (in addition to

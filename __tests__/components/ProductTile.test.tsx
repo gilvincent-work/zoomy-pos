@@ -101,16 +101,6 @@ describe('ProductTile', () => {
       expect(getByTestId('stock-warning').props.children.props.children).toBe('Last stock');
     });
 
-    it('shows "Oversold" when the cart quantity exceeds stock', () => {
-      const { getByTestId } = render(<ProductTile {...baseProps} stock={2} badgeCount={3} />);
-      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
-    });
-
-    it('shows "Oversold" for an already-negative stock (prior oversell)', () => {
-      const { getByTestId } = render(<ProductTile {...baseProps} stock={-1} badgeCount={1} />);
-      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
-    });
-
     it('shows the persistent tag instead of the in-cart warning before anything is added, at 0 stock', () => {
       const { queryByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
       expect(queryByTestId('stock-warning')).toBeNull();
@@ -149,7 +139,7 @@ describe('ProductTile', () => {
     it('does not show the tag once the item is already in the cart (in-cart warning takes over)', () => {
       const { queryByTestId, getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={2} />);
       expect(queryByTestId('out-of-stock-tag')).toBeNull();
-      expect(getByTestId('stock-warning').props.children.props.children).toBe('Oversold');
+      expect(getByTestId('stock-warning').props.children.props.children).toBe('Last stock');
     });
 
     it('still allows tapping the tile when out of stock', () => {
@@ -157,6 +147,18 @@ describe('ProductTile', () => {
       const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} onPress={onPress} />);
       fireEvent.press(getByTestId('tile'));
       expect(onPress).toHaveBeenCalledWith(1);
+    });
+
+    it('greys out the tile when out of stock', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={0} badgeCount={0} />);
+      const style = [].concat(getByTestId('tile').props.style);
+      expect(style).toContainEqual(expect.objectContaining({ opacity: 0.45 }));
+    });
+
+    it('does not grey out an active tile at its stock ceiling', () => {
+      const { getByTestId } = render(<ProductTile {...baseProps} stock={2} badgeCount={2} />);
+      const style = [].concat(getByTestId('tile').props.style);
+      expect(style).not.toContainEqual(expect.objectContaining({ opacity: 0.45 }));
     });
 
     it('skips the tag for variant products (no per-variant stock)', () => {

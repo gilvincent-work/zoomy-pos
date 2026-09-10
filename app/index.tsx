@@ -173,6 +173,15 @@ export default function POSScreen() {
   const getBadge = (productId: number) =>
     items.filter((i) => i.productId === productId).reduce((sum, i) => sum + i.quantity, 0);
 
+  // Shared stock-ceiling check for every "+" surface (tile tap, cart stepper):
+  // stock is only a real signal once a product has synced with Coop at least
+  // once (sku set) — an unsynced row defaults to 0 and isn't "confirmed empty".
+  const canIncrementItem = (productId: number) => {
+    const product = products.find((p) => p.id === productId);
+    if (!product || !product.sku) return true;
+    return product.stock - getBadge(productId) > 0;
+  };
+
   const variantInitialQuantities: Record<number, number> = {};
   if (variantProduct) {
     for (const item of items) {
@@ -188,6 +197,14 @@ export default function POSScreen() {
       setVariantList(variants);
       setVariantProduct(product);
     } else {
+      if (!canIncrementItem(product.id)) {
+        showToast({
+          variant: 'error',
+          title: 'No stock left',
+          message: `${product.name} is out of stock. Restock it in Coop to sell more.`,
+        });
+        return;
+      }
       addItem({ id: product.id, name: product.name, price: product.price! });
     }
   }
@@ -354,7 +371,7 @@ export default function POSScreen() {
                 imageUri={item.image_uri ?? null}
                 emoji={item.emoji}
                 badgeCount={getBadge(item.id)}
-                stock={item.stock}
+                stock={item.sku ? item.stock : undefined}
                 onPress={() => handleProductPress(item)}
                 onLongPress={() => removeItem(item.id)}
                 onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
@@ -423,6 +440,7 @@ export default function POSScreen() {
               enabledMethods={enabledMethods}
               onCharge={handleRequestPay}
               onMorePayment={handleMorePayment}
+              canIncrement={canIncrementItem}
               compact
             />
           </View>
@@ -436,6 +454,7 @@ export default function POSScreen() {
             enabledMethods={enabledMethods}
             onCharge={handleRequestPay}
             onMorePayment={handleMorePayment}
+            canIncrement={canIncrementItem}
           />
         </View>
       )}

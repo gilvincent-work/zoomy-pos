@@ -17,6 +17,8 @@ type Props = {
   enabledMethods?: PaymentMethod[];
   onCharge: () => void;
   onMorePayment?: () => void;
+  /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
+  canIncrement?: (productId: number) => boolean;
 };
 
 /**
@@ -24,7 +26,7 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, onMorePayment }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
@@ -149,7 +151,7 @@ export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, on
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={styles.grabber} />
         </View>
-        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} onMorePayment={onMorePayment} />
+        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} onMorePayment={onMorePayment} canIncrement={canIncrement} />
       </Animated.View>
     </>
   );

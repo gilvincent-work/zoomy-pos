@@ -20,6 +20,8 @@ type Props = {
   onMorePayment?: () => void;
   /** Compact spacing for the narrow landscape side pane. */
   compact?: boolean;
+  /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
+  canIncrement?: (productId: number) => boolean;
 };
 
 /**
@@ -27,7 +29,7 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, compact }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, onMorePayment, compact, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
@@ -56,6 +58,8 @@ export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, on
             {items.map((item) => {
               const key = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
               const lineTotal = item.price * item.quantity;
+              // Variants have no per-variant stock tracking, so they're always incrementable.
+              const atStockLimit = !item.variantId && canIncrement && !canIncrement(item.productId);
               return (
                 <View key={key} style={styles.line}>
                   <View style={styles.lineInfo}>
@@ -77,7 +81,8 @@ export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, on
                     <Text style={styles.stepQty}>{item.quantity}</Text>
                     <TouchableOpacity
                       testID={`cart-plus-${key}`}
-                      style={[styles.stepBtn, styles.stepPlus]}
+                      style={[styles.stepBtn, styles.stepPlus, atStockLimit && styles.stepBtnDisabled]}
+                      disabled={atStockLimit}
                       onPress={() =>
                         addItem({
                           id: item.productId,
@@ -204,6 +209,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     justifyContent: 'center',
   },
   stepPlus: { backgroundColor: c.pink },
+  stepBtnDisabled: { opacity: 0.35 },
   stepMinus: { color: c.red, fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepPlusText: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 20 },
   stepQty: {

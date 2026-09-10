@@ -14,6 +14,26 @@ Dates are local working dates (GMT+8). Newest first.
 
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
+### Out-of-stock tiles are greyed out, and overselling is now blocked — `feat(stock)`
+- Per PO direction, this replaces the "warn but still allow" approach shipped
+  earlier today: a depleted product's tile is now dimmed (in addition to
+  keeping the "No Stock" tag for context), and the in-cart "Oversold" tag is
+  removed entirely because overselling itself is no longer possible.
+- Added a stock ceiling check (`canIncrementItem` in `app/index.tsx`, mirrored
+  in `app/modals/payment.tsx`) at every place a cashier can add one more unit:
+  tapping a tile, the cart panel's "+" stepper, and the full payment modal's
+  "+" stepper. Once cart quantity reaches the cached stock, the control stops
+  adding and (for the tile) shows a toast explaining why.
+- The check only applies once a product has actually synced with Coop at
+  least once (`sku` is set). An unsynced product's `stock` column defaults to
+  `0` at the schema level (new products, catalog CSV import, dev seed) — that
+  default doesn't mean "confirmed empty," so those rows stay unrestricted
+  until a real catalog pull gives them a trustworthy stock value.
+- Variant products remain entirely out of scope, as before: stock isn't
+  tracked per variant, so neither the grey-out nor the block applies to them.
+- Bundles are also out of scope for the hard block (no per-bundle stock
+  tracking exists yet) — a known gap, not something this change addresses.
+
 ### Fix: local stock cache went stale immediately after a sale — `fix(stock)`
 - Reported scenario: sell 5 (last stock), sell 1 more (oversold), tap Paid, then
   ring up 5 again — the tile still showed "Last stock" even though the real

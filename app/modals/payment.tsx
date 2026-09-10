@@ -9,7 +9,7 @@ import * as Crypto from 'expo-crypto';
 import { DenominationButton } from '../../components/DenominationButton';
 import { useCart } from '../../context/CartContext';
 import { insertTransaction, PaymentMethod } from '../../db/transactions';
-import { decrementStock } from '../../db/products';
+import { decrementStock, getActiveProducts } from '../../db/products';
 import { pushSale } from '../../utils/sales-sync';
 import { getAllQrUris, QrUris, QrMethod, qrMethodLabel } from '../../db/settings';
 import { copyToDocumentDir, saveToGallery } from '../../utils/photos';
@@ -47,6 +47,7 @@ export default function PaymentModal() {
   const [customerHandle, setCustomerHandle] = useState('');
   const [remarks, setRemarks] = useState('');
   const [confirmed, setConfirmed] = useState<ConfirmedSummary | null>(null);
+  const [stockById, setStockById] = useState<Map<number, { stock: number; sku: string | null }>>(new Map());
 
   const isCash = method === 'cash';
   const isDigital = !isCash;
@@ -73,6 +74,25 @@ export default function PaymentModal() {
   useFocusEffect(
     useCallback(() => { getAllQrUris().then(setQrUris); }, [])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      getActiveProducts().then((products) => {
+        setStockById(new Map(products.map((p) => [p.id, { stock: p.stock, sku: p.sku }])));
+      });
+    }, [])
+  );
+
+  // Same rule as the tile grid: stock only blocks once a product has synced
+  // with Coop (sku set), so an unsynced row's default-0 stock never blocks.
+  function canIncrementItem(productId: number): boolean {
+    const info = stockById.get(productId);
+    if (!info || !info.sku) return true;
+    const inCart = items
+      .filter((i) => i.productId === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+    return info.stock - inCart > 0;
+  }
 
   function handleMethodChange(m: PaymentMethod) {
     setMethod(m);
@@ -357,6 +377,7 @@ export default function PaymentModal() {
               );
             }
             const item = group.items[0];
+            const atStockLimit = !canIncrementItem(item.productId);
             return (
               <View key={item.productId} style={styles.itemRow}>
                 <Text style={styles.itemName}>{item.productName}</Text>
@@ -365,7 +386,11 @@ export default function PaymentModal() {
                     <Text style={styles.qtyBtnText}>−</Text>
                   </TouchableOpacity>
                   <Text style={styles.qtyText}>{item.quantity}</Text>
-                  <TouchableOpacity style={styles.qtyBtn} onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}>
+                  <TouchableOpacity
+                    style={[styles.qtyBtn, atStockLimit && styles.qtyBtnDisabled]}
+                    disabled={atStockLimit}
+                    onPress={() => addItem({ id: item.productId, name: item.productName, price: item.price })}
+                  >
                     <Text style={styles.qtyBtnText}>+</Text>
                   </TouchableOpacity>
                   <Text style={styles.itemTotal}>₱{(item.price * item.quantity).toFixed(2)}</Text>
@@ -717,6 +742,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  qtyBtnDisabled: { opacity: 0.35 },
   qtyBtnText: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
   qtyText: { color: c.textPrimary, fontSize: F.sm, fontWeight: '700', minWidth: 20, textAlign: 'center' },
   itemTotal: { color: c.textPrimary, fontSize: F.sm, minWidth: 72, textAlign: 'right', fontWeight: '600' },

@@ -12,9 +12,10 @@ type Props = {
   imageUri?: string | null;
   emoji?: string | null;
   badgeCount: number;
-  /** Cached Coop stock (Product.stock). Omit to skip the low/oversold warning
-   *  (e.g. no stock signal yet, or not meaningful — variant products, where
-   *  stock isn't tracked per variant). */
+  /** Cached Coop stock (Product.stock). Omit when there's no real stock
+   *  signal yet (e.g. never synced with Coop) or it's not meaningful (variant
+   *  products, where stock isn't tracked per variant) — this skips the
+   *  out-of-stock tag/greying and the last-stock warning entirely. */
   stock?: number;
   onPress: (id: number) => void;
   onLongPress: (id: number) => void;
@@ -27,24 +28,25 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const active = badgeCount > 0;
-  // Non-blocking stock signals: the cashier can always still ring it up, but
-  // sees a heads-up. Variant products have no per-variant stock, so they're
-  // excluded from all three. `stock` is the local cache — refreshed on every
-  // catalog pull and decremented immediately after this device's own sales
-  // (see db/products.ts decrementStock), so it's accurate for this device
-  // without needing a live query.
+  // Stock signals: `stock` is the local cache, only meaningful once a
+  // product has actually been synced with Coop (the caller omits it for
+  // never-synced rows, so a fresh/imported product with a default of 0
+  // isn't mistaken for "confirmed empty"). Refreshed on every catalog pull
+  // and decremented immediately after this device's own sales (see
+  // db/products.ts decrementStock), so it's accurate without a live query.
+  // Variant products have no per-variant stock, so they're excluded too.
   const stockKnown = !hasVariants && stock != null;
-  // Nothing in the cart yet, but the cache already reads empty/negative — a
-  // persistent top tag, distinct from the in-cart warnings below, so a
-  // cashier can spot a depleted item (and flag it for restock in Coop) before
-  // even tapping it.
+  // Nothing in the cart yet, but the cache already reads empty/negative —
+  // grey out the tile and show a persistent tag, so a cashier can spot a
+  // depleted item (and flag it for restock in Coop) before even tapping it.
+  // Selling past stock is no longer allowed (see app/index.tsx
+  // handleProductPress), so this can no longer happen once already active.
   const isOutOfStock = stockKnown && !active && stock! <= 0;
-  const isOversold = stockKnown && active && stock! < badgeCount;
-  const isLastStock = stockKnown && active && !isOversold && stock === badgeCount;
+  const isLastStock = stockKnown && active && stock! <= badgeCount;
   return (
     <TouchableOpacity
       testID="tile"
-      style={[styles.tile, active && styles.tileActive]}
+      style={[styles.tile, active && styles.tileActive, isOutOfStock && styles.tileOutOfStock]}
       onPress={() => onPress(id)}
       onLongPress={() => onLongPress(id)}
       activeOpacity={0.7}
@@ -120,14 +122,9 @@ export function ProductTile({ id, name, price, hasVariants, imageUri, emoji, bad
           <Text style={styles.badgeText} testID="badge">{badgeCount}</Text>
         </View>
       ))}
-      {(isOversold || isLastStock) && (
-        <View
-          style={[styles.stockWarning, isOversold ? styles.stockWarningOversold : styles.stockWarningLast]}
-          testID="stock-warning"
-        >
-          <Text style={styles.stockWarningText} numberOfLines={1}>
-            {isOversold ? 'Oversold' : 'Last stock'}
-          </Text>
+      {isLastStock && (
+        <View style={[styles.stockWarning, styles.stockWarningLast]} testID="stock-warning">
+          <Text style={styles.stockWarningText} numberOfLines={1}>Last stock</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -149,6 +146,11 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   tileActive: {
     borderColor: c.pink,
     backgroundColor: c.pinkSubtle,
+  },
+  // Depleted stock, nothing in the cart: dim the whole tile so it visually
+  // reads as unavailable, while the red tag on top still explains why.
+  tileOutOfStock: {
+    opacity: 0.45,
   },
   photo: {
     width: '100%',
@@ -237,10 +239,10 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     minWidth: 15,
     textAlign: 'center',
   },
-  // Non-blocking stock heads-up, pinned along the tile's bottom edge so it never
-  // collides with the top-corner qty/clear controls. Oversold reuses the app's
-  // red (already "bad"/destructive elsewhere); last-stock uses a plain amber —
-  // there's no warning token in the palette, so this is a literal color.
+  // Non-blocking "at the ceiling" heads-up, pinned along the tile's bottom
+  // edge so it never collides with the top-corner qty/clear controls. Amber
+  // since it's informative, not an error — there's no warning token in the
+  // palette, so this is a literal color.
   stockWarning: {
     position: 'absolute',
     bottom: 0,
@@ -253,7 +255,6 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     elevation: 4,
   },
   stockWarningLast: { backgroundColor: '#f5a524' },
-  stockWarningOversold: { backgroundColor: c.red },
   stockWarningText: { color: '#fff', fontSize: F.xs, fontWeight: '800', letterSpacing: 0.3 },
   // Persistent "already out of stock" tag, pinned to the top edge — distinct
   // from the bottom in-cart warning band above, and only shown before

@@ -69,7 +69,9 @@ const SEED_PRODUCTS: {
   { name: 'Chicken Pumpkin', emoji: '🐔🎃', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKPUM01' },
   { name: 'Salmon Steak', emoji: '🐟', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRSLMWHL01' },
   { name: 'Chicken & Egg', emoji: '🐔🥚', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRCHKEGG01' },
-  { name: 'Beef Blueberry', emoji: '🥩🫐', category: 'Freeze Dried', subcategory: 'Super Food', sku: 'ZMYFDFDRBEFBLU01' },
+  // Beef Blueberry deliberately excluded: no row in the Master Plan spreadsheet
+  // (no real price/stock), so it was left out of the prod pos_* seed too. See
+  // deactivateRetiredSeedProductsOnce below for cleanup on already-seeded devices.
 ];
 
 /** Starter "buy any N" deals, per the sales playbook. */
@@ -237,20 +239,6 @@ export async function syncCatalogNamesOnce(): Promise<void> {
     }
   }
 
-  // Beef Blueberry is new in the accurate catalog; add it if it isn't there yet.
-  const existing = await db.getFirstAsync<{ id: number }>(
-    "SELECT id FROM products WHERE category = 'Freeze Dried' AND subcategory = 'Super Food' AND name = 'Beef Blueberry' LIMIT 1"
-  );
-  if (!existing) {
-    await createProduct({
-      name: 'Beef Blueberry',
-      price: LINE_PRICES['Freeze Dried'] ?? 0,
-      has_variants: false,
-      emoji: '🫐',
-      category: 'Freeze Dried',
-      subcategory: 'Super Food',
-    });
-  }
 
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_name_sync_version', ?)",
@@ -315,6 +303,34 @@ export async function syncCatalogEmojiOnce(): Promise<void> {
 
   await db.runAsync(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_emoji_sync_version', ?)",
+    [VERSION]
+  );
+}
+
+/**
+ * One-time cleanup: deactivate "Beef Blueberry", which an earlier version of
+ * syncCatalogNamesOnce auto-created locally on any device that hadn't seeded
+ * it yet. It has no row in the Master Plan spreadsheet (no real price/stock)
+ * and was deliberately excluded from the prod pos_* seed, so any local row
+ * left over from that old backfill is a phantom with no Coop match — it never
+ * gets real stock and just sits there as "No Stock". Deactivate (not delete)
+ * to match the app's unlist-not-delete lifecycle and avoid any FK issue with
+ * past transaction rows. Guarded by a version marker so it runs at most once.
+ */
+export async function deactivateRetiredSeedProductsOnce(): Promise<void> {
+  const db = await getDatabase();
+  const VERSION = '2026-09-10-retire-beef-blueberry';
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'catalog_retire_sync_version'"
+  );
+  if (row?.value === VERSION) return;
+
+  await db.runAsync(
+    "UPDATE products SET is_active = 0 WHERE category = 'Freeze Dried' AND subcategory = 'Super Food' AND name = 'Beef Blueberry'"
+  );
+
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_retire_sync_version', ?)",
     [VERSION]
   );
 }

@@ -7,9 +7,9 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { getAllTransactions, updateTransactionRemarks, Transaction, PaymentMethod } from '../../db/transactions';
+import { getAllTransactions, updateTransactionRemarks, deleteTransactionsByClientUuids, Transaction, PaymentMethod } from '../../db/transactions';
 import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
-import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
+import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
 import {
@@ -194,11 +194,27 @@ export default function TransactionsModal() {
   // Local sales are the rich source; Coop fills in sales made on other devices,
   // so every device shows the same list. Remote is best-effort (offline -> local
   // only). Local resolves first for an instant paint, then the merge fills in.
+  //
+  // A successful remote fetch also pulls deletions: any local row already
+  // confirmed synced to Coop (synced_at set) but now absent from Coop's list
+  // gets permanently removed from this device too (transactionsToPrune). A
+  // failed/unconfigured fetch never prunes anything — only a confirmed-empty
+  // or confirmed-populated remote result counts as "Coop has spoken."
   const loadTransactions = useCallback(async () => {
-    const local = await getAllTransactions();
+    let local = await getAllTransactions();
     setTransactions(local);
     const remote = await fetchRemoteOrders();
-    if (remote.length > 0) setTransactions(mergeTransactions(local, remote));
+    if (!remote.ok) return;
+
+    const remoteUuids = new Set(
+      remote.orders.map((r) => r.client_uuid).filter((u): u is string => !!u)
+    );
+    const toPrune = transactionsToPrune(local, remoteUuids);
+    if (toPrune.length > 0) {
+      await deleteTransactionsByClientUuids(toPrune.map((t) => t.client_uuid!));
+      local = await getAllTransactions();
+    }
+    setTransactions(mergeTransactions(local, remote.orders));
   }, []);
 
   useFocusEffect(

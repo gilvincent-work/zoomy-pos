@@ -4,6 +4,8 @@ import {
   getAllTransactions,
   importTransaction,
   transactionExists,
+  markTransactionSynced,
+  deleteTransactionsByClientUuids,
 } from '../../db/transactions';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
@@ -229,5 +231,36 @@ describe('transactionExists', () => {
     mockDb.getFirstAsync.mockResolvedValueOnce(null);
     const exists = await transactionExists('2026-04-24T07:36', 140);
     expect(exists).toBe(false);
+  });
+});
+
+describe('markTransactionSynced', () => {
+  it('sets synced_at by client_uuid', async () => {
+    await markTransactionSynced('abc-123');
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'UPDATE transactions SET synced_at = ? WHERE client_uuid = ?',
+      [expect.any(String), 'abc-123']
+    );
+  });
+});
+
+describe('deleteTransactionsByClientUuids', () => {
+  it('deletes items then the transaction rows for the given client_uuids', async () => {
+    await deleteTransactionsByClientUuids(['a', 'b']);
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      1,
+      'DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE client_uuid IN (?,?))',
+      ['a', 'b']
+    );
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      'DELETE FROM transactions WHERE client_uuid IN (?,?)',
+      ['a', 'b']
+    );
+  });
+
+  it('does nothing for an empty list', async () => {
+    await deleteTransactionsByClientUuids([]);
+    expect(mockDb.runAsync).not.toHaveBeenCalled();
   });
 });

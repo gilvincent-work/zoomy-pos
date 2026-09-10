@@ -7,13 +7,14 @@ import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { promptInstall } from '../utils/pwa';
 import { formatRelativeTime } from '../utils/format-relative-time';
+import { drainOutbox } from '../utils/outbox';
 
 /**
  * Always-visible "last synced · N pending" marker (see COOP_INTEGRATION_PLAN.md,
  * "Sync transparency"), plus an "Install" affordance when the browser offers a
- * PWA install prompt. Phase 1 shows sync state; the manual "Sync now" action and
- * live pending counts arrive with the Phase 2 outbox. Reads the sync-status
- * store, so it updates on its own as that store changes.
+ * PWA install prompt. Tapping the marker triggers a manual drain of the outbox
+ * (a no-op when nothing is pending). Reads the sync-status store, so it updates
+ * on its own as that store changes.
  */
 export function SyncStatusBar() {
   const { colors } = useTheme();
@@ -30,10 +31,17 @@ export function SyncStatusBar() {
 
   const synced = pendingCount === 0 && !syncing;
   const dotColor = syncing ? colors.textSecondary : pendingCount > 0 ? colors.pink : colors.green;
+  const syncNow = () => { if (!syncing) drainOutbox().catch(() => {}); };
 
   return (
     <View style={styles.row}>
-      <View style={styles.marker} accessibilityRole="text">
+      <TouchableOpacity
+        style={styles.marker}
+        onPress={syncNow}
+        disabled={syncing}
+        accessibilityRole="button"
+        accessibilityLabel={pendingCount > 0 ? `Sync ${pendingCount} pending now` : 'Sync now'}
+      >
         {syncing ? (
           <ActivityIndicator size="small" color={colors.textSecondary} />
         ) : (
@@ -50,7 +58,7 @@ export function SyncStatusBar() {
         {synced && !syncing && (
           <Ionicons name="checkmark-circle" size={13} color={colors.green} />
         )}
-      </View>
+      </TouchableOpacity>
 
       {canInstall && (
         <TouchableOpacity

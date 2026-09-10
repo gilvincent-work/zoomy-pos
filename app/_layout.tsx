@@ -12,6 +12,13 @@ import { requestPersistentStorage } from '../utils/pwa';
 import { loadPersistedSyncStatus } from '../utils/sync-status';
 import { loadThemeMode } from '../utils/theme-preference';
 import { pullCatalog } from '../utils/catalog-sync';
+import { drainOutbox, refreshPendingCount } from '../utils/outbox';
+
+// How often the app retries any unsynced sales/voids/remarks while open. Coop's
+// idempotency makes an extra attempt free, so a modest cadence keeps a flaky
+// connection self-healing without being chatty. The drain no-ops instantly when
+// nothing is pending.
+const OUTBOX_DRAIN_INTERVAL_MS = 30_000;
 
 // Anchor the stack to the POS home. Without this, deep-linking or reloading the
 // PWA directly on a modal route (e.g. /modals/transactions) opens that modal
@@ -105,6 +112,10 @@ export default function RootLayout() {
       // no-op offline/unconfigured). Non-blocking so launch isn't gated on the
       // network; open screens refresh via the catalog-changed subscription.
       pullCatalog().catch(() => {});
+      // Seed the "N pending" marker, then drain any sales/voids/remarks that a
+      // previous session couldn't push (both non-blocking, offline-safe no-ops).
+      refreshPendingCount().catch(() => {});
+      drainOutbox().catch(() => {});
     } catch {
       // Never leave the splash spinning forever: surface a retry instead.
       setFailed(true);
@@ -114,13 +125,25 @@ export default function RootLayout() {
   useEffect(() => {
     bootstrap();
 
-    // Re-pull when connectivity returns (web PWA). Native falls back to the
-    // launch pull; a NetInfo trigger can be added later if needed.
+    // Background retry loop while the app is open: drains any pending
+    // sales/voids/remarks on a timer so a flaky connection heals on its own.
+    // No-ops instantly when nothing is pending or when offline.
+    const drainTimer = setInterval(() => { drainOutbox().catch(() => {}); }, OUTBOX_DRAIN_INTERVAL_MS);
+
+    // Re-pull the catalog AND drain the outbox when connectivity returns (web
+    // PWA). Native falls back to the launch + interval drains.
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      const onOnline = () => { pullCatalog().catch(() => {}); };
+      const onOnline = () => {
+        pullCatalog().catch(() => {});
+        drainOutbox().catch(() => {});
+      };
       window.addEventListener('online', onOnline);
-      return () => window.removeEventListener('online', onOnline);
+      return () => {
+        clearInterval(drainTimer);
+        window.removeEventListener('online', onOnline);
+      };
     }
+    return () => clearInterval(drainTimer);
   }, [bootstrap]);
 
   if (failed) {

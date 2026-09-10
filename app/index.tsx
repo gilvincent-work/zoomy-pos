@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View, FlatList, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   useWindowDimensions,
@@ -15,8 +15,7 @@ import { SubcategoryFilter } from '../components/SubcategoryFilter';
 import { CartPanel } from '../components/CartPanel';
 import { CartSheet } from '../components/CartSheet';
 import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
-// Hidden until Phase 2 wires real sync data — see header below. Keep, do not delete.
-// import { SyncStatusBar } from '../components/SyncStatusBar';
+import { SyncStatusBar } from '../components/SyncStatusBar';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -25,6 +24,7 @@ import {
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction, markTransactionSynced, type PaymentMethod } from '../db/transactions';
+import { refreshPendingCount } from '../utils/outbox';
 import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
 import { buildInsertItems } from '../utils/cart-transaction';
@@ -104,6 +104,10 @@ export default function POSScreen() {
   const [confirmPay, setConfirmPay] = useState(false);
   const [confirmOnPay, setConfirmOnPay] = useState(true);
   const [customerHandle, setCustomerHandle] = useState('');
+  // Guards against a double-tap booking the same cart twice: the cart isn't
+  // cleared until after the (awaited) local insert, so without this a second
+  // tap mid-insert would create a second sale with its own client_uuid.
+  const payingRef = useRef(false);
 
   // Re-read Settings -> Payment Options on every focus (a device that just came
   // back from that screen should reflect the change immediately). If the
@@ -246,6 +250,8 @@ export default function POSScreen() {
   async function handleConfirmPay() {
     setConfirmPay(false);
     if (items.length === 0 && bundles.length === 0) return;
+    if (payingRef.current) return; // a save is already in flight; ignore the re-tap
+    payingRef.current = true;
     const saleTotal = total;
     const saleItems = buildInsertItems(items, bundles);
     const method = payMethod;
@@ -285,13 +291,16 @@ export default function POSScreen() {
           showToast({
             variant: 'error',
             title: 'Not synced to Coop',
-            message: 'Sale saved on this device. Check the connection.',
+            message: 'Saved on this device — it’ll sync automatically when back online.',
           });
         } else {
           // Confirmed on Coop: safe from here on for the Transactions screen to
           // prune this row locally if Coop's copy is later deleted.
           markTransactionSynced(clientUuid).catch(() => {});
         }
+        // Reflect this sale's sync state in the "N pending" marker either way
+        // (0 on success, 1+ while it waits for the background drain to retry).
+        refreshPendingCount().catch(() => {});
       });
     } catch {
       showToast({
@@ -299,6 +308,10 @@ export default function POSScreen() {
         title: 'Could not save the sale',
         message: 'Please try again.',
       });
+    } finally {
+      // Released once the local record is committed and the cart cleared; the
+      // background pushSale above continues independently of this guard.
+      payingRef.current = false;
     }
   }
 
@@ -401,9 +414,7 @@ export default function POSScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.brandName}>Zoomy</Text>
-          {/* Hidden until Phase 2 (Dexie outbox) wires real last-synced + pending counts.
-              Marker shows only placeholder state today ("Synced never"). Keep, do not delete. */}
-          {/* <SyncStatusBar /> */}
+          <SyncStatusBar />
         </View>
         <View style={styles.headerActions}>
           {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.

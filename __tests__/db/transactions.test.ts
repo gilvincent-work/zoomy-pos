@@ -4,7 +4,12 @@ import {
   getAllTransactions,
   importTransaction,
   transactionExists,
+  updateTransactionRemarks,
   markTransactionSynced,
+  markVoidSynced,
+  markRemarksSynced,
+  getPendingSyncCount,
+  getPendingSyncTransactions,
   deleteTransactionsByClientUuids,
 } from '../../db/transactions';
 import { mockDb } from '../../__mocks__/expo-sqlite';
@@ -78,7 +83,7 @@ describe('voidTransaction', () => {
   it('updates transaction status to voided', async () => {
     await voidTransaction(10);
     expect(mockDb.runAsync).toHaveBeenCalledWith(
-      "UPDATE transactions SET status = 'voided' WHERE id = ?",
+      "UPDATE transactions SET status = 'voided', void_synced_at = NULL WHERE id = ?",
       [10]
     );
   });
@@ -241,6 +246,65 @@ describe('markTransactionSynced', () => {
       'UPDATE transactions SET synced_at = ? WHERE client_uuid = ?',
       [expect.any(String), 'abc-123']
     );
+  });
+});
+
+describe('updateTransactionRemarks', () => {
+  it('sets the note and nulls remarks_synced_at so the outbox re-pushes it', async () => {
+    await updateTransactionRemarks(7, 'call customer');
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'UPDATE transactions SET remarks = ?, remarks_synced_at = NULL WHERE id = ?',
+      ['call customer', 7]
+    );
+  });
+});
+
+describe('markVoidSynced / markRemarksSynced', () => {
+  it('sets void_synced_at by client_uuid', async () => {
+    await markVoidSynced('abc');
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'UPDATE transactions SET void_synced_at = ? WHERE client_uuid = ?',
+      [expect.any(String), 'abc']
+    );
+  });
+
+  it('sets remarks_synced_at by client_uuid', async () => {
+    await markRemarksSynced('abc');
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'UPDATE transactions SET remarks_synced_at = ? WHERE client_uuid = ?',
+      [expect.any(String), 'abc']
+    );
+  });
+});
+
+describe('getPendingSyncCount', () => {
+  it('counts rows with any unsynced sale/void/remarks, excluding no-uuid rows', async () => {
+    mockDb.getFirstAsync.mockResolvedValueOnce({ n: 3 });
+    const n = await getPendingSyncCount();
+    expect(n).toBe(3);
+    const [sql] = mockDb.getFirstAsync.mock.calls[0];
+    expect(sql).toContain('client_uuid IS NOT NULL');
+    expect(sql).toContain('synced_at IS NULL');
+    expect(sql).toContain("status = 'voided' AND t.void_synced_at IS NULL");
+    expect(sql).toContain('remarks_synced_at IS NULL');
+  });
+
+  it('returns 0 when the count query yields nothing', async () => {
+    mockDb.getFirstAsync.mockResolvedValueOnce(null);
+    expect(await getPendingSyncCount()).toBe(0);
+  });
+});
+
+describe('getPendingSyncTransactions', () => {
+  it('only returns settled rows (a created_at recency floor) so an in-flight sale is never read mid-write', async () => {
+    mockDb.getAllAsync.mockResolvedValueOnce([]);
+    await getPendingSyncTransactions();
+    const [sql, params] = mockDb.getAllAsync.mock.calls[0];
+    expect(sql).toContain('t.created_at <= ?');
+    expect(sql).toContain('ORDER BY t.created_at ASC');
+    // A single ISO cutoff bound, in the recent past.
+    expect(params).toHaveLength(1);
+    expect(Date.parse(params![0])).toBeLessThanOrEqual(Date.now());
   });
 });
 

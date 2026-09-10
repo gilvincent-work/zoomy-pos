@@ -195,6 +195,45 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE transactions ADD COLUMN synced_at TEXT`
   ).catch(() => {});
 
+  // Outbox sync-tracking for the two post-sale edits that also need to reach
+  // Coop (see utils/outbox.ts). Each is nulled locally the moment the edit is
+  // made and set again once its Coop push confirms — the drain retries any that
+  // are still null. void_synced_at pairs with status='voided'; remarks_synced_at
+  // pairs with a remarks edit (including clearing to null).
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN void_synced_at TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN remarks_synced_at TEXT`
+  ).catch(() => {});
+
+  // One-time backfill so the first drain doesn't flag the entire history as
+  // "pending". Gated by a settings marker so it runs at most once.
+  //  - remarks_synced_at: seed to created_at for every existing row (nothing to
+  //    re-push; new remark edits null it going forward).
+  //  - void_synced_at: seed to created_at for a voided sale whose SALE already
+  //    reached Coop (synced_at set) — its old best-effort inline void almost
+  //    certainly reached Coop too, so don't show it as pending or re-push it.
+  //    A voided sale that never sale-synced stays null: the drain pushes the
+  //    sale first, then heals the void (Coop's void RPC is idempotent).
+  const backfillRow = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'outbox_backfill_version'"
+  );
+  if (backfillRow?.value !== '2026-09-10-outbox') {
+    await db.runAsync(
+      `UPDATE transactions SET remarks_synced_at = created_at WHERE remarks_synced_at IS NULL`
+    ).catch(() => {});
+    await db.runAsync(
+      `UPDATE transactions SET void_synced_at = created_at
+         WHERE void_synced_at IS NULL AND status = 'voided' AND synced_at IS NOT NULL`
+    ).catch(() => {});
+    await db.runAsync(
+      `INSERT OR REPLACE INTO settings (key, value) VALUES ('outbox_backfill_version', ?)`,
+      ['2026-09-10-outbox']
+    );
+  }
+
   await db.runAsync(
     `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
     ['admin_password_hash', DEFAULT_PIN_HASH]

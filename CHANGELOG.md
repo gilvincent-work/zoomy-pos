@@ -12,6 +12,55 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Offline outbox: unsynced sales/voids/remarks retry automatically — `feat(sync)`
+
+- Reported: on flaky office wifi, some of the PO's sales pushed to Coop and some
+  didn't, with no recovery — the failed ones just sat unsynced. Cause: `pushSale`
+  was one-shot, fire-and-forget; a failed push showed a toast and never retried.
+- Added a self-healing **outbox drain** (`utils/outbox.ts`). The "outbox" is not
+  a new store — it's the local `transactions` rows that still owe Coop a write.
+  A drain reads them oldest-first and, per row: pushes the sale if Coop doesn't
+  have it, then (only once the sale is on Coop) pushes a pending **void** and/or
+  **remarks** edit. Every push is keyed on the sale's `client_uuid` (Coop
+  enforces it UNIQUE), so a retry — even one racing the sale's own inline push —
+  is always a safe no-op, never a double-count.
+- **Triggers:** app launch, the browser `online` event, a 30s background
+  interval while open, and a manual tap on the sync marker. All no-op instantly
+  when nothing is pending or when offline.
+- **New sync-tracking columns** on `transactions`: `synced_at` already gated the
+  sale; added `void_synced_at` and `remarks_synced_at`, each nulled the moment
+  that edit is made locally and set once its Coop push confirms. `voidTransaction`
+  / `updateTransactionRemarks` null theirs; the inline void/remarks writes in
+  Admin and the Transactions screen now mark them synced on success, and the
+  drain retries any left null. A one-time migration seeds `remarks_synced_at` for
+  pre-existing rows so the first drain doesn't re-push the whole history's notes;
+  `void_synced_at` is left null so any voided-but-never-synced sale heals once.
+- **`SyncStatusBar` is now live** in the header (was commented out), fed a real
+  "N pending" count from the outbox and tappable to sync now. Fixed `pushSale`'s
+  `created_at` handling so a delayed retry records in Coop's history at **sale
+  time**, not retry time (matters for the Offline Sales reporting dashboard).
+- **Half-written-read safety:** the drain only considers pending rows older than
+  5s (`getPendingSyncTransactions` recency floor), so it can never read a sale
+  that's still mid-write (row inserted, its items not all inserted yet) and push
+  it partially. `insertTransaction` is otherwise unchanged — a transaction wrap
+  was considered and rejected: reads on the shared expo-sqlite connection see the
+  transaction's own uncommitted rows, so it wouldn't isolate the drain and it
+  introduced a double-tap corruption path.
+- **Double-tap guard:** a pre-existing gap (a fast double-tap on Pay could book
+  the cart twice, since the cart clears only after the awaited insert) is now
+  closed with an in-flight ref on the confirm handler.
+- **Deliberately unchanged (no happy-path impact):** a sale is still recorded
+  locally instantly and shown the same way; the immediate "Not synced to Coop"
+  toast still fires on inline failure (reworded to note it will auto-sync);
+  catalog/product edits and CSV import are untouched. Offline-disabling of
+  catalog edits remains a separate future item.
+- Reviewed by a regression agent against the "pure enhancement, nothing lost or
+  double-counted" bar; its findings (the transaction-wrap risk, a first-launch
+  "N pending" void spike, a spinner flicker) are all folded into the above.
+- 15 new tests (drain ordering/idempotency/single-flight, the rebuild helper,
+  the recency floor, the new db functions + pending predicate). `tsc`, full
+  suite (272), and the web export all pass; new symbols verified in the bundle.
+
 ## 2026-09-10 — Transactions screen now pulls deletions from Coop — `feat(sync)`
 
 - Reported: after purging test orders from Coop prod (`pos_orders`), the POS

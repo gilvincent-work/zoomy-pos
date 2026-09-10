@@ -7,9 +7,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { getAllTransactions, updateTransactionRemarks, deleteTransactionsByClientUuids, Transaction, PaymentMethod } from '../../db/transactions';
+import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, Transaction, PaymentMethod } from '../../db/transactions';
 import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
 import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
+import { refreshPendingCount } from '../../utils/outbox';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
 import {
@@ -203,6 +204,9 @@ export default function TransactionsModal() {
   const loadTransactions = useCallback(async () => {
     let local = await getAllTransactions();
     setTransactions(local);
+    // Keep the "N pending" marker honest while viewing history (a background
+    // drain may have synced rows since it was last computed).
+    refreshPendingCount().catch(() => {});
     const remote = await fetchRemoteOrders();
     if (!remote.ok) return;
 
@@ -307,14 +311,19 @@ export default function TransactionsModal() {
   async function handleSaveRemarks() {
     if (!selected) return;
     const trimmed = remarksInput.trim() || null;
-    // Local rows persist to SQLite; any synced row (has a client_uuid) also
-    // writes to Coop so the note shows on every device.
+    // Local rows persist to SQLite (updateTransactionRemarks nulls
+    // remarks_synced_at); any synced row (has a client_uuid) also writes to Coop
+    // so the note shows on every device. If that Coop write fails, the outbox
+    // drain retries it later.
     if (isLocalTransaction(selected)) {
       await updateTransactionRemarks(selected.id, trimmed);
     }
     if (selected.client_uuid) {
-      await setRemoteOrderRemarks(selected.client_uuid, trimmed);
+      if (await setRemoteOrderRemarks(selected.client_uuid, trimmed)) {
+        await markRemarksSynced(selected.client_uuid);
+      }
     }
+    refreshPendingCount().catch(() => {});
     const updated = { ...selected, remarks: trimmed };
     setSelected(updated);
     setTransactions((prev) => prev.map((t) => t.id === selected.id ? updated : t));

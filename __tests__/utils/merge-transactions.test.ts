@@ -1,4 +1,4 @@
-import { mergeTransactions, isLocalTransaction } from '../../utils/merge-transactions';
+import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import type { Transaction } from '../../db/transactions';
 
 function tx(over: Partial<Transaction> & { id: number; created_at: string }): Transaction {
@@ -14,6 +14,7 @@ function tx(over: Partial<Transaction> & { id: number; created_at: string }): Tr
     status: 'completed',
     remarks: null,
     client_uuid: null,
+    synced_at: null,
     items: [],
     ...over,
   };
@@ -98,5 +99,43 @@ describe('mergeTransactions', () => {
     const ids = merged.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every((id) => id < 0)).toBe(true);
+  });
+});
+
+describe('transactionsToPrune', () => {
+  it('prunes a local row that was confirmed synced but Coop no longer has', () => {
+    const local = [
+      tx({ id: 1, created_at: '2026-09-10T07:49:00.000Z', client_uuid: 'gone', synced_at: '2026-09-10T07:49:01.000Z' }),
+    ];
+    expect(transactionsToPrune(local, new Set())).toEqual(local);
+  });
+
+  it('never prunes a row that was never confirmed synced, even if Coop lacks it', () => {
+    // Still offline, or the push hasn't resolved yet — must survive regardless
+    // of what the (successful) remote fetch says.
+    const local = [
+      tx({ id: 1, created_at: '2026-09-10T07:49:00.000Z', client_uuid: 'pending', synced_at: null }),
+    ];
+    expect(transactionsToPrune(local, new Set())).toEqual([]);
+  });
+
+  it('never prunes a legacy row with no client_uuid', () => {
+    const local = [
+      tx({ id: 1, created_at: '2026-09-10T07:49:00.000Z', client_uuid: null, synced_at: '2026-09-10T07:49:01.000Z' }),
+    ];
+    expect(transactionsToPrune(local, new Set())).toEqual([]);
+  });
+
+  it('does not prune a synced row that Coop still has', () => {
+    const local = [
+      tx({ id: 1, created_at: '2026-09-10T07:49:00.000Z', client_uuid: 'still-there', synced_at: '2026-09-10T07:49:01.000Z' }),
+    ];
+    expect(transactionsToPrune(local, new Set(['still-there']))).toEqual([]);
+  });
+
+  it('only prunes the rows Coop actually lacks, leaving the rest untouched', () => {
+    const gone = tx({ id: 1, created_at: '2026-09-10T07:49:00.000Z', client_uuid: 'gone', synced_at: '2026-09-10T07:49:01.000Z' });
+    const kept = tx({ id: 2, created_at: '2026-09-10T07:50:00.000Z', client_uuid: 'kept', synced_at: '2026-09-10T07:50:01.000Z' });
+    expect(transactionsToPrune([gone, kept], new Set(['kept']))).toEqual([gone]);
   });
 });

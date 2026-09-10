@@ -12,6 +12,41 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-10 — Transactions screen now pulls deletions from Coop — `feat(sync)`
+
+- Reported: after purging test orders from Coop prod (`pos_orders`), the POS
+  Transactions screen kept showing them no matter how many times it was
+  refreshed. Root cause: `fetchRemoteOrders()` only ever **added** rows to the
+  local view (fills in sales made on other devices) — it never removed one,
+  and the local `transactions` table itself was never touched by a remote
+  fetch. This was deliberate for offline-first safety, just incomplete: there
+  was no way for the POS to learn "Coop no longer has this."
+- Added a safe deletion-sync path, gated so it can never destroy an unsynced
+  local sale:
+  1. New `transactions.synced_at` column, set only once `pushSale()` confirms
+     the sale actually landed on Coop (`markTransactionSynced`, called from
+     `app/index.tsx`'s post-push success branch). A sale that's still offline,
+     or whose push hasn't resolved, is never marked and is therefore never a
+     pruning candidate — no matter what Coop's list says.
+  2. `fetchRemoteOrders()` now returns a discriminated result
+     (`{ok: true, orders}` vs `{ok: false}`) instead of collapsing "genuinely
+     zero orders" and "network/query error" into the same `[]`. That
+     distinction is load-bearing: pruning must only run on a *confirmed*
+     empty/populated result, never on a failed fetch.
+  3. New pure `transactionsToPrune(local, remoteUuids)` (unit tested) picks
+     out local rows that are synced + absent from a successful fetch;
+     `deleteTransactionsByClientUuids` removes them (and their items)
+     permanently, per PO decision (not a soft hide — Coop is the source of
+     truth for whether a sale still exists).
+- The Transactions screen's `loadTransactions` now: reads local → fetches
+  remote → on a successful fetch, prunes anything confirmed-synced-but-gone,
+  re-reads local, then merges for display same as before. A failed fetch
+  changes nothing (existing offline-first fallback, untouched).
+- 8 new tests (`transactionsToPrune` safety cases + the two new
+  `db/transactions.ts` functions); full suite (257 tests), `tsc`, and the web
+  export all verified; confirmed the three new functions are present in the
+  built bundle.
+
 ## 2026-09-10 — Retire the phantom local-only "Beef Blueberry" product — `fix(seed)`
 
 - Reported on the live event device: a "Beef Blueberry" tile showed

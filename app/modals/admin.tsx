@@ -83,7 +83,9 @@ export default function AdminModal() {
         return;
       }
       // Void locally if the sale lives on this device (positive id), and on Coop
-      // (by client_uuid) so every device sees the void. Both are best-effort.
+      // (by client_uuid) so every device sees the void. voidTransaction nulls
+      // void_synced_at; if the inline Coop void fails (offline, or the sale
+      // hasn't reached Coop yet), the outbox drain retries it later.
       const localId = Number(transactionId);
       if (Number.isFinite(localId) && localId > 0) {
         const { voidTransaction } = await import('../../db/transactions');
@@ -91,8 +93,11 @@ export default function AdminModal() {
       }
       if (clientUuid) {
         const { voidRemoteOrder } = await import('../../utils/orders-remote');
-        await voidRemoteOrder(clientUuid);
+        const { markVoidSynced } = await import('../../db/transactions');
+        if (await voidRemoteOrder(clientUuid)) await markVoidSynced(clientUuid);
       }
+      const { refreshPendingCount } = await import('../../utils/outbox');
+      await refreshPendingCount();
       // Dismiss only the admin PIN modal, returning to the Transactions screen
       // (which reloads on focus and shows the sale now voided).
       router.dismiss();

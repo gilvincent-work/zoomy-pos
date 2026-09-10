@@ -15,6 +15,8 @@ function tx(over: Partial<Transaction> & { id: number; created_at: string }): Tr
     remarks: null,
     client_uuid: null,
     synced_at: null,
+    void_synced_at: null,
+    remarks_synced_at: null,
     items: [],
     ...over,
   };

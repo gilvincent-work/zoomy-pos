@@ -97,7 +97,10 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         created_at: o.created_at,
         remarks: o.remarks ?? null,
         client_uuid: o.client_uuid ?? null,
-        synced_at: null, // not meaningful for a remote-sourced row; the local copy carries it
+        // Sync-tracking columns are local-only; a remote-sourced row carries none.
+        synced_at: null,
+        void_synced_at: null,
+        remarks_synced_at: null,
         items: itemsByOrder.get(o.id) ?? [],
       };
     });

@@ -17,6 +17,8 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     remarks: null,
     client_uuid: null,
     synced_at: null,
+    void_synced_at: null,
+    remarks_synced_at: null,
     items: [],
     ...overrides,
   };

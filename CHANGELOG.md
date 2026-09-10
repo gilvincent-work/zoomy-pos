@@ -12,6 +12,46 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-10 — Retire the phantom local-only "Beef Blueberry" product — `fix(seed)`
+
+- Reported on the live event device: a "Beef Blueberry" tile showed
+  permanently "No Stock" even though it doesn't exist anywhere in Coop.
+  Root cause: an older one-time migration (`syncCatalogNamesOnce`) used to
+  auto-create a local "Beef Blueberry" row on any device that didn't have
+  it yet, entirely independent of Coop. It has no row in the Master Plan
+  spreadsheet (no real price/stock), so it was deliberately excluded from
+  the real prod `pos_*` seed — leaving that local row a phantom with no
+  Coop match, stuck at the schema-default `stock = 0` forever, which the
+  recent hard-block feature correctly (if confusingly) read as "confirmed
+  empty."
+- Removed Beef Blueberry from the starter seed catalog (`SEED_PRODUCTS`)
+  and deleted the auto-create block in `syncCatalogNamesOnce`, so no new
+  install ever gets it again.
+- Added a new one-time migration, `deactivateRetiredSeedProductsOnce`,
+  that deactivates (not deletes, to match the app's unlist-not-delete
+  lifecycle and avoid any FK issue with past transaction rows) any
+  leftover local Beef Blueberry row on already-seeded devices — including
+  the live event device — on next launch.
+
+## 2026-09-10 — `pos_*` promoted to Coop prod — `chore(prod)`
+
+- Applied `supabase/pos_schema.sql` (10 tables, `pos_inventory` view, 13 RPCs,
+  RLS) directly to Coop prod (`qkxbwzdxhwcbwgriwipi`), byte-identical to what
+  was already live and verified on Staging. Additive-only — the 4 pre-existing
+  Coop analytics tables (and their row counts) are untouched.
+- Seeded **25 real products** from the Zoomy Master Plan spreadsheet's
+  `Inventory` sheet (Offline Event Price + Stratpoint OFFLINE EVENT STOCK
+  columns), replacing Staging's uniform 50-unit placeholder approach with real
+  per-SKU counts: **3,969 total units**, matching the spreadsheet's own total.
+  Excluded `Freeze-Dried Beef Blueberry` (no spreadsheet row) and 4 Staging
+  test-only products.
+- Seeded 2 real "pick" bundles: **Buy Any 4** (₱570, Freeze Dried + Meaty
+  Treats) and **Buy Any 2** (₱550, Super Duo Bites + Tasty Treats).
+- Full plan, verification steps, and rollback notes: see
+  `../COOP_INTEGRATION_PLAN.md` → "✅ PROD MIGRATION COMPLETE (2026-09-10)".
+- **Not done:** no code changes in this pass (backend/Supabase seeding only);
+  prod Vercel env vars compiled and handed off for manual paste.
+
 ## 2026-09-10 (develop only — not yet promoted to staging)
 
 ### Removed the full Payment page; quick tap is now the only checkout flow — `feat(payment)`

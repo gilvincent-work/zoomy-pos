@@ -12,6 +12,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Hide the PWA "Install" button for now — `chore(ui)`
+
+- Enabling the sync marker (below) also surfaced the PWA one-tap **Install**
+  affordance in the header. Hidden it behind a `SHOW_INSTALL_BUTTON` flag
+  (default off) to keep the header minimal. Purely cosmetic: the app is still
+  installable via the browser's own Install menu, and the `beforeinstallprompt`
+  capture + `navigator.storage.persist()` request (the offline-durability
+  machinery) are untouched. Flip the flag to bring the button back.
+
 ## 2026-09-11 — Offline outbox: unsynced sales/voids/remarks retry automatically — `feat(sync)`
 
 - Reported: on flaky office wifi, some of the PO's sales pushed to Coop and some

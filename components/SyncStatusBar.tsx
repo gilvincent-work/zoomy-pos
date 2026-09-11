@@ -9,12 +9,17 @@ import { promptInstall } from '../utils/pwa';
 import { formatRelativeTime } from '../utils/format-relative-time';
 import { drainOutbox } from '../utils/outbox';
 
+// Hidden for now (still installable via the browser's own "Install" menu; the
+// beforeinstallprompt capture + persistent-storage request are unaffected).
+// Flip to true to bring the one-tap Install affordance back.
+const SHOW_INSTALL_BUTTON = false;
+
 /**
  * Always-visible "last synced · N pending" marker (see COOP_INTEGRATION_PLAN.md,
- * "Sync transparency"), plus an "Install" affordance when the browser offers a
- * PWA install prompt. Tapping the marker triggers a manual drain of the outbox
+ * "Sync transparency"). Tapping the marker triggers a manual drain of the outbox
  * (a no-op when nothing is pending). Reads the sync-status store, so it updates
- * on its own as that store changes.
+ * on its own as that store changes. A PWA "Install" affordance is available but
+ * hidden (see SHOW_INSTALL_BUTTON).
  */
 export function SyncStatusBar() {
   const { colors } = useTheme();
@@ -60,7 +65,7 @@ export function SyncStatusBar() {
         )}
       </TouchableOpacity>
 
-      {canInstall && (
+      {SHOW_INSTALL_BUTTON && canInstall && (
         <TouchableOpacity
           onPress={promptInstall}
           style={styles.installBtn}

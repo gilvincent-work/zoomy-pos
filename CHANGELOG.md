@@ -12,6 +12,27 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Bundle sales push a bundle line so revenue is attributed (Staging only) — `feat(sync)`
+
+- **Fixes bundle revenue vanishing from Coop's per-product reports.** Previously a
+  "Buy Any N" sale was pushed to Coop as N component product lines at ₱0, with the
+  bundle price only on the order header, so Coop's Top products counted the picked
+  units but saw ₱0 revenue for them (RCA in `../COOP_INTEGRATION_PLAN.md`).
+- **The inline online push now also emits a `bundle_id` line** carrying the bundle
+  price (`buildBundleOrderItems` in `utils/sales-sync.ts`, wired from the cart in
+  `app/index.tsx`; the Coop `bundle_id` is resolved from `saved_bundles.bundle_uuid`
+  by preset). The ₱0 component picks still ride along, so `apply_pos_order` keeps
+  decrementing their stock FEFO. Verified live on Staging: the bundle line inserts,
+  each component decrements exactly once (no double-count), and Σ line_total equals
+  the order total.
+- **Online path only for now.** The offline outbox rebuilds the Coop payload from
+  local SQLite, which doesn't persist a bundle's id/price, so an offline-then-
+  retried bundle sale keeps the old header-only behavior. Accepted because bazaar
+  venues usually have internet; the durable-offline version (a local schema
+  migration + recording/outbox changes) is a documented follow-up. No local schema
+  or receipt/display change in this pass.
+- Verified: typecheck clean, full suite 276 tests pass (+3 for `buildBundleOrderItems`).
+
 ## 2026-09-11 — Products page: drop the "All" tab, default to Freeze Dried — `feat(products)`
 
 - Removed the "All" pseudo-tab from the Products management page's category

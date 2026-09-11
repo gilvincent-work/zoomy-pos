@@ -286,7 +286,7 @@ export default function POSScreen() {
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
-      pushSale({ items: saleItems, subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method, customerHandle: customerHandle.trim() || null, clientUuid }).then((res) => {
+      pushSale({ items: saleItems, bundles: bundles.map((b) => ({ presetId: b.presetId, price: b.price })), subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method, customerHandle: customerHandle.trim() || null, clientUuid }).then((res) => {
         if (!res.ok) {
           showToast({
             variant: 'error',

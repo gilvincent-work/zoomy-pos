@@ -24,8 +24,6 @@ import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 
-/** Pseudo-pill that shows every product line at once; the default view. */
-const ALL_LINES = 'All';
 /** Pseudo-pill that shows the Bundle Presets instead of individual products. */
 const BUNDLES_LINE = 'Bundles';
 
@@ -53,8 +51,9 @@ export default function ProductsModal() {
   const [emojiDraft, setEmojiDraft] = useState('');
   // Delete confirm (product or bundle) — one shared modal, see handleConfirmDelete.
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'product' | 'bundle'; id: number; name: string } | null>(null);
-  // Which product line's pills is active on the list view. "All" shows everything.
-  const [activeLine, setActiveLine] = useState<string>(ALL_LINES);
+  // Which product line's pills is active on the list view. Empty until the
+  // catalog loads, then defaulted to the first line (Freeze Dried) below.
+  const [activeLine, setActiveLine] = useState<string>('');
   // Optional secondary filter within a line (e.g. Freeze Dried → Meats). null = whole line.
   const [activeSub, setActiveSub] = useState<string | null>(null);
 
@@ -71,24 +70,33 @@ export default function ProductsModal() {
     }, [])
   );
 
-  // Pills, derived from the loaded catalog: "All", each distinct product line
+  // Pills, derived from the loaded catalog: each distinct product line
   // (alphabetical), then a "Bundles" pill (only when presets exist). Lets staff
   // jump straight to a line or the bundles instead of scrolling one long list.
   const lineNames = useMemo(() => {
     const lines = Array.from(new Set(products.map(categoryOf))).sort((a, b) => a.localeCompare(b));
-    return [ALL_LINES, ...lines, ...(bundles.length > 0 ? [BUNDLES_LINE] : [])];
+    return [...lines, ...(bundles.length > 0 ? [BUNDLES_LINE] : [])];
   }, [products, bundles]);
 
-  // "All" shows both sections; a product line shows only its products; "Bundles"
-  // shows only the presets.
+  // Default the active line to the first product line (Freeze Dried) once the
+  // catalog loads, and re-anchor if the current line disappears (e.g. every
+  // product in it got unlisted). Never auto-selects the Bundles pill.
+  useEffect(() => {
+    const firstLine = lineNames.find((l) => l !== BUNDLES_LINE);
+    if (firstLine && !lineNames.includes(activeLine)) {
+      setActiveLine(firstLine);
+    }
+  }, [lineNames, activeLine]);
+
+  // A product line shows only its products; "Bundles" shows only the presets.
   const showProducts = activeLine !== BUNDLES_LINE;
-  const showBundles = activeLine === ALL_LINES || activeLine === BUNDLES_LINE;
+  const showBundles = activeLine === BUNDLES_LINE;
 
   // Subcategory chips for the active line (e.g. Freeze Dried has Fish / Meats /
-  // Cat Grass · Yogurt / Super Food). Empty for "All", "Bundles", and lines with
-  // no subcategories, so no secondary row shows there.
+  // Cat Grass · Yogurt / Super Food). Empty for "Bundles" and lines with no
+  // subcategories, so no secondary row shows there.
   const subNames = useMemo(() => {
-    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return [];
+    if (activeLine === BUNDLES_LINE) return [];
     const subs = new Set<string>();
     for (const p of products) {
       if (categoryOf(p) === activeLine && p.subcategory && p.subcategory.trim()) {
@@ -99,7 +107,7 @@ export default function ProductsModal() {
   }, [products, activeLine]);
 
   const visibleProducts = useMemo(() => {
-    if (activeLine === ALL_LINES || activeLine === BUNDLES_LINE) return products;
+    if (activeLine === BUNDLES_LINE) return [];
     return products.filter((p) => {
       if (categoryOf(p) !== activeLine) return false;
       return activeSub == null || p.subcategory === activeSub;

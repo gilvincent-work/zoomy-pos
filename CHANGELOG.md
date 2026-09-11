@@ -12,6 +12,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Products page: drop the "All" tab, default to Freeze Dried — `feat(products)`
+
+- Removed the "All" pseudo-tab from the Products management page's category
+  pills. The page now opens on the first real line (**Freeze Dried**,
+  alphabetically first) with its subcategory chips, and re-anchors to the first
+  line if the current one disappears. Bundles still live on their own pill.
+  Purely a management-screen navigation change — no effect on the POS sales
+  grid, the catalog, or sync.
+
 ## 2026-09-11 — Fix: Transactions screen showed only local sales, not other devices' — `fix(sync)`
 
 - Reported: the Transactions screen showed only this device's own sales, not

@@ -658,3 +658,42 @@ grant execute on function public.void_pos_order(text)                       to a
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
 grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;
 grant execute on function public.delete_pos_bundle(text)                    to anon;
+
+-- =========================================================================
+-- 5. Store settings (added 2026-09-11) — a tiny key/value store for owner-set
+--    dashboard config. First key: daily_revenue_target (the gamified daily
+--    sales goal on the Coop Offline Sales page). Additive; writes flow through
+--    the SECURITY DEFINER RPC only, like every other pos_* write path.
+-- =========================================================================
+
+create table if not exists public.pos_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+
+-- Seed the daily revenue target (₱5,000 default). Idempotent — re-running the
+-- schema never clobbers an owner-set value.
+insert into public.pos_settings (key, value)
+values ('daily_revenue_target', jsonb_build_object('amount', 5000))
+on conflict (key) do nothing;
+
+-- set_pos_daily_target: upsert the daily revenue goal in one call.
+create or replace function public.set_pos_daily_target(p_amount numeric, p_by text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('daily_revenue_target', jsonb_build_object('amount', p_amount), p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+alter table public.pos_settings enable row level security;
+create policy pos_settings_read on public.pos_settings for select to anon using (true);
+grant execute on function public.set_pos_daily_target(numeric, text) to anon;

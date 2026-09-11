@@ -57,11 +57,12 @@ beforeEach(() => {
 });
 
 describe('saleForPushFromTransaction', () => {
-  it('preserves client_uuid + original created_at and maps items', () => {
-    const t = tx({ id: 1, client_uuid: 'u1', total: 600, created_at: '2026-09-10T07:00:00.000Z' });
+  it('preserves client_uuid + original created_at + customer handle and maps items', () => {
+    const t = tx({ id: 1, client_uuid: 'u1', total: 600, created_at: '2026-09-10T07:00:00.000Z', customer_handle: '@testpup' });
     const p = saleForPushFromTransaction(t);
     expect(p.clientUuid).toBe('u1');
     expect(p.createdAt).toBe('2026-09-10T07:00:00.000Z'); // sale time, not retry time
+    expect(p.customerHandle).toBe('@testpup'); // carried on the retry
     expect(p.subtotal).toBe(600);
     expect(p.total).toBe(600);
     expect(p.discount).toBeNull();

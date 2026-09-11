@@ -12,6 +12,24 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Push the IG handle to Coop; voids now restock — `feat(sync)`
+
+- The furbaby / IG handle (`customer_handle`) captured at checkout was
+  local-only and never reached Coop. It's now pushed with the sale:
+  `SaleForPush`/`pushSale` carry it into `apply_pos_order` (new
+  `pos_orders.customer_handle` column), the quick-pay handler passes it, and
+  the outbox rebuild includes it so a retried sale keeps its handle. Coop's
+  Offline Sales list now shows it (see the dashboard changelog). Forward-only —
+  past synced sales have no handle.
+- `void_pos_order` (Staging + mirrored in `supabase/pos_schema.sql`) was
+  redefined to **restock** on void: it reverses the sale's FEFO inventory
+  decrements and logs compensating movements, idempotently (a re-void never
+  double-restocks). Since the POS's own void button calls the same RPC, POS
+  voids now restore stock too (previously no void restored stock anywhere). The
+  restored count reaches the POS on the next catalog pull, as usual.
+- Schema changes applied + verified on **Staging only**; the prod schema apply
+  is pending explicit approval. Tests/tsc/expo-export all green (272 tests).
+
 ## 2026-09-11 — Hide the PWA "Install" button for now — `chore(ui)`
 
 - Enabling the sync marker (below) also surfaced the PWA one-tap **Install**

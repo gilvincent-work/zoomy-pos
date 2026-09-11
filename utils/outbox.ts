@@ -43,6 +43,7 @@ export function saleForPushFromTransaction(t: Transaction): SaleForPush {
     discount: null,
     total: t.total,
     paymentMethod: t.payment_method,
+    customerHandle: t.customer_handle,
     clientUuid: t.client_uuid ?? undefined,
     createdAt: t.created_at,
   };

@@ -63,10 +63,13 @@ export function beginSync(): void {
   setState({ syncing: true });
 }
 
-/** A drain finished; record the time and persist it. */
+/** Record a successful sync and persist the time. Does NOT clear `syncing` —
+ *  that flag is owned by beginSync/endSync, so a multi-row drain (which calls
+ *  this per successful push) keeps the spinner on for its whole run instead of
+ *  flickering off between rows. */
 export async function markSynced(at: Date = new Date()): Promise<void> {
   const iso = at.toISOString();
-  setState({ lastSyncedAt: iso, syncing: false });
+  setState({ lastSyncedAt: iso });
   const db = await getDatabase();
   await db.runAsync(
     'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',

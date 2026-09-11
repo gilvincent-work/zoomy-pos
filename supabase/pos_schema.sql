@@ -91,6 +91,7 @@ create table public.pos_orders (
   total          numeric not null,
   oversold       boolean not null default false,
   payment_method text,               -- cash / gcash / card (etc.); how the sale was paid
+  customer_handle text,              -- optional furbaby / IG handle, carried from the POS sale
   status         text not null default 'completed', -- completed / voided (void from any device)
   remarks        text,               -- free-text note; editable from any device
   voided_at      timestamptz,        -- when the sale was voided (audit)
@@ -195,12 +196,13 @@ begin
 
   v_order_id := gen_random_uuid();
 
-  insert into pos_orders (id, client_uuid, device_id, cashier, subtotal, discount, total, oversold, payment_method, created_at)
+  insert into pos_orders (id, client_uuid, device_id, cashier, customer_handle, subtotal, discount, total, oversold, payment_method, created_at)
   values (
     v_order_id,
     v_client_uuid,
     p_order->>'device_id',
     p_order->>'cashier',
+    nullif(p_order->>'customer_handle', ''),
     (p_order->>'subtotal')::numeric,
     nullif(p_order->>'discount', '')::numeric,
     (p_order->>'total')::numeric,
@@ -485,9 +487,11 @@ begin
 end;
 $$;
 
--- Void a sale by its client_uuid, from any device. Idempotent (re-voiding a
--- voided order is a no-op). Returns rows affected so the caller knows if the
--- order was found. Voids are monotonic — there is no un-void.
+-- Void a sale by its client_uuid, from any device, AND restock it: the sold
+-- quantities are added back to the lots they were drawn from. Idempotent
+-- (re-voiding a voided order is a no-op, so stock is never restored twice).
+-- Returns rows affected so the caller knows if the order was found. Voids are
+-- monotonic — there is no un-void.
 create or replace function public.void_pos_order(p_client_uuid text)
 returns integer
 language plpgsql
@@ -495,14 +499,44 @@ security definer
 set search_path = public
 as $$
 declare
+  v_order_id uuid;
   v_count integer;
 begin
+  -- Flip to voided only if not already voided; capture the order id so the
+  -- restock below runs exactly once (a re-void finds status='voided' -> 0 rows).
   update pos_orders
      set status = 'voided',
          voided_at = coalesce(voided_at, now())
    where client_uuid = p_client_uuid
-     and status <> 'voided';
+     and status <> 'voided'
+   returning id into v_order_id;
   get diagnostics v_count = row_count;
+
+  if v_count = 0 then
+    return 0;
+  end if;
+
+  -- Add each sold qty back to the lot it was drawn from (grouped so multiple
+  -- lines on one lot sum). total_delta is negative (a 'sale' decrement), so
+  -- subtracting it adds the stock back. Movements with no lot (pure oversell)
+  -- restore nothing to a lot but are still logged reversed below.
+  update pos_inventory_lots l
+     set qty_on_hand = l.qty_on_hand - agg.total_delta,
+         updated_at = now()
+  from (
+    select lot_id, sum(delta) as total_delta
+    from pos_stock_movements
+    where order_id = v_order_id and reason = 'sale' and lot_id is not null
+    group by lot_id
+  ) agg
+  where l.lot_id = agg.lot_id;
+
+  -- Compensating audit rows: one reversed movement per original sale decrement.
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+  select product_id, lot_id, order_id, -delta, 'void', null, now()
+  from pos_stock_movements
+  where order_id = v_order_id and reason = 'sale';
+
   return v_count;
 end;
 $$;

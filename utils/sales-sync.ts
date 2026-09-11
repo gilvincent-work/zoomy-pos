@@ -51,6 +51,8 @@ export type SaleForPush = {
   discount: number | null;
   total: number;
   paymentMethod?: PaymentMethod;
+  /** Optional furbaby / IG handle captured at checkout; stored on Coop's order. */
+  customerHandle?: string | null;
   /** Shared idempotency key; reused as the local sale's client_uuid so the
    *  Transactions merge can dedupe this sale against the row pulled from Coop. */
   clientUuid?: string;
@@ -74,6 +76,7 @@ export async function pushSale(sale: SaleForPush): Promise<{ok: boolean; error?:
     client_uuid: sale.clientUuid ?? Crypto.randomUUID(),
     device_id: 'pos',
     cashier: null,
+    customer_handle: sale.customerHandle ?? null,
     subtotal: sale.subtotal,
     discount: sale.discount,
     total: sale.total,

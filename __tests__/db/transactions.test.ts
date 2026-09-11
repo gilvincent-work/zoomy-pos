@@ -327,4 +327,15 @@ describe('deleteTransactionsByClientUuids', () => {
     await deleteTransactionsByClientUuids([]);
     expect(mockDb.runAsync).not.toHaveBeenCalled();
   });
+
+  it('chunks a large list so it never blows the SQLite bound-parameter limit', async () => {
+    const uuids = Array.from({ length: 450 }, (_, i) => `u${i}`);
+    await deleteTransactionsByClientUuids(uuids);
+    // 450 uuids -> 3 chunks (200 + 200 + 50) -> 2 deletes each = 6 runAsync calls.
+    expect(mockDb.runAsync).toHaveBeenCalledTimes(6);
+    // No single call binds more than 200 params.
+    for (const call of mockDb.runAsync.mock.calls) {
+      expect((call[1] as unknown[]).length).toBeLessThanOrEqual(200);
+    }
+  });
 });

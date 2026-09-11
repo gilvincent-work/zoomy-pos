@@ -207,12 +207,19 @@ export async function getPendingSyncCount(): Promise<number> {
 export async function deleteTransactionsByClientUuids(clientUuids: string[]): Promise<void> {
   if (clientUuids.length === 0) return;
   const db = await getDatabase();
-  const placeholders = clientUuids.map(() => '?').join(',');
-  await db.runAsync(
-    `DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE client_uuid IN (${placeholders}))`,
-    clientUuids
-  );
-  await db.runAsync(`DELETE FROM transactions WHERE client_uuid IN (${placeholders})`, clientUuids);
+  // Chunk the IN-list so a large prune (a heavily-tested device can accumulate
+  // many synced rows Coop no longer has) never exceeds SQLite's bound-parameter
+  // limit and throws — which would otherwise abort the Transactions reload.
+  const CHUNK = 200;
+  for (let i = 0; i < clientUuids.length; i += CHUNK) {
+    const batch = clientUuids.slice(i, i + CHUNK);
+    const placeholders = batch.map(() => '?').join(',');
+    await db.runAsync(
+      `DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE client_uuid IN (${placeholders}))`,
+      batch
+    );
+    await db.runAsync(`DELETE FROM transactions WHERE client_uuid IN (${placeholders})`, batch);
+  }
 }
 
 type TxRow = {

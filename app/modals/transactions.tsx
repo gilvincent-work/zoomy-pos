@@ -202,7 +202,7 @@ export default function TransactionsModal() {
   // failed/unconfigured fetch never prunes anything — only a confirmed-empty
   // or confirmed-populated remote result counts as "Coop has spoken."
   const loadTransactions = useCallback(async () => {
-    let local = await getAllTransactions();
+    const local = await getAllTransactions();
     setTransactions(local);
     // Keep the "N pending" marker honest while viewing history (a background
     // drain may have synced rows since it was last computed).
@@ -210,15 +210,27 @@ export default function TransactionsModal() {
     const remote = await fetchRemoteOrders();
     if (!remote.ok) return;
 
-    const remoteUuids = new Set(
-      remote.orders.map((r) => r.client_uuid).filter((u): u is string => !!u)
-    );
-    const toPrune = transactionsToPrune(local, remoteUuids);
-    if (toPrune.length > 0) {
-      await deleteTransactionsByClientUuids(toPrune.map((t) => t.client_uuid!));
-      local = await getAllTransactions();
-    }
+    // Show the cross-device merged list FIRST. This must never be blocked by the
+    // deletion-prune below: if that prune ever throws (e.g. a local delete
+    // fails), the merged view — the whole point of this screen — still stands.
     setTransactions(mergeTransactions(local, remote.orders));
+
+    // Best-effort: permanently drop local rows Coop no longer has (a sale
+    // deleted on Coop). Wrapped so a failure can't strand the display at
+    // local-only, and re-merged from fresh local rows on success.
+    try {
+      const remoteUuids = new Set(
+        remote.orders.map((r) => r.client_uuid).filter((u): u is string => !!u)
+      );
+      const toPrune = transactionsToPrune(local, remoteUuids);
+      if (toPrune.length > 0) {
+        await deleteTransactionsByClientUuids(toPrune.map((t) => t.client_uuid!));
+        const fresh = await getAllTransactions();
+        setTransactions(mergeTransactions(fresh, remote.orders));
+      }
+    } catch {
+      // Prune is non-critical; the merged list above is already displayed.
+    }
   }, []);
 
   useFocusEffect(

@@ -12,6 +12,27 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-11 — Fix: Transactions screen showed only local sales, not other devices' — `fix(sync)`
+
+- Reported: the Transactions screen showed only this device's own sales, not
+  the ones synced from other devices (Coop had them — verified 49 orders read
+  back fine via the anon key, and the merge keeps all of them). Cause was a
+  regression from the deletion-sync work: `loadTransactions` ran the
+  local-row prune *between* painting the local list and painting the merged
+  cross-device list, unguarded. On a heavily-tested device (many synced-local
+  rows Coop no longer has, after repeated order purges) the prune's
+  `DELETE ... IN (?, ?, …)` could exceed SQLite's bound-parameter limit and
+  throw, aborting `loadTransactions` before the merge — stranding the view on
+  local-only. This matched "worked before the offline changes, broke after".
+- Fix: paint the **merged cross-device list first**, then run the prune as a
+  best-effort, try/catch-guarded cleanup that can never block the display; and
+  **chunk `deleteTransactionsByClientUuids`** (batches of 200) so a large prune
+  can't hit the parameter limit in the first place. Cross-device history now
+  always shows even if the prune fails.
+- Verified against Staging with the live data: read returns all 49 orders and
+  the merge keeps every one (incl. the ₱13,534 and ₱6,767 sales). 273 tests,
+  `tsc`, and the web export all pass.
+
 ## 2026-09-11 — Push the IG handle to Coop; voids now restock — `feat(sync)`
 
 - The furbaby / IG handle (`customer_handle`) captured at checkout was

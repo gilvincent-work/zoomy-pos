@@ -43,22 +43,19 @@ export function buildOrderItems(items: InsertItem[], skuByProductId: Map<number,
 }
 
 /**
- * Pure: build the bundle_id lines for a sale. Each cart bundle becomes one line
- * carrying its price, keyed by the Coop bundle_id resolved from its preset.
- * Bundles with no resolvable Coop id (unsynced, or ad-hoc with no preset) are
- * skipped — the sale still records their component product lines, so this
- * degrades to the old behavior (bundle revenue stays on the order header) rather
- * than failing the push.
+ * Pure: build the header line for each cart bundle, carrying its price so bundle
+ * revenue is attributed and the order stays editable as a bundle. A resolvable
+ * Coop bundle_id makes a linked header; an unresolvable one (unsynced/ad-hoc)
+ * makes a custom premium line (no product_id, no bundle_id) tagged to the group,
+ * so the price + grouping still survive instead of being lost on the order total.
  */
 export function buildBundleOrderItems(bundles: BundleForPush[], bundleIdByPreset: Map<number, string>): OrderItem[] {
   const out: OrderItem[] = [];
   // Index-based group tag (1-based) that MUST match buildInsertItems' pick tags,
   // so each header lines up with its own picks; both enumerate `bundles` in order.
   bundles.forEach((b, i) => {
-    if (b.presetId == null) return;
-    const bundleId = bundleIdByPreset.get(b.presetId);
-    if (!bundleId) return;
-    out.push({bundle_id: bundleId, bundle_group: String(i + 1), qty: 1, unit_price: b.price, line_total: b.price});
+    const bundleId = b.presetId != null ? bundleIdByPreset.get(b.presetId) : undefined;
+    out.push({product_id: null, bundle_id: bundleId ?? null, bundle_group: String(i + 1), qty: 1, unit_price: b.price, line_total: b.price});
   });
   return out;
 }

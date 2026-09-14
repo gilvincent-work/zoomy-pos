@@ -18,21 +18,25 @@ export type RawOrderLine = {
   line_total: number;
 };
 
-/** Minimal bundle facts needed to re-link a legacy bundle order. */
-export type BundleMatch = {bundle_id: string; bundle_type: 'pick' | 'fixed'; pick_count: number | null};
+/** Minimal bundle facts needed to re-link / price a bundle group. */
+export type BundleMatch = {bundle_id: string; bundle_type: 'pick' | 'fixed'; pick_count: number | null; price: number};
+
+type BundleEntry = Extract<EditEntry, {kind: 'bundle'}>;
+type ItemEntry = Extract<EditEntry, {kind: 'item'}>;
 
 /**
- * A bundle group is rebuilt from bundle_group: the header row (bundle_id set,
- * product_id null) gives the bundle id + price; the ₱0 product rows sharing that
- * group are its picks. A legacy fixed-bundle header with no group becomes a bundle
- * with no picks (components come from its definition). Orphan groups (picks with
- * no header) degrade to loose ₱0 items.
+ * Reconstruct an order's stored lines into editable entries (individual items +
+ * bundle groups) so editing shows the sale's real content on first load. Each
+ * bundle_group becomes its own bundle (two bundles show as two, never merged): a
+ * header row (product_id null) gives the price and, when present, the bundle_id;
+ * the ₱0 product rows in the group are its picks.
  *
- * Legacy pick-bundle sales predate bundle_group: ₱0 picks with the premium only
- * on the order total. When a leftover premium remains (`total` exceeds the entry
- * sum), those ₱0 items are folded into a bundle carrying the premium as its price,
- * auto-linked to the bundle whose pick_count matches the pick quantity (unique);
- * unmatched ones keep an empty bundle_id for the editor to link. Order preserved.
+ * Groups without a header (older/unresolvable sales) reconstruct as custom
+ * bundles; a group is auto-identified by matching its pick quantity to a bundle's
+ * pick_count (unique), and any leftover premium is defaulted onto the ₱0-priced
+ * bundles (a matched bundle takes its list price first, the remainder lands on the
+ * first). A truly ungrouped legacy bundle (loose ₱0 items + premium) folds into
+ * one custom bundle. Everything stays editable; saving self-heals grouped shape.
  */
 export function reconstructEntries(lines: RawOrderLine[], total = 0, defs: BundleMatch[] = []): EditEntry[] {
   const out: EditEntry[] = [];
@@ -44,13 +48,13 @@ export function reconstructEntries(lines: RawOrderLine[], total = 0, defs: Bundl
       if (idx === undefined) {
         idx = out.length;
         groupIndex.set(grp, idx);
-        out.push({kind: 'bundle', bundle_id: l.bundle_id ?? '', price: 0, picks: []});
+        out.push({kind: 'bundle', bundle_id: '', price: 0, picks: []});
       }
-      const e = out[idx] as Extract<EditEntry, {kind: 'bundle'}>;
-      if (l.bundle_id && l.product_id == null) {
-        e.bundle_id = l.bundle_id;
+      const e = out[idx] as BundleEntry;
+      if (l.product_id == null) {
         e.price = l.line_total;
-      } else if (l.product_id) {
+        if (l.bundle_id) e.bundle_id = l.bundle_id;
+      } else {
         e.picks.push({product_id: l.product_id, qty: l.qty});
       }
     } else if (l.bundle_id && l.product_id == null) {
@@ -59,25 +63,46 @@ export function reconstructEntries(lines: RawOrderLine[], total = 0, defs: Bundl
       out.push({kind: 'item', product_id: l.product_id, qty: l.qty, unit_price: l.unit_price});
     }
   }
-  const cleaned: EditEntry[] = [];
+
+  const defById = new Map(defs.map((d) => [d.bundle_id, d]));
   for (const e of out) {
     if (e.kind === 'bundle' && !e.bundle_id) {
-      for (const p of e.picks) cleaned.push({kind: 'item', product_id: p.product_id, qty: p.qty, unit_price: 0});
-    } else {
-      cleaned.push(e);
+      const pickQty = e.picks.reduce((s, p) => s + p.qty, 0);
+      const matches = defs.filter((d) => d.bundle_type === 'pick' && d.pick_count === pickQty);
+      if (matches.length === 1) e.bundle_id = matches[0].bundle_id;
     }
   }
 
-  const entriesSum = cleaned.reduce((s, e) => s + (e.kind === 'item' ? e.qty * e.unit_price : e.price), 0);
-  const premium = total - entriesSum;
-  const zeros = cleaned.filter((e): e is Extract<EditEntry, {kind: 'item'}> => e.kind === 'item' && e.unit_price === 0);
-  if (premium > 0.005 && zeros.length > 0) {
-    const rest = cleaned.filter((e) => !(e.kind === 'item' && e.unit_price === 0));
-    const pickQty = zeros.reduce((s, e) => s + e.qty, 0);
-    const matches = defs.filter((d) => d.bundle_type === 'pick' && d.pick_count === pickQty);
-    const bundle_id = matches.length === 1 ? matches[0].bundle_id : '';
-    rest.push({kind: 'bundle', bundle_id, price: premium, picks: zeros.map((e) => ({product_id: e.product_id, qty: e.qty}))});
-    return rest;
+  const sumAmounts = () => out.reduce((s, e) => s + (e.kind === 'item' ? e.qty * e.unit_price : e.price), 0);
+  let leftover = total - sumAmounts();
+  if (leftover > 0.005) {
+    for (const e of out) {
+      if (e.kind === 'bundle' && e.price === 0) {
+        const def = defById.get(e.bundle_id);
+        if (def && def.price > 0 && def.price <= leftover) {
+          e.price = def.price;
+          leftover -= def.price;
+        }
+      }
+    }
+    if (leftover > 0.005) {
+      const t = out.find((e): e is BundleEntry => e.kind === 'bundle' && e.price === 0);
+      if (t) {
+        t.price += leftover;
+        leftover = 0;
+      }
+    }
   }
-  return cleaned;
+
+  if (leftover > 0.005) {
+    const zeros = out.filter((e): e is ItemEntry => e.kind === 'item' && e.unit_price === 0);
+    if (zeros.length > 0) {
+      const rest = out.filter((e) => !(e.kind === 'item' && e.unit_price === 0));
+      const pickQty = zeros.reduce((s, e) => s + e.qty, 0);
+      const matches = defs.filter((d) => d.bundle_type === 'pick' && d.pick_count === pickQty);
+      rest.push({kind: 'bundle', bundle_id: matches.length === 1 ? matches[0].bundle_id : '', price: leftover, picks: zeros.map((e) => ({product_id: e.product_id, qty: e.qty}))});
+      return rest;
+    }
+  }
+  return out;
 }

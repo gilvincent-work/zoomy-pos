@@ -12,6 +12,21 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Bundles show pre-populated on edit; custom bundles saveable (Staging only) — `fix(transactions)`
+
+- **The edit sheet shows the sale's real content on first load** — each bundle
+  group reconstructs as its own bundle with its picks already filled (two bundles
+  show as two, never merged, never an empty chooser). A group with no header is
+  auto-identified by matching its pick quantity to a bundle's `pick_count`, with
+  any unattributed premium defaulted onto the ₱0 bundles.
+- **Custom (unlinked) bundles are valid + saveable**: a group that matches no
+  bundle keeps its picks + editable price and doesn't force a selection; the RPC
+  stores it as a custom-bundle premium line (constraint relaxed to allow a
+  both-ids-null line tied to a bundle_group). The bundle chooser stays optional.
+- **Sales always record a bundle header** now (`buildBundleOrderItems`): linked
+  when the Coop bundle id resolves, else a custom premium line — so price +
+  grouping are never lost to an orphan group. **Staging only.**
+
 ## 2026-09-14 — Legacy bundle sales edit as bundles (Staging only) — `fix(transactions)`
 
 - **Pre-grouping bundle sales open as a bundle, not loose ₱0 items.** When a synced

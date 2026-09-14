@@ -453,7 +453,7 @@ export default function TransactionsModal() {
     setBundleDefs(defs);
     const matchDefs = defs
       .filter((d) => d.bundle_uuid)
-      .map((d) => ({ bundle_id: d.bundle_uuid as string, bundle_type: d.bundle_type, pick_count: d.pick_count }));
+      .map((d) => ({ bundle_id: d.bundle_uuid as string, bundle_type: d.bundle_type, pick_count: d.pick_count, price: d.price }));
     const remote = await fetchRemoteOrderEntries(selected.client_uuid, matchDefs);
     const defByUuid = new Map(defs.filter((d) => d.bundle_uuid).map((d) => [d.bundle_uuid as string, d]));
     const skuName = new Map(catalog.filter((p) => p.sku).map((p) => [p.sku as string, p.name]));
@@ -483,10 +483,9 @@ export default function TransactionsModal() {
   const picksTotal = (picks: DraftPick[]) => picks.reduce((s, p) => s + (Number(p.qty) || 0), 0);
   // A "pick" bundle must have exactly its pick_count picks, each with a product.
   function bundleProblem(e: Extract<DraftEntry, { kind: 'bundle' }>): string | null {
-    if (!e.bundle_id) return 'pick which bundle this is';
-    const def = bundleDefById.get(e.bundle_id);
-    if (!def || def.bundle_type !== 'pick' || def.pick_count == null) return null;
     if (e.picks.some((p) => !p.product_id)) return 'choose a product for every pick';
+    const def = e.bundle_id ? bundleDefById.get(e.bundle_id) : undefined;
+    if (!def || def.bundle_type !== 'pick' || def.pick_count == null) return null;
     const n = picksTotal(e.picks);
     if (n !== def.pick_count) return `needs exactly ${def.pick_count} (has ${n})`;
     return null;
@@ -916,12 +915,12 @@ export default function TransactionsModal() {
                       <Ionicons name="close" size={16} color={colors.textMuted} />
                     </TouchableOpacity>
                   </View>
-                  {bundleDefById.get(e.bundle_id)?.bundle_type === 'pick' ? (
+                  {bundleDefById.get(e.bundle_id)?.bundle_type !== 'fixed' ? (
                     <>
                       <View style={styles.bundlePicksHead}>
                         <Text style={styles.bundlePicksLabel}>Picks</Text>
                         <Text style={[styles.bundlePicksCount, bundleProblem(e) ? styles.bundlePicksBad : styles.bundlePicksOk]}>
-                          {picksTotal(e.picks)} / {bundleDefById.get(e.bundle_id)?.pick_count ?? '—'}
+                          {picksTotal(e.picks)}{bundleDefById.get(e.bundle_id)?.pick_count != null ? ` / ${bundleDefById.get(e.bundle_id)!.pick_count}` : ''}
                         </Text>
                       </View>
                       {e.picks.map((pk, j) => {

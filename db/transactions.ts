@@ -177,6 +177,18 @@ export async function voidTransaction(id: number): Promise<void> {
   );
 }
 
+/** Restore a locally-voided sale to completed (inverse of voidTransaction).
+ *  Unvoid is online-only: callers only reach here after the Coop unvoid RPC
+ *  succeeds, so the sale is already completed on Coop and stays synced. Clearing
+ *  void_synced_at keeps it meaningful only while status = 'voided'. */
+export async function unvoidTransaction(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    "UPDATE transactions SET status = 'completed', void_synced_at = NULL WHERE id = ?",
+    [id]
+  );
+}
+
 /** Marks a sale as confirmed-synced once pushSale() succeeds. See the schema
  *  migration for why this exists: it's the sole gate for pruning a local row
  *  when Coop no longer has it. */

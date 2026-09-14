@@ -1,6 +1,7 @@
 import {
   insertTransaction,
   voidTransaction,
+  unvoidTransaction,
   getAllTransactions,
   importTransaction,
   transactionExists,
@@ -85,6 +86,16 @@ describe('voidTransaction', () => {
     await voidTransaction(10);
     expect(mockDb.runAsync).toHaveBeenCalledWith(
       "UPDATE transactions SET status = 'voided', void_synced_at = NULL WHERE id = ?",
+      [10]
+    );
+  });
+});
+
+describe('unvoidTransaction', () => {
+  it('restores status to completed and nulls void_synced_at', async () => {
+    await unvoidTransaction(10);
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      "UPDATE transactions SET status = 'completed', void_synced_at = NULL WHERE id = ?",
       [10]
     );
   });

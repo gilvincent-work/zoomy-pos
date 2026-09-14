@@ -494,7 +494,7 @@ $$;
 -- an edited-then-voided order still returns to exactly its pre-sale stock.
 -- Backward-compatible: a never-edited order's net == its original sale.
 -- Idempotent (re-voiding finds status='voided' -> 0 rows, so stock is never
--- restored twice). Voids are monotonic — there is no un-void.
+-- restored twice). Reversible via unvoid_pos_order (below).
 create or replace function public.void_pos_order(p_client_uuid text)
 returns integer
 language plpgsql
@@ -534,13 +534,16 @@ begin
   ) agg
   where l.lot_id = agg.lot_id;
 
-  -- Compensating audit rows: one reversed net movement per (product, lot) group,
-  -- INCLUDING lot_id-null oversell groups (so movements-by-product net to zero).
-  -- Only the lot-mutating UPDATE above filters lot_id; the audit does not.
+  -- Compensating audit rows: reverse the entire current net per (product, lot)
+  -- group, INCLUDING lot_id-null oversell groups, so movements-by-product net to
+  -- zero for a voided order regardless of prior void/unvoid history. Re-void is
+  -- guarded by the status flip above (0 rows -> early return), so this never
+  -- compounds. Only the lot-mutating UPDATE above filters lot_id; the audit does
+  -- not.
   insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
   select product_id, lot_id, v_order_id, -sum(delta), 'void', null, now()
   from pos_stock_movements
-  where order_id = v_order_id and reason <> 'void'
+  where order_id = v_order_id
   group by product_id, lot_id
   having sum(delta) <> 0;
 
@@ -698,6 +701,127 @@ begin
 end;
 $$;
 
+-- Unvoid a voided order: restore it to 'completed' and re-apply its inventory
+-- footprint FEFO from its existing line items. Inverse of void_pos_order.
+-- State-based/convergent: it first neutralizes the order's entire current net
+-- footprint (a cleanly voided order nets to 0 here), then re-decrements FEFO, so
+-- re-running lands the same result. Oversell-safe (overdraws the earliest lot).
+-- Rejects an order that isn't voided. Online-only from the clients.
+create or replace function public.unvoid_pos_order(p_client_uuid text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id     uuid;
+  v_status       text;
+  v_oversold     boolean := false;
+  v_decrement    record;
+  v_lot          record;
+  v_item         record;
+  v_remaining    integer;
+  v_take         integer;
+  v_overdraw_lot uuid;
+  v_decrements   jsonb := '{}'::jsonb;
+  v_rows         integer;
+begin
+  -- Lock the order row so a concurrent void/edit is serialized.
+  select id, status into v_order_id, v_status
+    from pos_orders where client_uuid = p_client_uuid
+    for update;
+
+  if v_order_id is null then
+    return jsonb_build_object('ok', false, 'error', 'order not found');
+  end if;
+  if v_status <> 'voided' then
+    return jsonb_build_object('ok', false, 'error', 'order is not voided');
+  end if;
+
+  -- 1. Neutralize the order's entire current net footprint (restore lots). A
+  --    cleanly voided order nets to 0 here; this defends against odd states.
+  update pos_inventory_lots l
+     set qty_on_hand = l.qty_on_hand - agg.net, updated_at = now()
+  from (
+    select lot_id, sum(delta) as net
+    from pos_stock_movements
+    where order_id = v_order_id and lot_id is not null
+    group by lot_id
+    having sum(delta) <> 0
+  ) agg
+  where l.lot_id = agg.lot_id;
+
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+  select product_id, lot_id, v_order_id, -sum(delta), 'unvoid-reverse', now()
+  from pos_stock_movements
+  where order_id = v_order_id
+  group by product_id, lot_id
+  having sum(delta) <> 0;
+
+  -- 2. Accumulate per-product decrements from the order's existing line items.
+  for v_item in
+    select product_id, sum(qty)::integer as qty
+    from pos_order_items
+    where order_id = v_order_id and product_id is not null
+    group by product_id
+  loop
+    v_decrements := jsonb_set(v_decrements, array[v_item.product_id], to_jsonb(v_item.qty));
+  end loop;
+
+  -- 3. Re-apply the decrements FEFO (mirrors apply_pos_order), reason 'unvoid-sale'.
+  for v_decrement in
+    select key as product_id, value::integer as qty from jsonb_each_text(v_decrements)
+  loop
+    v_remaining := v_decrement.qty;
+
+    for v_lot in
+      select lot_id, qty_on_hand
+      from pos_inventory_lots
+      where product_id = v_decrement.product_id and qty_on_hand > 0
+      order by expires_on asc nulls last, received_at asc
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(v_lot.qty_on_hand, v_remaining);
+      update pos_inventory_lots set qty_on_hand = qty_on_hand - v_take, updated_at = now()
+        where lot_id = v_lot.lot_id;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_lot.lot_id, v_order_id, -v_take, 'unvoid-sale', now());
+      v_remaining := v_remaining - v_take;
+    end loop;
+
+    if v_remaining > 0 then
+      v_oversold := true;
+      select lot_id into v_overdraw_lot
+        from pos_inventory_lots
+        where product_id = v_decrement.product_id
+        order by expires_on asc nulls last, received_at asc
+        limit 1;
+      if v_overdraw_lot is not null then
+        update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remaining, updated_at = now()
+          where lot_id = v_overdraw_lot;
+      end if;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_overdraw_lot, v_order_id, -v_remaining, 'unvoid-sale', now());
+    end if;
+  end loop;
+
+  -- 4. Restore completed status; clear voided_at; refresh oversold. Re-guard
+  --    status = 'voided' so a concurrent change can't be silently overwritten.
+  update pos_orders set
+    status = 'completed',
+    voided_at = null,
+    oversold = v_oversold
+  where id = v_order_id and status = 'voided';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then
+    return jsonb_build_object('ok', false, 'error', 'order changed during unvoid');
+  end if;
+
+  return jsonb_build_object('ok', true, 'order_id', v_order_id, 'oversold', v_oversold);
+end;
+$$;
+
 -- Set (or clear, with null/empty) a sale's remarks by client_uuid, from any device.
 create or replace function public.set_pos_order_remarks(p_client_uuid text, p_remarks text)
 returns integer
@@ -812,6 +936,7 @@ grant execute on function public.record_sync(text, text, jsonb, text)       to a
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
 grant execute on function public.set_product_emoji(text, text)              to anon;
 grant execute on function public.void_pos_order(text)                       to anon;
+grant execute on function public.unvoid_pos_order(text)                     to anon;
 grant execute on function public.edit_pos_order(text, jsonb, jsonb)         to anon;
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
 grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;

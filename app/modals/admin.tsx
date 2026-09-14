@@ -31,7 +31,7 @@ export default function AdminModal() {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const { action, transactionId, clientUuid } = useLocalSearchParams<{
-    action: 'void_transaction' | 'change_pin' | 'settings';
+    action: 'void_transaction' | 'unvoid_transaction' | 'change_pin' | 'settings';
     transactionId?: string;
     clientUuid?: string;
   }>();
@@ -82,11 +82,37 @@ export default function AdminModal() {
         setStep('settings');
         return;
       }
+      const localId = Number(transactionId);
+
+      // Unvoid is online-only: it must land on Coop first (the RPC re-applies
+      // inventory), and only then flips the local row back to completed. If Coop
+      // rejects or is unreachable, surface it and leave the sale voided.
+      if (action === 'unvoid_transaction') {
+        if (!clientUuid) {
+          Alert.alert('Cannot unvoid', 'This sale has not reached Coop yet.');
+          return;
+        }
+        const { unvoidRemoteOrder } = await import('../../utils/orders-remote');
+        const res = await unvoidRemoteOrder(clientUuid);
+        if (!res.ok) {
+          Alert.alert('Unvoid failed', res.error ?? 'Could not reach Coop. Try again.');
+          setPin('');
+          return;
+        }
+        if (Number.isFinite(localId) && localId > 0) {
+          const { unvoidTransaction } = await import('../../db/transactions');
+          await unvoidTransaction(localId);
+        }
+        const { refreshPendingCount } = await import('../../utils/outbox');
+        await refreshPendingCount();
+        router.dismiss();
+        return;
+      }
+
       // Void locally if the sale lives on this device (positive id), and on Coop
       // (by client_uuid) so every device sees the void. voidTransaction nulls
       // void_synced_at; if the inline Coop void fails (offline, or the sale
       // hasn't reached Coop yet), the outbox drain retries it later.
-      const localId = Number(transactionId);
       if (Number.isFinite(localId) && localId > 0) {
         const { voidTransaction } = await import('../../db/transactions');
         await voidTransaction(localId);
@@ -339,6 +365,8 @@ export default function AdminModal() {
       <Text style={styles.subtitle}>
         {step === 'verify' && action === 'void_transaction'
           ? 'Required to void this transaction'
+          : step === 'verify' && action === 'unvoid_transaction'
+          ? 'Required to unvoid this transaction'
           : step === 'verify'
           ? 'Enter current PIN to continue'
           : 'Enter your new PIN (min 4 digits)'}

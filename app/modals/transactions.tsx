@@ -379,6 +379,25 @@ export default function TransactionsModal() {
     });
   }
 
+  // Unvoiding restores a voided sale (re-applies its inventory + revenue on Coop),
+  // so it's online-only and needs the sale to already live on Coop (client_uuid).
+  // The admin PIN gate performs it; failure leaves the sale voided.
+  const canUnvoid =
+    !!selected &&
+    selected.status === 'voided' &&
+    !!selected.client_uuid &&
+    isSupabaseConfigured();
+
+  function handleUnvoid() {
+    if (!selected) return;
+    const { id, client_uuid } = selected;
+    setSelected(null);
+    router.push({
+      pathname: '/modals/admin',
+      params: { action: 'unvoid_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
+    });
+  }
+
   // Editing is online-only (it calls edit_pos_order on Coop) and limited to a
   // completed, non-bundle sale that lives on THIS device (isLocalTransaction) and
   // has reached Coop (client_uuid). Bundle sales are excluded — their price lives
@@ -671,6 +690,11 @@ export default function TransactionsModal() {
                       <Text style={styles.voidBtnText}>Void</Text>
                     </TouchableOpacity>
                   )}
+                  {canUnvoid && (
+                    <TouchableOpacity style={styles.unvoidBtn} onPress={handleUnvoid}>
+                      <Text style={styles.unvoidBtnText}>Unvoid</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </>
             )}
@@ -961,6 +985,12 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+  unvoidBtn: {
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: c.green,
+  },
+  unvoidBtnText: { color: c.green, fontWeight: '800', fontSize: F.md },
 
   // Edit-sale modal
   editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },

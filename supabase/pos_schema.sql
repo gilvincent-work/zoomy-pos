@@ -114,8 +114,16 @@ create table public.pos_order_items (
   qty         integer not null,
   unit_price  numeric not null,
   line_total  numeric not null,
+  -- A line is a product line, a bundle header (linked to a pos_bundles row), or a
+  -- custom-bundle premium line (both ids null, tied to a bundle_group) that carries
+  -- an unlinked/ad-hoc bundle's price. The third shape was added 2026-09-14 so a
+  -- bundle sale whose Coop bundle_id can't be resolved still records its price.
   constraint pos_order_items_one_of_product_or_bundle
-    check ((product_id is not null and bundle_id is null) or (product_id is null and bundle_id is not null))
+    check (
+      (product_id is not null and bundle_id is null)
+      or (product_id is null and bundle_id is not null)
+      or (product_id is null and bundle_id is null and bundle_group is not null)
+    )
 );
 create index pos_order_items_order_id_idx on public.pos_order_items(order_id);
 
@@ -645,6 +653,10 @@ begin
   for v_entry in select * from jsonb_array_elements(p_entries) loop
     if (v_entry->>'kind') = 'bundle' then
       v_bundle_id := v_entry->>'bundle_id';
+      -- Custom / unlinked bundle (no bundle_id): no rules to enforce.
+      if v_bundle_id is null or v_bundle_id = '' then
+        continue;
+      end if;
       select bundle_type, pick_count, line_categories into v_btype, v_pick_count, v_line_cats
         from pos_bundles where bundle_id = v_bundle_id;
       if v_btype is null then
@@ -711,18 +723,16 @@ begin
       v_bprice    := coalesce((v_entry->>'price')::numeric, 0);
       v_group     := v_group + 1;
       v_grp       := v_group::text;
-      select bundle_type into v_btype from pos_bundles where bundle_id = v_bundle_id;
-      -- Header line: bundle identity + price (product_id null; tagged to the group).
-      insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
-      values (v_order_id, null, v_bundle_id, v_grp, 1, v_bprice, v_bprice);
-      v_subtotal := v_subtotal + v_bprice;
-      if v_btype = 'pick' then
+      if v_bundle_id is null or v_bundle_id = '' then
+        -- Custom / unlinked bundle: a premium line (both ids null) carries the
+        -- price; its picks are ₱0 product lines tagged to the group. No rules.
+        insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+        values (v_order_id, null, null, v_grp, 1, v_bprice, v_bprice);
+        v_subtotal := v_subtotal + v_bprice;
         for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
           v_pick_pid := v_pick->>'product_id';
           v_pick_qty := coalesce((v_pick->>'qty')::integer, 0);
           if v_pick_pid is not null and v_pick_qty > 0 then
-            -- Pick line: a ₱0 product line tagged to the bundle group (bundle_id
-            -- null to satisfy the product-XOR-bundle constraint).
             insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
             values (v_order_id, v_pick_pid, null, v_grp, v_pick_qty, 0, 0);
             v_decrements := jsonb_set(v_decrements, array[v_pick_pid],
@@ -730,11 +740,31 @@ begin
           end if;
         end loop;
       else
-        -- Fixed bundle: decrement its defined components (no separate pick lines).
-        for v_bi in select product_id, qty from pos_bundle_items where bundle_id = v_bundle_id loop
-          v_decrements := jsonb_set(v_decrements, array[v_bi.product_id],
-            to_jsonb(coalesce((v_decrements->>v_bi.product_id)::integer, 0) + v_bi.qty));
-        end loop;
+        select bundle_type into v_btype from pos_bundles where bundle_id = v_bundle_id;
+        -- Header line: bundle identity + price (product_id null; tagged to the group).
+        insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+        values (v_order_id, null, v_bundle_id, v_grp, 1, v_bprice, v_bprice);
+        v_subtotal := v_subtotal + v_bprice;
+        if v_btype = 'pick' then
+          for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+            v_pick_pid := v_pick->>'product_id';
+            v_pick_qty := coalesce((v_pick->>'qty')::integer, 0);
+            if v_pick_pid is not null and v_pick_qty > 0 then
+              -- Pick line: a ₱0 product line tagged to the bundle group (bundle_id
+              -- null to satisfy the product-XOR-bundle constraint).
+              insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+              values (v_order_id, v_pick_pid, null, v_grp, v_pick_qty, 0, 0);
+              v_decrements := jsonb_set(v_decrements, array[v_pick_pid],
+                to_jsonb(coalesce((v_decrements->>v_pick_pid)::integer, 0) + v_pick_qty));
+            end if;
+          end loop;
+        else
+          -- Fixed bundle: decrement its defined components (no separate pick lines).
+          for v_bi in select product_id, qty from pos_bundle_items where bundle_id = v_bundle_id loop
+            v_decrements := jsonb_set(v_decrements, array[v_bi.product_id],
+              to_jsonb(coalesce((v_decrements->>v_bi.product_id)::integer, 0) + v_bi.qty));
+          end loop;
+        end if;
       end if;
     end if;
   end loop;

@@ -105,6 +105,12 @@ create table public.pos_order_items (
   order_id    uuid not null references public.pos_orders(id),
   product_id  text references public.pos_products(product_id),
   bundle_id   text references public.pos_bundles(bundle_id),
+  -- Groups a bundle's header line and its ₱0 pick lines into one bundle instance
+  -- on the order (a per-order counter, distinct from bundle_id so two of the same
+  -- bundle stay separable). Null on plain individual items. Orthogonal to the
+  -- product-XOR-bundle constraint below, so reporting (which keys on product_id /
+  -- bundle_id) is unaffected. Added 2026-09-14 for bundle-aware editing.
+  bundle_group text,
   qty         integer not null,
   unit_price  numeric not null,
   line_total  numeric not null,
@@ -176,6 +182,7 @@ declare
   v_item              jsonb;
   v_product_id        text;
   v_bundle_id         text;
+  v_bundle_group      text;
   v_qty               integer;
   v_unit_price        numeric;
   v_line_total        numeric;
@@ -216,14 +223,17 @@ begin
   -- (bundle lines expand into their component products).
   for v_item in select * from jsonb_array_elements(p_items)
   loop
-    v_product_id := v_item->>'product_id';
-    v_bundle_id  := v_item->>'bundle_id';
-    v_qty        := (v_item->>'qty')::integer;
-    v_unit_price := (v_item->>'unit_price')::numeric;
-    v_line_total := (v_item->>'line_total')::numeric;
+    v_product_id   := v_item->>'product_id';
+    v_bundle_id    := v_item->>'bundle_id';
+    v_bundle_group := v_item->>'bundle_group';
+    v_qty          := (v_item->>'qty')::integer;
+    v_unit_price   := (v_item->>'unit_price')::numeric;
+    v_line_total   := (v_item->>'line_total')::numeric;
 
-    insert into pos_order_items (order_id, product_id, bundle_id, qty, unit_price, line_total)
-    values (v_order_id, v_product_id, v_bundle_id, v_qty, v_unit_price, v_line_total);
+    -- bundle_group ties a bundle's header + its ₱0 pick lines into one instance
+    -- so the order stays editable under the bundle's rules (null on plain items).
+    insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+    values (v_order_id, v_product_id, v_bundle_id, v_bundle_group, v_qty, v_unit_price, v_line_total);
 
     if v_product_id is not null then
       v_decrements := jsonb_set(
@@ -551,14 +561,30 @@ begin
 end;
 $$;
 
--- Edit a completed order in place (online-only from the clients). Reverses the
--- order's entire net inventory footprint (restoring the exact lots it drew
--- from), then re-applies the new item set FEFO, and updates the editable fields
--- (payment_method / customer_handle / remarks / items). Recomputes subtotal +
--- total server-side from the line items (created_at / discount preserved).
--- State-based and thus convergent: re-running with the same payload lands the
--- same result, never double-counting. Rejects a voided order.
-create or replace function public.edit_pos_order(p_client_uuid text, p_patch jsonb, p_items jsonb)
+-- Edit a completed order in place (online-only from the clients). Bundle-aware:
+-- p_entries is a list of individual items and bundle groups. It reverses the
+-- order's entire net inventory footprint (restoring the exact lots it drew from),
+-- then re-applies the new entry set FEFO, and updates the editable fields
+-- (payment_method / customer_handle / remarks). Recomputes subtotal + total
+-- server-side (created_at / discount preserved). State-based and thus convergent:
+-- re-running with the same payload lands the same result, never double-counting.
+-- Rejects a voided order.
+--
+-- p_entries element shapes:
+--   {"kind":"item","product_id":SKU,"qty":N,"unit_price":P}
+--   {"kind":"bundle","bundle_id":B,"price":P,"picks":[{"product_id":SKU,"qty":N}]}
+-- A 'pick' bundle must supply exactly its pick_count picks, all from the bundle's
+-- eligible line_categories (else the edit is rejected before anything mutates); a
+-- 'fixed' bundle ignores picks and decrements its defined components. Each bundle
+-- becomes a header line (bundle_id, price) plus ₱0 pick lines, all sharing one
+-- bundle_group so the editor can reconstruct the group. Total = Σ item line totals
+-- + Σ bundle prices.
+--
+-- NOTE: the parameter list changed (p_items -> p_entries) on 2026-09-14. A fresh
+-- apply creates this cleanly; promoting over an older edit_pos_order requires a
+-- `drop function edit_pos_order(text,jsonb,jsonb)` first (Postgres can't rename an
+-- input parameter via create-or-replace).
+create or replace function public.edit_pos_order(p_client_uuid text, p_patch jsonb, p_entries jsonb)
 returns jsonb
 language plpgsql
 security definer
@@ -569,11 +595,25 @@ declare
   v_status       text;
   v_discount     numeric;
   v_oversold     boolean := false;
-  v_item         jsonb;
+  v_entry        jsonb;
+  v_kind         text;
   v_product_id   text;
   v_qty          integer;
   v_unit_price   numeric;
   v_line_total   numeric;
+  v_bundle_id    text;
+  v_bprice       numeric;
+  v_btype        text;
+  v_pick_count   integer;
+  v_line_cats    jsonb;
+  v_pick         jsonb;
+  v_pick_sum     integer;
+  v_pick_pid     text;
+  v_pick_qty     integer;
+  v_cat          text;
+  v_group        integer := 0;
+  v_grp          text;
+  v_bi           record;
   v_decrement    record;
   v_lot          record;
   v_remaining    integer;
@@ -596,6 +636,37 @@ begin
   if v_status = 'voided' then
     return jsonb_build_object('ok', false, 'error', 'cannot edit a voided order');
   end if;
+  if coalesce(jsonb_array_length(p_entries), 0) = 0 then
+    return jsonb_build_object('ok', false, 'error', 'an order needs at least one item');
+  end if;
+
+  -- 0. Validate every bundle entry FIRST, so an invalid edit rejects before any
+  --    mutation (pick_count exactness + pick eligibility to line_categories).
+  for v_entry in select * from jsonb_array_elements(p_entries) loop
+    if (v_entry->>'kind') = 'bundle' then
+      v_bundle_id := v_entry->>'bundle_id';
+      select bundle_type, pick_count, line_categories into v_btype, v_pick_count, v_line_cats
+        from pos_bundles where bundle_id = v_bundle_id;
+      if v_btype is null then
+        return jsonb_build_object('ok', false, 'error', 'unknown bundle: ' || coalesce(v_bundle_id, ''));
+      end if;
+      if v_btype = 'pick' then
+        v_pick_sum := 0;
+        for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+          v_pick_sum := v_pick_sum + coalesce((v_pick->>'qty')::integer, 0);
+          if v_line_cats is not null and jsonb_array_length(v_line_cats) > 0 then
+            select category into v_cat from pos_products where product_id = v_pick->>'product_id';
+            if v_cat is null or not (v_line_cats ? v_cat) then
+              return jsonb_build_object('ok', false, 'error', 'a picked item is not eligible for this bundle');
+            end if;
+          end if;
+        end loop;
+        if v_pick_count is not null and v_pick_sum <> v_pick_count then
+          return jsonb_build_object('ok', false, 'error', 'this bundle needs exactly ' || v_pick_count || ' items');
+        end if;
+      end if;
+    end if;
+  end loop;
 
   -- 1. Neutralize this order's entire inventory footprint (restore the lots).
   update pos_inventory_lots l
@@ -619,25 +690,52 @@ begin
   group by product_id, lot_id
   having sum(delta) <> 0;
 
-  -- 2. Replace line items and accumulate the new per-product decrements.
+  -- 2. Replace line items from the entries; accumulate per-product decrements.
   delete from pos_order_items where order_id = v_order_id;
-  for v_item in select * from jsonb_array_elements(p_items)
-  loop
-    v_product_id := v_item->>'product_id';
-    v_qty        := (v_item->>'qty')::integer;
-    v_unit_price := (v_item->>'unit_price')::numeric;
-    v_line_total := coalesce((v_item->>'line_total')::numeric, v_qty * v_unit_price);
-
-    insert into pos_order_items (order_id, product_id, bundle_id, qty, unit_price, line_total)
-    values (v_order_id, v_product_id, null, v_qty, v_unit_price, v_line_total);
-
-    v_subtotal := v_subtotal + v_line_total;
-
-    if v_product_id is not null then
-      v_decrements := jsonb_set(
-        v_decrements, array[v_product_id],
-        to_jsonb(coalesce((v_decrements->>v_product_id)::integer, 0) + v_qty)
-      );
+  for v_entry in select * from jsonb_array_elements(p_entries) loop
+    v_kind := coalesce(v_entry->>'kind', 'item');
+    if v_kind = 'item' then
+      v_product_id := v_entry->>'product_id';
+      v_qty        := (v_entry->>'qty')::integer;
+      v_unit_price := coalesce((v_entry->>'unit_price')::numeric, 0);
+      v_line_total := v_qty * v_unit_price;
+      insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+      values (v_order_id, v_product_id, null, null, v_qty, v_unit_price, v_line_total);
+      v_subtotal := v_subtotal + v_line_total;
+      if v_product_id is not null then
+        v_decrements := jsonb_set(v_decrements, array[v_product_id],
+          to_jsonb(coalesce((v_decrements->>v_product_id)::integer, 0) + v_qty));
+      end if;
+    elsif v_kind = 'bundle' then
+      v_bundle_id := v_entry->>'bundle_id';
+      v_bprice    := coalesce((v_entry->>'price')::numeric, 0);
+      v_group     := v_group + 1;
+      v_grp       := v_group::text;
+      select bundle_type into v_btype from pos_bundles where bundle_id = v_bundle_id;
+      -- Header line: bundle identity + price (product_id null; tagged to the group).
+      insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+      values (v_order_id, null, v_bundle_id, v_grp, 1, v_bprice, v_bprice);
+      v_subtotal := v_subtotal + v_bprice;
+      if v_btype = 'pick' then
+        for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+          v_pick_pid := v_pick->>'product_id';
+          v_pick_qty := coalesce((v_pick->>'qty')::integer, 0);
+          if v_pick_pid is not null and v_pick_qty > 0 then
+            -- Pick line: a ₱0 product line tagged to the bundle group (bundle_id
+            -- null to satisfy the product-XOR-bundle constraint).
+            insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+            values (v_order_id, v_pick_pid, null, v_grp, v_pick_qty, 0, 0);
+            v_decrements := jsonb_set(v_decrements, array[v_pick_pid],
+              to_jsonb(coalesce((v_decrements->>v_pick_pid)::integer, 0) + v_pick_qty));
+          end if;
+        end loop;
+      else
+        -- Fixed bundle: decrement its defined components (no separate pick lines).
+        for v_bi in select product_id, qty from pos_bundle_items where bundle_id = v_bundle_id loop
+          v_decrements := jsonb_set(v_decrements, array[v_bi.product_id],
+            to_jsonb(coalesce((v_decrements->>v_bi.product_id)::integer, 0) + v_bi.qty));
+        end loop;
+      end if;
     end if;
   end loop;
 

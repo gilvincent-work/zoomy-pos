@@ -1,5 +1,6 @@
 import {getSupabase} from '../lib/supabase';
 import {stripLinePrefix} from './catalog-sync';
+import {reconstructEntries, type EditEntry, type RawOrderLine} from './order-entries';
 import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactions';
 
 /**
@@ -162,18 +163,61 @@ export async function setRemoteOrderRemarks(clientUuid: string, remarks: string 
 }
 
 export type EditOrderPatch = {payment_method?: string; customer_handle?: string | null};
-export type EditOrderItem = {product_id: string; qty: number; unit_price: number};
+
+/**
+ * Fetch a synced order's real Coop lines (which carry bundle_group) and rebuild
+ * them into editable entries. The POS edit flow is online-only, so it seeds the
+ * editor from Coop's authoritative shape rather than the flat local copy (which
+ * has no bundle grouping). {ok:false} when unconfigured/unreachable or unknown.
+ */
+export async function fetchRemoteOrderEntries(
+  clientUuid: string,
+): Promise<{ok: true; entries: EditEntry[]} | {ok: false}> {
+  const sb = getSupabase();
+  if (!sb) return {ok: false};
+  try {
+    const {data: order, error: oErr} = await sb
+      .from('pos_orders').select('id').eq('client_uuid', clientUuid).maybeSingle();
+    if (oErr || !order) return {ok: false};
+    const {data: items, error} = await sb
+      .from('pos_order_items')
+      .select('product_id,bundle_id,bundle_group,qty,unit_price,line_total')
+      .eq('order_id', (order as {id: string}).id);
+    if (error || !items) return {ok: false};
+    const lines: RawOrderLine[] = (items as ItemRow2[]).map((it) => ({
+      product_id: it.product_id ?? null,
+      bundle_id: it.bundle_id ?? null,
+      bundle_group: it.bundle_group ?? null,
+      qty: Number(it.qty ?? 0),
+      unit_price: Number(it.unit_price ?? 0),
+      line_total: Number(it.line_total ?? 0),
+    }));
+    return {ok: true, entries: reconstructEntries(lines)};
+  } catch {
+    return {ok: false};
+  }
+}
+
+type ItemRow2 = {
+  product_id: string | null;
+  bundle_id: string | null;
+  bundle_group: string | null;
+  qty: number | null;
+  unit_price: number | null;
+  line_total: number | null;
+};
 
 /**
  * Edit a synced sale on Coop in place via edit_pos_order (reverses + re-applies
- * inventory, recomputes the total, updates method/handle/items). Online-only —
- * returns {ok:false} when Supabase is unconfigured/unreachable or the RPC
- * rejects (e.g. a voided order). p_items carry Coop SKUs, not local ids.
+ * inventory, recomputes the total, enforces each bundle's rules). Online-only —
+ * returns {ok:false} when Supabase is unconfigured/unreachable or the RPC rejects
+ * (a voided order, or a bundle that breaks its rule). Entries carry Coop SKUs +
+ * bundle ids, not local ids.
  */
 export async function editRemoteOrder(
   clientUuid: string,
   patch: EditOrderPatch,
-  items: EditOrderItem[],
+  entries: EditEntry[],
 ): Promise<{ok: boolean; error?: string}> {
   const sb = getSupabase();
   if (!sb) return {ok: false, error: 'No connection to Coop'};
@@ -181,15 +225,9 @@ export async function editRemoteOrder(
   const p_patch: Record<string, string> = {};
   if (patch.payment_method) p_patch.payment_method = patch.payment_method;
   if (patch.customer_handle !== undefined) p_patch.customer_handle = patch.customer_handle ?? '';
-  const p_items = items.map((i) => ({
-    product_id: i.product_id,
-    qty: i.qty,
-    unit_price: i.unit_price,
-    line_total: Math.round(i.qty * i.unit_price * 100) / 100,
-  }));
 
   try {
-    const {data, error} = await sb.rpc('edit_pos_order', {p_client_uuid: clientUuid, p_patch, p_items});
+    const {data, error} = await sb.rpc('edit_pos_order', {p_client_uuid: clientUuid, p_patch, p_entries: entries});
     if (error) return {ok: false, error: error.message};
     if (data && (data as {ok?: boolean}).ok === false) {
       return {ok: false, error: (data as {error?: string}).error ?? 'Edit failed'};

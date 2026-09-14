@@ -19,7 +19,7 @@ import type {PaymentMethod} from '../db/transactions';
 // so bundle revenue is attributed to the bundle, not lost on the order header;
 // the picked components still ride along as product lines (at ₱0) so the RPC
 // decrements their stock FEFO.
-export type OrderItem = {product_id?: string | null; bundle_id?: string | null; qty: number; unit_price: number; line_total: number};
+export type OrderItem = {product_id?: string | null; bundle_id?: string | null; bundle_group?: string | null; qty: number; unit_price: number; line_total: number};
 
 /** A cart bundle reduced to what the push needs: its local preset id (to look
  *  up the Coop bundle_id) and the price to bill. */
@@ -35,7 +35,9 @@ export function buildOrderItems(items: InsertItem[], skuByProductId: Map<number,
   for (const it of items) {
     const sku = skuByProductId.get(it.productId);
     if (!sku) continue;
-    out.push({product_id: sku, qty: it.quantity, unit_price: it.price, line_total: it.price * it.quantity});
+    // Carry the pick's bundle group so Coop can tie it to its bundle header
+    // (null on individual items, which are never grouped).
+    out.push({product_id: sku, bundle_group: it.bundleGroup ?? null, qty: it.quantity, unit_price: it.price, line_total: it.price * it.quantity});
   }
   return out;
 }
@@ -50,12 +52,14 @@ export function buildOrderItems(items: InsertItem[], skuByProductId: Map<number,
  */
 export function buildBundleOrderItems(bundles: BundleForPush[], bundleIdByPreset: Map<number, string>): OrderItem[] {
   const out: OrderItem[] = [];
-  for (const b of bundles) {
-    if (b.presetId == null) continue;
+  // Index-based group tag (1-based) that MUST match buildInsertItems' pick tags,
+  // so each header lines up with its own picks; both enumerate `bundles` in order.
+  bundles.forEach((b, i) => {
+    if (b.presetId == null) return;
     const bundleId = bundleIdByPreset.get(b.presetId);
-    if (!bundleId) continue;
-    out.push({bundle_id: bundleId, qty: 1, unit_price: b.price, line_total: b.price});
-  }
+    if (!bundleId) return;
+    out.push({bundle_id: bundleId, bundle_group: String(i + 1), qty: 1, unit_price: b.price, line_total: b.price});
+  });
   return out;
 }
 

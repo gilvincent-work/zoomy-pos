@@ -1,6 +1,6 @@
 import {getSupabase} from '../lib/supabase';
 import {stripLinePrefix} from './catalog-sync';
-import {reconstructEntries, type EditEntry, type RawOrderLine} from './order-entries';
+import {reconstructEntries, type EditEntry, type RawOrderLine, type BundleMatch} from './order-entries';
 import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactions';
 
 /**
@@ -172,12 +172,13 @@ export type EditOrderPatch = {payment_method?: string; customer_handle?: string 
  */
 export async function fetchRemoteOrderEntries(
   clientUuid: string,
+  defs: BundleMatch[] = [],
 ): Promise<{ok: true; entries: EditEntry[]} | {ok: false}> {
   const sb = getSupabase();
   if (!sb) return {ok: false};
   try {
     const {data: order, error: oErr} = await sb
-      .from('pos_orders').select('id').eq('client_uuid', clientUuid).maybeSingle();
+      .from('pos_orders').select('id,total').eq('client_uuid', clientUuid).maybeSingle();
     if (oErr || !order) return {ok: false};
     const {data: items, error} = await sb
       .from('pos_order_items')
@@ -192,7 +193,7 @@ export async function fetchRemoteOrderEntries(
       unit_price: Number(it.unit_price ?? 0),
       line_total: Number(it.line_total ?? 0),
     }));
-    return {ok: true, entries: reconstructEntries(lines)};
+    return {ok: true, entries: reconstructEntries(lines, Number((order as {total: number}).total ?? 0), defs)};
   } catch {
     return {ok: false};
   }

@@ -35,4 +35,26 @@ describe('reconstructEntries', () => {
       { kind: 'item', product_id: 'CGC', qty: 2, unit_price: 0 },
     ]);
   });
+
+  it('folds a legacy bundle (₱0 picks + premium on total) into a bundle auto-linked by pick_count', () => {
+    const lines = [
+      L({ product_id: 'A', qty: 1 }), L({ product_id: 'B', qty: 1 }),
+      L({ product_id: 'C', qty: 1 }), L({ product_id: 'D', qty: 1 }),
+    ];
+    const defs = [
+      { bundle_id: 'B4', bundle_type: 'pick' as const, pick_count: 4 },
+      { bundle_id: 'B3', bundle_type: 'pick' as const, pick_count: 3 },
+    ];
+    expect(reconstructEntries(lines, 570, defs)).toEqual([
+      { kind: 'bundle', bundle_id: 'B4', price: 570, picks: [
+        { product_id: 'A', qty: 1 }, { product_id: 'B', qty: 1 }, { product_id: 'C', qty: 1 }, { product_id: 'D', qty: 1 },
+      ] },
+    ]);
+  });
+
+  it('leaves a legacy bundle unlinked when no pick_count matches', () => {
+    const out = reconstructEntries([L({ product_id: 'A', qty: 1 }), L({ product_id: 'B', qty: 1 })], 500,
+      [{ bundle_id: 'B4', bundle_type: 'pick', pick_count: 4 }]);
+    expect(out).toEqual([{ kind: 'bundle', bundle_id: '', price: 500, picks: [{ product_id: 'A', qty: 1 }, { product_id: 'B', qty: 1 }] }]);
+  });
 });

@@ -215,6 +215,7 @@ export default function TransactionsModal() {
   const [editSaving, setEditSaving] = useState(false);
   const [editOpening, setEditOpening] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  const [bundleChooserFor, setBundleChooserFor] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
   const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -448,11 +449,12 @@ export default function TransactionsModal() {
     setEditOpening(true);
     setEditMethod((EDIT_METHODS.includes(selected.payment_method) ? selected.payment_method : 'cash'));
     setEditHandle(selected.customer_handle ?? '');
-    const [defs, remote] = await Promise.all([
-      getSavedBundles().catch(() => [] as SavedBundle[]),
-      fetchRemoteOrderEntries(selected.client_uuid),
-    ]);
+    const defs = await getSavedBundles().catch(() => [] as SavedBundle[]);
     setBundleDefs(defs);
+    const matchDefs = defs
+      .filter((d) => d.bundle_uuid)
+      .map((d) => ({ bundle_id: d.bundle_uuid as string, bundle_type: d.bundle_type, pick_count: d.pick_count }));
+    const remote = await fetchRemoteOrderEntries(selected.client_uuid, matchDefs);
     const defByUuid = new Map(defs.filter((d) => d.bundle_uuid).map((d) => [d.bundle_uuid as string, d]));
     const skuName = new Map(catalog.filter((p) => p.sku).map((p) => [p.sku as string, p.name]));
     let entries: EditEntry[];
@@ -481,6 +483,7 @@ export default function TransactionsModal() {
   const picksTotal = (picks: DraftPick[]) => picks.reduce((s, p) => s + (Number(p.qty) || 0), 0);
   // A "pick" bundle must have exactly its pick_count picks, each with a product.
   function bundleProblem(e: Extract<DraftEntry, { kind: 'bundle' }>): string | null {
+    if (!e.bundle_id) return 'pick which bundle this is';
     const def = bundleDefById.get(e.bundle_id);
     if (!def || def.bundle_type !== 'pick' || def.pick_count == null) return null;
     if (e.picks.some((p) => !p.product_id)) return 'choose a product for every pick';
@@ -498,6 +501,16 @@ export default function TransactionsModal() {
       ? Array.from({ length: def.pick_count }, () => ({ product_id: '', qty: '1' }))
       : [];
     setEditEntries((es) => [...es, { kind: 'bundle', bundle_id: def.bundle_uuid!, name: def.name, price: String(def.price), picks }]);
+  }
+  // Link/relink a bundle group to a bundle (keeps picks; a folded legacy bundle
+  // shouldn't lose them). Fills an empty price from the chosen bundle's default.
+  function relinkBundle(def: SavedBundle) {
+    if (bundleChooserFor == null || !def.bundle_uuid) { setBundleChooserFor(null); return; }
+    const i = bundleChooserFor;
+    setEditEntries((es) => es.map((e, idx) => idx === i && e.kind === 'bundle'
+      ? { ...e, bundle_id: def.bundle_uuid!, name: def.name, price: e.price && e.price !== '0' ? e.price : String(def.price) }
+      : e));
+    setBundleChooserFor(null);
   }
 
   // Product picker resolves against its target (add/replace an item, or a bundle pick).
@@ -885,7 +898,12 @@ export default function TransactionsModal() {
                 <View key={`b-${i}`} style={styles.bundleCard}>
                   <View style={styles.bundleCardHead}>
                     <View style={styles.bundleBadge}><Text style={styles.bundleBadgeText}>BUNDLE</Text></View>
-                    <Text style={styles.bundleName} numberOfLines={1}>{e.name}</Text>
+                    <TouchableOpacity style={styles.bundleNamePick} onPress={() => setBundleChooserFor(i)}>
+                      <Text style={[styles.bundleName, !e.bundle_id && styles.bundleNameUnset]} numberOfLines={1}>
+                        {e.bundle_id ? e.name : 'Select bundle…'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                    </TouchableOpacity>
                     <View style={styles.editPriceWrap}>
                       <Text style={styles.editPricePeso}>₱</Text>
                       <TextInput
@@ -985,6 +1003,26 @@ export default function TransactionsModal() {
                 ))}
               </ScrollView>
               <TouchableOpacity style={styles.editCancelBtn} onPress={() => setPickerTarget(null)}>
+                <Text style={styles.editCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Bundle chooser: link a bundle group to one of the saved bundles. */}
+        <Modal visible={bundleChooserFor != null} transparent animationType="fade" onRequestClose={() => setBundleChooserFor(null)}>
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.editTitle}>Choose a bundle</Text>
+              <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
+                {bundleDefs.filter((d) => d.bundle_uuid).map((d) => (
+                  <TouchableOpacity key={d.id} style={styles.pickerItem} onPress={() => relinkBundle(d)}>
+                    <Text style={styles.pickerItemName} numberOfLines={1}>{d.name}</Text>
+                    <Text style={styles.pickerItemPrice}>{d.bundle_type === 'pick' ? `Pick ${d.pick_count ?? '?'}` : 'Fixed'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setBundleChooserFor(null)}>
                 <Text style={styles.editCancelText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -1191,7 +1229,9 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   bundleCardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   bundleBadge: { backgroundColor: c.pink + '26', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   bundleBadgeText: { color: c.pink, fontSize: 10, fontWeight: '800' },
+  bundleNamePick: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: c.surface, borderRadius: R.sm, borderWidth: 1, borderColor: c.border },
   bundleName: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  bundleNameUnset: { color: c.red, fontWeight: '600' },
   bundlePicksHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 2 },
   bundlePicksLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '600' },
   bundlePicksCount: { fontSize: F.xs, fontWeight: '800' },

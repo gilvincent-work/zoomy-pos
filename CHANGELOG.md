@@ -12,6 +12,16 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Legacy bundle sales edit as bundles (Staging only) — `fix(transactions)`
+
+- **Pre-grouping bundle sales open as a bundle, not loose ₱0 items.** When a synced
+  order carries a bundle premium (total exceeds the line sum) with ₱0 picks,
+  `reconstructEntries` folds those picks into a bundle carrying the premium as its
+  price (shows ₱570, not ₱0), auto-linked to the bundle whose `pick_count` matches.
+  Saving self-heals the order into the grouped shape. Pick options stay restricted
+  to the bundle's eligible categories; a bundle chooser lets you link/relink an
+  unlinked bundle, and Save is blocked until it's linked. **Staging only.**
+
 ## 2026-09-14 — Bundle-aware transaction editing (Staging only) — `feat(transactions)`
 
 - **Bundles are editable again, by their rules.** The edit sheet now shows an

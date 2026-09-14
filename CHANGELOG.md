@@ -12,6 +12,38 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Edit a completed transaction in place (Staging only) — `feat(transactions)`
+
+- **You can now edit a synced sale from the Transactions screen** (long-press →
+  Edit): change the payment method, IG handle, the products/quantities, and each
+  line's unit price. Saving recomputes the total and reconciles Coop's inventory
+  in one pass, so a changed method rolls into that method's totals and an
+  added/removed item flows through revenue and stock.
+- **How it stays correct:** the edit goes through a new `edit_pos_order` RPC that
+  **reverses the order's entire inventory footprint, then re-applies FEFO** from
+  the new lines (state-based, so re-running converges rather than double-counting).
+  The total is recomputed server-side as `max(subtotal − discount, 0)`; every edit
+  stamps `edited_at` and leaves `edit-reverse` / `edit-sale` audit movements.
+- **Deliberate limits (agreed up front):**
+  - **Online-only.** Edits require a live Coop connection; there's no offline
+    queue for them (unlike sales). The Edit action is hidden when Supabase is
+    unconfigured or the catalog hasn't loaded.
+  - **Voided orders are terminal** and cannot be edited (`edit_pos_order` rejects
+    them and the local guard hides Edit for them).
+  - **Catalog products only.** Lines are picked from the product catalog with an
+    auto-filled-but-editable unit price; **bundle orders aren't editable here**
+    (the Edit action is hidden for `is_bundle` / component-only orders).
+  - Only **locally-owned** rows are editable from this device (remote-sourced
+    rows are read-only here).
+- **Schema** (`supabase/pos_schema.sql`, applied to Staging): added
+  `pos_orders.edited_at`; added `edit_pos_order(text, jsonb, jsonb)` (+ anon
+  grant); **redefined `void_pos_order`** to restock the *full* net footprint
+  (not just `reason='sale'`) so voiding an edited order restores the true
+  baseline, with an unconditional audit insert covering oversell groups.
+- Verified live on Staging: sale → edit (method/handle/items/price) → void
+  restores baseline stock with a net-zero movement ledger; the voided-order guard
+  and idempotent re-run both confirmed. **Staging only — not promoted to prod.**
+
 ## 2026-09-11 — Bundle sales push a bundle line so revenue is attributed (Staging only) — `feat(sync)`
 
 - **Fixes bundle revenue vanishing from Coop's per-product reports.** Previously a

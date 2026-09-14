@@ -7,18 +7,27 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, Transaction, PaymentMethod } from '../../db/transactions';
-import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
+import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, replaceLocalTransactionContents, Transaction, PaymentMethod } from '../../db/transactions';
+import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder } from '../../utils/orders-remote';
 import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import { refreshPendingCount } from '../../utils/outbox';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
+import { getAllProducts, Product } from '../../db/products';
+import { pullCatalog } from '../../utils/catalog-sync';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { quickMethodMeta } from '../../constants/payment';
 import {
   DateFilter, DateRange, getFilterRange, formatRangeLabel, formatRangeForFilename,
 } from '../../utils/date-range';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+
+// Payment methods offered in the edit form.
+const EDIT_METHODS: PaymentMethod[] = ['cash', 'qrph', 'gcash', 'maya', 'card'];
+// One editable line in the edit form: a local catalog product, a qty, a price.
+type EditLine = { productId: number; name: string; sku: string; qty: string; price: string };
 
 type MethodFilter = 'all' | PaymentMethod;
 
@@ -182,6 +191,16 @@ export default function TransactionsModal() {
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
+  // Edit form (online-only): the local catalog for the product picker, and the
+  // in-progress edit draft. editingTx null = editor closed.
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editMethod, setEditMethod] = useState<PaymentMethod>('cash');
+  const [editHandle, setEditHandle] = useState('');
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
   const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,7 +253,11 @@ export default function TransactionsModal() {
   }, []);
 
   useFocusEffect(
-    useCallback(() => { loadTransactions(); }, [loadTransactions])
+    useCallback(() => {
+      loadTransactions();
+      // Load the catalog for the edit form's product picker (best-effort).
+      getAllProducts().then(setCatalog).catch(() => {});
+    }, [loadTransactions])
   );
 
   const filtered = useMemo(() => {
@@ -354,6 +377,89 @@ export default function TransactionsModal() {
       pathname: '/modals/admin',
       params: { action: 'void_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
     });
+  }
+
+  // Editing is online-only (it calls edit_pos_order on Coop) and limited to a
+  // completed, non-bundle sale that lives on THIS device (isLocalTransaction) and
+  // has reached Coop (client_uuid). Bundle sales are excluded — their price lives
+  // in the total, not the lines, so re-applying lines would zero the revenue.
+  // Other devices' sales are edited from the Coop dashboard, which seeds directly
+  // from the order (no fragile local catalog re-match). Requires the catalog
+  // loaded so line-seeding can resolve every item to a SKU.
+  const canEdit =
+    !!selected &&
+    selected.status === 'completed' &&
+    !!selected.client_uuid &&
+    !selected.is_bundle &&
+    isLocalTransaction(selected) &&
+    catalog.length > 0 &&
+    isSupabaseConfigured();
+
+  function openEdit() {
+    if (!selected) return;
+    setEditError(null);
+    setEditMethod((EDIT_METHODS.includes(selected.payment_method) ? selected.payment_method : 'cash'));
+    setEditHandle(selected.customer_handle ?? '');
+    // Seed lines from the sale's items, matching each to a catalog product (by
+    // sku when the item carries a product, else by name) so the edit can map to
+    // a Coop SKU. Items that can't be matched to a sku are dropped from the
+    // editable set (they can't be re-applied server-side).
+    const seeded: EditLine[] = [];
+    for (const it of selected.items) {
+      const prod =
+        (it.product_id != null && catalog.find((p) => p.id === it.product_id)) ||
+        catalog.find((p) => p.name === it.product_name);
+      if (prod && prod.sku) {
+        seeded.push({ productId: prod.id, name: prod.name, sku: prod.sku, qty: String(it.quantity), price: String(it.price) });
+      }
+    }
+    setEditLines(seeded);
+    setEditingTx(selected);
+  }
+
+  function editTotal(): number {
+    return editLines.reduce((sum, l) => sum + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  }
+  function setEditLine(i: number, patch: Partial<EditLine>) {
+    setEditLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function removeEditLine(i: number) {
+    setEditLines((ls) => ls.filter((_, idx) => idx !== i));
+  }
+  function addEditProduct(p: Product) {
+    if (!p.sku) return;
+    setPickerOpen(false);
+    setEditLines((ls) => [...ls, { productId: p.id, name: p.name, sku: p.sku!, qty: '1', price: String(p.price ?? 0) }]);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingTx || !editingTx.client_uuid) return;
+    const lines = editLines.filter((l) => l.sku && (Number(l.qty) || 0) > 0);
+    if (lines.length === 0) { setEditError('An order needs at least one item.'); return; }
+    setEditSaving(true);
+    setEditError(null);
+    const res = await editRemoteOrder(
+      editingTx.client_uuid,
+      { payment_method: editMethod, customer_handle: editHandle.trim() },
+      lines.map((l) => ({ product_id: l.sku, qty: Number(l.qty), unit_price: Number(l.price) || 0 })),
+    );
+    setEditSaving(false);
+    if (!res.ok) { setEditError(res.error ?? 'Edit failed.'); return; }
+
+    // Mirror the confirmed edit onto the local row (if this device holds it).
+    if (isLocalTransaction(editingTx)) {
+      const total = editTotal();
+      await replaceLocalTransactionContents(
+        editingTx.id,
+        { paymentMethod: editMethod, customerHandle: editHandle.trim() || null, total },
+        lines.map((l) => ({ productId: l.productId, productName: l.name, price: Number(l.price) || 0, quantity: Number(l.qty) })),
+      );
+    }
+    setEditingTx(null);
+    setSelected(null);
+    await loadTransactions();       // reflect the edit (re-fetches Coop too)
+    pullCatalog().catch(() => {});  // refresh local stock cache after reconcile
+    getAllProducts().then(setCatalog).catch(() => {});
   }
 
   return (
@@ -555,6 +661,11 @@ export default function TransactionsModal() {
                   <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
                     <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
                   </TouchableOpacity>
+                  {canEdit && (
+                    <TouchableOpacity style={styles.editBtn} onPress={openEdit}>
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
                   {canVoid && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
                       <Text style={styles.voidBtnText}>Void</Text>
@@ -594,6 +705,108 @@ export default function TransactionsModal() {
                   <Text style={styles.remarksSaveText}>Save</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </View>
+        </Modal>
+      </Modal>
+
+      {/* Edit sale (online-only). Reconciles stock + total on Coop via the RPC. */}
+      <Modal visible={!!editingTx} transparent animationType="slide" onRequestClose={() => setEditingTx(null)}>
+        <View style={styles.editOverlay}>
+          <View style={styles.editSheet}>
+            <Text style={styles.editTitle}>Edit sale</Text>
+            <ScrollView style={styles.editScroll} keyboardShouldPersistTaps="handled">
+              <Text style={styles.editSectionLabel}>Payment method</Text>
+              <View style={styles.methodRow}>
+                {EDIT_METHODS.map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[styles.methodPill, editMethod === m && styles.methodPillActive]}
+                    onPress={() => setEditMethod(m)}
+                  >
+                    <Text style={[styles.methodPillText, editMethod === m && styles.methodPillTextActive]}>
+                      {quickMethodMeta(m).label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.editSectionLabel}>Furbaby / IG handle</Text>
+              <TextInput
+                style={styles.editInput}
+                placeholder="@username or name"
+                placeholderTextColor={colors.textMuted}
+                value={editHandle}
+                onChangeText={setEditHandle}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <Text style={styles.editSectionLabel}>Items</Text>
+              {editLines.map((l, i) => (
+                <View key={`${l.productId}-${i}`} style={styles.editLineRow}>
+                  <Text style={styles.editLineName} numberOfLines={2}>{l.name}</Text>
+                  <TextInput
+                    style={styles.editQtyInput}
+                    keyboardType="number-pad"
+                    value={l.qty}
+                    onChangeText={(v) => setEditLine(i, { qty: v.replace(/[^0-9]/g, '') })}
+                    accessibilityLabel={`Quantity for ${l.name}`}
+                  />
+                  <View style={styles.editPriceWrap}>
+                    <Text style={styles.editPricePeso}>₱</Text>
+                    <TextInput
+                      style={styles.editPriceInput}
+                      keyboardType="decimal-pad"
+                      value={l.price}
+                      onChangeText={(v) => setEditLine(i, { price: v.replace(/[^0-9.]/g, '') })}
+                      accessibilityLabel={`Unit price for ${l.name}`}
+                    />
+                  </View>
+                  <TouchableOpacity onPress={() => removeEditLine(i)} style={styles.editRemoveBtn} accessibilityLabel={`Remove ${l.name}`}>
+                    <Ionicons name="close" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              <TouchableOpacity style={styles.addItemBtn} onPress={() => setPickerOpen(true)}>
+                <Ionicons name="add" size={16} color={colors.pink} />
+                <Text style={styles.addItemText}>Add item</Text>
+              </TouchableOpacity>
+
+              {editError && <Text style={styles.editError}>{editError}</Text>}
+            </ScrollView>
+
+            <View style={styles.editFooter}>
+              <Text style={styles.editTotalText}>Total ₱{editTotal().toFixed(2)}</Text>
+              <View style={styles.editFooterBtns}>
+                <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditingTx(null)} disabled={editSaving}>
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.editSaveBtn} onPress={handleSaveEdit} disabled={editSaving}>
+                  <Text style={styles.editSaveText}>{editSaving ? 'Saving…' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Product picker for adding a line. */}
+        <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.editTitle}>Add product</Text>
+              <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
+                {catalog.filter((p) => p.sku && p.has_variants !== 1 && p.is_active === 1).map((p) => (
+                  <TouchableOpacity key={p.id} style={styles.pickerItem} onPress={() => addEditProduct(p)}>
+                    <Text style={styles.pickerItemName} numberOfLines={1}>{p.emoji ? `${p.emoji}  ` : ''}{p.name}</Text>
+                    <Text style={styles.pickerItemPrice}>₱{(p.price ?? 0).toFixed(2)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setPickerOpen(false)}>
+                <Text style={styles.editCancelText}>Close</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -737,11 +950,71 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     borderWidth: 1, borderColor: c.border,
   },
   remarksBtnText: { color: c.textPrimary, fontWeight: '700', fontSize: F.sm },
+  editBtn: {
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: c.pink,
+  },
+  editBtnText: { color: c.pink, fontWeight: '800', fontSize: F.md },
   voidBtn: {
     flex: 1, backgroundColor: c.red, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  // Edit-sale modal
+  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  editSheet: {
+    backgroundColor: c.surface, borderTopLeftRadius: R.lg, borderTopRightRadius: R.lg,
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
+    maxHeight: '88%', borderWidth: 1, borderColor: c.borderDark,
+  },
+  editTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 12 },
+  editScroll: { flexGrow: 0 },
+  editSectionLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 14, marginBottom: 8 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  methodPill: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  methodPillActive: { backgroundColor: c.pink, borderColor: c.pink },
+  methodPillText: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  methodPillTextActive: { color: '#fff' },
+  editInput: {
+    backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border,
+    paddingVertical: 10, paddingHorizontal: 12, color: c.textPrimary, fontSize: F.md,
+  },
+  editLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  editLineName: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '600' },
+  editQtyInput: {
+    width: 48, textAlign: 'center', backgroundColor: c.elevated, borderRadius: R.sm,
+    borderWidth: 1, borderColor: c.border, paddingVertical: 8, color: c.textPrimary, fontSize: F.md,
+  },
+  editPriceWrap: { flexDirection: 'row', alignItems: 'center', width: 84, backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border, paddingHorizontal: 8 },
+  editPricePeso: { color: c.textMuted, fontSize: F.sm },
+  editPriceInput: { flex: 1, textAlign: 'right', paddingVertical: 8, color: c.textPrimary, fontSize: F.md },
+  editRemoveBtn: { padding: 4 },
+  addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start' },
+  addItemText: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
+  editError: { color: c.red, fontSize: F.sm, marginTop: 12 },
+  editFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, gap: 12 },
+  editTotalText: { color: c.textPrimary, fontSize: F.md, fontWeight: '800' },
+  editFooterBtns: { flexDirection: 'row', gap: 10 },
+  editCancelBtn: {
+    backgroundColor: c.elevated, borderRadius: R.sm, paddingVertical: 12, paddingHorizontal: 18,
+    alignItems: 'center', borderWidth: 1, borderColor: c.border,
+  },
+  editCancelText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
+  editSaveBtn: { backgroundColor: c.pink, borderRadius: R.sm, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center' },
+  editSaveText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  // Product picker
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  pickerSheet: { backgroundColor: c.surface, borderRadius: R.lg, padding: 18, width: '100%', maxHeight: '70%', borderWidth: 1, borderColor: c.borderDark },
+  pickerScroll: { marginBottom: 12 },
+  pickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  pickerItemName: { flex: 1, color: c.textPrimary, fontSize: F.md, marginRight: 10 },
+  pickerItemPrice: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
 
   remarksOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',

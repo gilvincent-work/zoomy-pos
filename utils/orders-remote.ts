@@ -127,6 +127,28 @@ export async function voidRemoteOrder(clientUuid: string): Promise<boolean> {
   }
 }
 
+/**
+ * Unvoid a previously voided sale on Coop by client_uuid (inverse of
+ * voidRemoteOrder): restores it to completed and re-applies its inventory. Unlike
+ * void, this is online-only — there's no offline queue for it. Returns
+ * {ok:false} when Supabase is unconfigured/unreachable or the RPC rejects (e.g.
+ * the order isn't voided).
+ */
+export async function unvoidRemoteOrder(clientUuid: string): Promise<{ok: boolean; error?: string}> {
+  const sb = getSupabase();
+  if (!sb) return {ok: false, error: 'No connection to Coop'};
+  try {
+    const {data, error} = await sb.rpc('unvoid_pos_order', {p_client_uuid: clientUuid});
+    if (error) return {ok: false, error: error.message};
+    if (data && (data as {ok?: boolean}).ok === false) {
+      return {ok: false, error: (data as {error?: string}).error ?? 'Unvoid failed'};
+    }
+    return {ok: true};
+  } catch (e) {
+    return {ok: false, error: e instanceof Error ? e.message : 'network error'};
+  }
+}
+
 /** Set (or clear, with null) a sale's remarks on Coop by client_uuid. Best-effort. */
 export async function setRemoteOrderRemarks(clientUuid: string, remarks: string | null): Promise<boolean> {
   const sb = getSupabase();

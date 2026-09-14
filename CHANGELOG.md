@@ -12,6 +12,31 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Unvoid a voided transaction (Staging only) — `feat(transactions)`
+
+- **A voided sale can now be restored.** The Transactions detail sheet shows an
+  **Unvoid** action on voided, Coop-synced sales (behind the same admin PIN as
+  Void). Unvoiding flips it back to completed and **re-applies its inventory
+  footprint FEFO** on Coop, so its revenue and stock return exactly as they were
+  before the void.
+- **Online-only, and the inverse of Void.** Unlike a void (which queues offline
+  and drains later), unvoid must land on Coop first — the PIN modal calls the new
+  `unvoid_pos_order` RPC and only flips the local row to completed on success;
+  if Coop is unreachable or rejects (order isn't voided), it stays voided and
+  surfaces the error. The Unvoid button is hidden when Supabase is unconfigured or
+  the sale hasn't reached Coop (`client_uuid`).
+- **Schema** (`supabase/pos_schema.sql`, applied to Staging): added
+  `unvoid_pos_order(text)` (+ anon grant), mirroring `edit_pos_order`'s
+  state-based reverse-then-reapply so it's convergent and oversell-safe.
+  **Redefined `void_pos_order`'s audit** to reverse the *entire* current net
+  footprint (not just non-`void` movements) so repeated void↔unvoid cycles keep
+  the per-product movement ledger netting to zero when voided. (Re-void is still
+  a no-op via the status guard, so this never compounds.)
+- Verified live on Staging: void → unvoid → void → unvoid on a real 2-unit sale
+  lands stock at 36/38 each step with the order ledger at −2 (completed) / 0
+  (voided) throughout; unvoid on a completed order is a safe no-op reject.
+  **Staging only — not promoted to prod.**
+
 ## 2026-09-14 — Edit a completed transaction in place (Staging only) — `feat(transactions)`
 
 - **You can now edit a synced sale from the Transactions screen** (long-press →

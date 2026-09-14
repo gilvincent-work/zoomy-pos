@@ -12,6 +12,36 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Bundle-aware transaction editing (Staging only) — `feat(transactions)`
+
+- **Bundles are editable again, by their rules.** The edit sheet now shows an
+  order as entries: individual items and bundle groups. A "Buy Any N" bundle
+  shows N pick slots (restricted to the bundle's eligible categories) with a
+  live `picked X / N` counter and an editable bundle price; a fixed bundle shows
+  its components with an editable price. You can freely **add items or add a
+  bundle** to any order (individual-only or bundle), and Save is blocked until
+  every bundle satisfies its rule (e.g. exactly 4 picks in a 4-pick bundle).
+- **Records the bundle link on sales so the rule survives to edit-time.** A sold
+  bundle now tags its header + its ₱0 pick lines with a shared `bundle_group`
+  (`buildInsertItems` + the sync push), so Coop can tell which picks form which
+  bundle. `apply_pos_order` persists it. Older/offline-retried sales without the
+  tag still open, as loose items.
+- **Online-only, as before.** Opening the editor pulls the order's authoritative
+  lines from Coop (the flat local copy has no grouping) and resolves bundle rules
+  from local `saved_bundles` (by the shared `bundle_uuid`). Saving calls the
+  reworked `edit_pos_order`, which takes structured entries, **enforces each
+  bundle's pick_count + eligibility server-side**, re-derives stock FEFO, and
+  recomputes the total (`Σ item totals + Σ bundle prices`).
+- **Schema** (`supabase/pos_schema.sql`, Staging): added `pos_order_items.bundle_group`;
+  `edit_pos_order` now takes `p_entries` (was `p_items`) — see the note in the
+  function for the drop-before-promote caveat; `apply_pos_order` persists
+  `bundle_group`.
+- Verified live on Staging: a plain order edited into `1 item + a 3-pick bundle`
+  lands total ₱800 with correct per-product stock and a header + 3 grouped ₱0
+  pick lines; under-count and unknown-bundle edits reject with no mutation; the
+  reverse path (bundle → items) restores stock exactly. **Staging only — not
+  promoted to prod.**
+
 ## 2026-09-14 — Edit modal shows per-line subtotals (Staging only) — `fix(transactions)`
 
 - **Each edit-sale line now shows its `qty × unit price` subtotal.** Previously a

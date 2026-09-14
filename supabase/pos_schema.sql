@@ -95,6 +95,7 @@ create table public.pos_orders (
   status         text not null default 'completed', -- completed / voided (void from any device)
   remarks        text,               -- free-text note; editable from any device
   voided_at      timestamptz,        -- when the sale was voided (audit)
+  edited_at      timestamptz,        -- when the sale was last edited (null = never; audit)
   created_at     timestamptz not null default now(),
   synced_at      timestamptz not null default now()
 );
@@ -487,11 +488,13 @@ begin
 end;
 $$;
 
--- Void a sale by its client_uuid, from any device, AND restock it: the sold
--- quantities are added back to the lots they were drawn from. Idempotent
--- (re-voiding a voided order is a no-op, so stock is never restored twice).
--- Returns rows affected so the caller knows if the order was found. Voids are
--- monotonic — there is no un-void.
+-- Void a sale by its client_uuid, from any device, AND restock it. The restock
+-- neutralizes the order's ENTIRE net inventory footprint (its 'sale' decrements
+-- plus any later 'edit-reverse'/'edit-sale' movements from edit_pos_order), so
+-- an edited-then-voided order still returns to exactly its pre-sale stock.
+-- Backward-compatible: a never-edited order's net == its original sale.
+-- Idempotent (re-voiding finds status='voided' -> 0 rows, so stock is never
+-- restored twice). Voids are monotonic — there is no un-void.
 create or replace function public.void_pos_order(p_client_uuid text)
 returns integer
 language plpgsql
@@ -516,28 +519,182 @@ begin
     return 0;
   end if;
 
-  -- Add each sold qty back to the lot it was drawn from (grouped so multiple
-  -- lines on one lot sum). total_delta is negative (a 'sale' decrement), so
-  -- subtracting it adds the stock back. Movements with no lot (pure oversell)
-  -- restore nothing to a lot but are still logged reversed below.
+  -- Restock: add back the net of every movement this order made per lot, so its
+  -- effect on qty_on_hand becomes 0 (net is negative for an outstanding sale, so
+  -- subtracting it adds stock back).
   update pos_inventory_lots l
-     set qty_on_hand = l.qty_on_hand - agg.total_delta,
+     set qty_on_hand = l.qty_on_hand - agg.net,
          updated_at = now()
   from (
-    select lot_id, sum(delta) as total_delta
+    select lot_id, sum(delta) as net
     from pos_stock_movements
-    where order_id = v_order_id and reason = 'sale' and lot_id is not null
+    where order_id = v_order_id and lot_id is not null
     group by lot_id
+    having sum(delta) <> 0
   ) agg
   where l.lot_id = agg.lot_id;
 
-  -- Compensating audit rows: one reversed movement per original sale decrement.
+  -- Compensating audit rows: one reversed net movement per (product, lot) group,
+  -- INCLUDING lot_id-null oversell groups (so movements-by-product net to zero).
+  -- Only the lot-mutating UPDATE above filters lot_id; the audit does not.
   insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
-  select product_id, lot_id, order_id, -delta, 'void', null, now()
+  select product_id, lot_id, v_order_id, -sum(delta), 'void', null, now()
   from pos_stock_movements
-  where order_id = v_order_id and reason = 'sale';
+  where order_id = v_order_id and reason <> 'void'
+  group by product_id, lot_id
+  having sum(delta) <> 0;
 
   return v_count;
+end;
+$$;
+
+-- Edit a completed order in place (online-only from the clients). Reverses the
+-- order's entire net inventory footprint (restoring the exact lots it drew
+-- from), then re-applies the new item set FEFO, and updates the editable fields
+-- (payment_method / customer_handle / remarks / items). Recomputes subtotal +
+-- total server-side from the line items (created_at / discount preserved).
+-- State-based and thus convergent: re-running with the same payload lands the
+-- same result, never double-counting. Rejects a voided order.
+create or replace function public.edit_pos_order(p_client_uuid text, p_patch jsonb, p_items jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id     uuid;
+  v_status       text;
+  v_discount     numeric;
+  v_oversold     boolean := false;
+  v_item         jsonb;
+  v_product_id   text;
+  v_qty          integer;
+  v_unit_price   numeric;
+  v_line_total   numeric;
+  v_decrement    record;
+  v_lot          record;
+  v_remaining    integer;
+  v_take         integer;
+  v_overdraw_lot uuid;
+  v_decrements   jsonb := '{}'::jsonb;
+  v_subtotal     numeric := 0;
+  v_total        numeric;
+  v_rows         integer;
+begin
+  -- Lock the order row up front so a concurrent void/edit is serialized (a void
+  -- committing mid-edit could otherwise leave a voided order with a live total).
+  select id, status, discount into v_order_id, v_status, v_discount
+    from pos_orders where client_uuid = p_client_uuid
+    for update;
+
+  if v_order_id is null then
+    return jsonb_build_object('ok', false, 'error', 'order not found');
+  end if;
+  if v_status = 'voided' then
+    return jsonb_build_object('ok', false, 'error', 'cannot edit a voided order');
+  end if;
+
+  -- 1. Neutralize this order's entire inventory footprint (restore the lots).
+  update pos_inventory_lots l
+     set qty_on_hand = l.qty_on_hand - agg.net, updated_at = now()
+  from (
+    select lot_id, sum(delta) as net
+    from pos_stock_movements
+    where order_id = v_order_id and lot_id is not null
+    group by lot_id
+    having sum(delta) <> 0
+  ) agg
+  where l.lot_id = agg.lot_id;
+
+  -- Audit rows for the reversal, INCLUDING lot_id-null oversell groups; exclude
+  -- prior edit-reverse rows so re-edits don't compound the audit. Only the
+  -- lot-mutating UPDATE above filters lot_id.
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+  select product_id, lot_id, v_order_id, -sum(delta), 'edit-reverse', now()
+  from pos_stock_movements
+  where order_id = v_order_id and reason not in ('edit-reverse')
+  group by product_id, lot_id
+  having sum(delta) <> 0;
+
+  -- 2. Replace line items and accumulate the new per-product decrements.
+  delete from pos_order_items where order_id = v_order_id;
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    v_product_id := v_item->>'product_id';
+    v_qty        := (v_item->>'qty')::integer;
+    v_unit_price := (v_item->>'unit_price')::numeric;
+    v_line_total := coalesce((v_item->>'line_total')::numeric, v_qty * v_unit_price);
+
+    insert into pos_order_items (order_id, product_id, bundle_id, qty, unit_price, line_total)
+    values (v_order_id, v_product_id, null, v_qty, v_unit_price, v_line_total);
+
+    v_subtotal := v_subtotal + v_line_total;
+
+    if v_product_id is not null then
+      v_decrements := jsonb_set(
+        v_decrements, array[v_product_id],
+        to_jsonb(coalesce((v_decrements->>v_product_id)::integer, 0) + v_qty)
+      );
+    end if;
+  end loop;
+
+  -- 3. Apply the new decrements FEFO (mirrors apply_pos_order), reason 'edit-sale'.
+  for v_decrement in
+    select key as product_id, value::integer as qty from jsonb_each_text(v_decrements)
+  loop
+    v_remaining := v_decrement.qty;
+
+    for v_lot in
+      select lot_id, qty_on_hand
+      from pos_inventory_lots
+      where product_id = v_decrement.product_id and qty_on_hand > 0
+      order by expires_on asc nulls last, received_at asc
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(v_lot.qty_on_hand, v_remaining);
+      update pos_inventory_lots set qty_on_hand = qty_on_hand - v_take, updated_at = now()
+        where lot_id = v_lot.lot_id;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_lot.lot_id, v_order_id, -v_take, 'edit-sale', now());
+      v_remaining := v_remaining - v_take;
+    end loop;
+
+    if v_remaining > 0 then
+      v_oversold := true;
+      select lot_id into v_overdraw_lot
+        from pos_inventory_lots
+        where product_id = v_decrement.product_id
+        order by expires_on asc nulls last, received_at asc
+        limit 1;
+      if v_overdraw_lot is not null then
+        update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remaining, updated_at = now()
+          where lot_id = v_overdraw_lot;
+      end if;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_overdraw_lot, v_order_id, -v_remaining, 'edit-sale', now());
+    end if;
+  end loop;
+
+  -- 4. Update the editable order fields (created_at preserved). Floor the total
+  --    at 0, and re-guard status <> 'voided' so a void that raced us can't be
+  --    overwritten with a live total (row lock makes this deterministic).
+  v_total := greatest(v_subtotal - coalesce(v_discount, 0), 0);
+  update pos_orders set
+    payment_method  = coalesce(nullif(p_patch->>'payment_method', ''), payment_method),
+    customer_handle = case when p_patch ? 'customer_handle' then nullif(p_patch->>'customer_handle', '') else customer_handle end,
+    remarks         = case when p_patch ? 'remarks' then nullif(p_patch->>'remarks', '') else remarks end,
+    subtotal        = v_subtotal,
+    total           = v_total,
+    oversold        = v_oversold,
+    edited_at       = now()
+  where id = v_order_id and status <> 'voided';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then
+    return jsonb_build_object('ok', false, 'error', 'order was voided during edit');
+  end if;
+
+  return jsonb_build_object('ok', true, 'order_id', v_order_id, 'oversold', v_oversold, 'total', v_total);
 end;
 $$;
 
@@ -655,6 +812,7 @@ grant execute on function public.record_sync(text, text, jsonb, text)       to a
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
 grant execute on function public.set_product_emoji(text, text)              to anon;
 grant execute on function public.void_pos_order(text)                       to anon;
+grant execute on function public.edit_pos_order(text, jsonb, jsonb)         to anon;
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
 grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;
 grant execute on function public.delete_pos_bundle(text)                    to anon;

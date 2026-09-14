@@ -125,6 +125,32 @@ export async function importTransaction(data: {
   return transactionId;
 }
 
+/**
+ * Rewrite a local transaction's editable fields + items to match an edit that
+ * already succeeded on Coop (edits are online-only, so the Coop RPC is the
+ * source of truth). Replaces the line items, updates method/handle/total, marks
+ * synced_at (it's confirmed on Coop), and clears is_bundle (edited orders are
+ * plain product lines). created_at is preserved.
+ */
+export async function replaceLocalTransactionContents(
+  id: number,
+  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number },
+  items: { productId: number; productName: string; price: number; quantity: number }[],
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', [id]);
+  for (const it of items) {
+    await db.runAsync(
+      'INSERT INTO transaction_items (transaction_id, product_id, product_name, price, quantity, variant_id, variant_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, it.productId, it.productName, it.price, it.quantity, null, null]
+    );
+  }
+  await db.runAsync(
+    'UPDATE transactions SET payment_method = ?, customer_handle = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ? WHERE id = ?',
+    [fields.paymentMethod, fields.customerHandle, fields.total, fields.total, new Date().toISOString(), id]
+  );
+}
+
 export async function transactionExists(createdAtMinute: string, total: number): Promise<boolean> {
   const db = await getDatabase();
   const row = await db.getFirstAsync<{ id: number }>(

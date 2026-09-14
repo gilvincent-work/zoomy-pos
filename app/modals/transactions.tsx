@@ -787,6 +787,9 @@ export default function TransactionsModal() {
                       accessibilityLabel={`Unit price for ${l.name}`}
                     />
                   </View>
+                  <Text style={styles.editLineSubtotal} numberOfLines={1}>
+                    ₱{((Number(l.qty) || 0) * (Number(l.price) || 0)).toFixed(2)}
+                  </Text>
                   <TouchableOpacity onPress={() => removeEditLine(i)} style={styles.editRemoveBtn} accessibilityLabel={`Remove ${l.name}`}>
                     <Ionicons name="close" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
@@ -1023,6 +1026,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   editPriceWrap: { flexDirection: 'row', alignItems: 'center', width: 84, backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border, paddingHorizontal: 8 },
   editPricePeso: { color: c.textMuted, fontSize: F.sm },
   editPriceInput: { flex: 1, textAlign: 'right', paddingVertical: 8, color: c.textPrimary, fontSize: F.md },
+  editLineSubtotal: { width: 72, textAlign: 'right', color: c.textMuted, fontSize: F.sm, fontWeight: '700' },
   editRemoveBtn: { padding: 4 },
   addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start' },
   addItemText: { color: c.pink, fontSize: F.sm, fontWeight: '700' },

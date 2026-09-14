@@ -12,6 +12,17 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-14 — Edit modal shows per-line subtotals (Staging only) — `fix(transactions)`
+
+- **Each edit-sale line now shows its `qty × unit price` subtotal.** Previously a
+  line only showed the editable unit price, so a ×2 line at ₱210 looked like it
+  ignored the quantity (the order Total was already correct, but the row didn't
+  reflect it). The ₱ field stays the unit price; the new right-aligned amount
+  makes the line's contribution obvious.
+- Bundle sales remain non-editable on the POS (unchanged) — the matching Coop fix
+  now hides Edit for bundles there too, so the two ends behave consistently.
+- **Staging only — not promoted to prod.**
+
 ## 2026-09-14 — Unvoid a voided transaction (Staging only) — `feat(transactions)`
 
 - **A voided sale can now be restored.** The Transactions detail sheet shows an

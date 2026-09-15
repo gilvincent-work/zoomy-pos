@@ -1157,10 +1157,36 @@ security definer
 set search_path = public
 as $$
 declare
-  v_id uuid := nullif(p_event->>'event_id', '')::uuid;
+  v_id    uuid := nullif(p_event->>'event_id', '')::uuid;
+  v_start date := nullif(p_event->>'starts_on', '')::date;
+  v_end   date := nullif(p_event->>'ends_on', '')::date;
+  v_from  date;
+  v_to    date;
+  v_conflict text;
 begin
   if v_id is null then
     v_id := gen_random_uuid();
+  end if;
+
+  -- Overlap guard: block a create/edit whose date range intersects another
+  -- event (decided 2026-09-15). Runs only when this write carries a date range;
+  -- self is excluded so a pure opening-cash edit never conflicts with itself. A
+  -- single-bound event counts as that one day (coalesce), matching the client's
+  -- pickEventForDate detection semantics.
+  if (p_event ? 'starts_on' or p_event ? 'ends_on') and (v_start is not null or v_end is not null) then
+    v_from := coalesce(v_start, v_end);
+    v_to   := coalesce(v_end, v_start);
+    select e.name into v_conflict
+      from pos_events e
+     where e.event_id <> v_id
+       and coalesce(e.starts_on, e.ends_on) is not null
+       and coalesce(e.starts_on, e.ends_on) <= v_to
+       and v_from <= coalesce(e.ends_on, e.starts_on)
+     limit 1;
+    if v_conflict is not null then
+      raise exception 'event dates overlap an existing event: %', v_conflict
+        using errcode = 'check_violation';
+    end if;
   end if;
 
   insert into pos_events (event_id, name, venue, city, organizer, starts_on, ends_on,
@@ -1171,8 +1197,8 @@ begin
     p_event->>'venue',
     p_event->>'city',
     p_event->>'organizer',
-    nullif(p_event->>'starts_on', '')::date,
-    nullif(p_event->>'ends_on', '')::date,
+    v_start,
+    v_end,
     nullif(p_event->>'opening_cash', '')::numeric,
     p_event->>'cash_note',
     coalesce(nullif(p_event->>'status', ''), 'active'),

@@ -8,8 +8,6 @@ const baseProps = {
   total: 300,
   customerHandle: '',
   onChangeCustomerHandle: jest.fn(),
-  petType: null,
-  onChangePetType: jest.fn(),
   onConfirm: jest.fn(),
   onCancel: jest.fn(),
 };

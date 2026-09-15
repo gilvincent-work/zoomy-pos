@@ -476,6 +476,8 @@ export default function POSScreen() {
               method={payMethod}
               onMethodChange={setPayMethod}
               enabledMethods={enabledMethods}
+              petType={petType}
+              onPetTypeChange={setPetType}
               onCharge={handleRequestPay}
               canIncrement={canIncrementItem}
               compact
@@ -489,6 +491,8 @@ export default function POSScreen() {
             method={payMethod}
             onMethodChange={setPayMethod}
             enabledMethods={enabledMethods}
+            petType={petType}
+            onPetTypeChange={setPetType}
             onCharge={handleRequestPay}
             canIncrement={canIncrementItem}
           />
@@ -501,8 +505,6 @@ export default function POSScreen() {
         total={total}
         customerHandle={customerHandle}
         onChangeCustomerHandle={setCustomerHandle}
-        petType={petType}
-        onChangePetType={setPetType}
         onConfirm={handleConfirmPay}
         onCancel={() => setConfirmPay(false)}
       />

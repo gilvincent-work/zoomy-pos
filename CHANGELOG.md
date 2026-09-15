@@ -40,10 +40,13 @@ mockups were reviewed as an artifact first; this is the build.
   from the setup sheet (`app/modals/event-setup.tsx`) or on Coop ahead of time;
   last write wins by `updated_at`. The sheet also creates an unplanned on-site
   event (name/venue/city/organizer) for pop-ups not scheduled on Coop.
-- **Pet tag at checkout.** Dog / Cat / Both chips in the confirm-payment sheet
-  (`ConfirmPaymentModal`); skippable, so no tap = untagged. Four reporting
-  states. Stored as `pos_orders.pet_type` and shown on the Coop Offline Sales
-  home as a "Pet mix" split.
+- **Pet tag on the cart.** Dog / Cat / Both chips (`PetTypeChips`) sit on the
+  cart next to the payment method (both the side panel and the sheet peek), so a
+  sale can be tagged whether or not the confirm-payment guard is on; skippable,
+  so no tap = untagged. Four reporting states. Stored as `pos_orders.pet_type`
+  and shown on the Coop Offline Sales home as a "Pet mix" split. *(First shipped
+  inside the confirm-payment sheet; moved to the cart the same day so it also
+  works when "confirm before recording" is disabled.)*
 - **Schema (additive, Staging).** New `pos_events` table + `pos_orders.event_id`
   / `pet_type` columns + `upsert_pos_event` / `close_pos_event` RPCs;
   `apply_pos_order` extended to carry `event_id` + `pet_type` (no signature

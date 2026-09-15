@@ -6,7 +6,7 @@ import { CartProvider, useCart } from '../../context/CartContext';
 function renderPanel(props: Partial<React.ComponentProps<typeof CartPanel>> = {}) {
   return render(
     <CartProvider>
-      <CartPanel method="cash" onMethodChange={jest.fn()} onCharge={jest.fn()} {...props} />
+      <CartPanel method="cash" onMethodChange={jest.fn()} petType={null} onPetTypeChange={jest.fn()} onCharge={jest.fn()} {...props} />
     </CartProvider>
   );
 }
@@ -26,7 +26,7 @@ function renderPanelWithItem(props: Partial<React.ComponentProps<typeof CartPane
   return render(
     <CartProvider>
       <WithSeededItem>
-        <CartPanel method="cash" onMethodChange={jest.fn()} onCharge={jest.fn()} {...props} />
+        <CartPanel method="cash" onMethodChange={jest.fn()} petType={null} onPetTypeChange={jest.fn()} onCharge={jest.fn()} {...props} />
       </WithSeededItem>
     </CartProvider>
   );

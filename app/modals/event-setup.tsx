@@ -78,6 +78,19 @@ export default function EventSetupModal() {
       showToast({ variant: 'error', title: 'Name the event', message: 'An event needs a name.' });
       return;
     }
+    // Block overlaps at creation (decided 2026-09-15): an on-site event covers
+    // today, so refuse if today is already an event day. Re-check fresh in case
+    // a pull arrived while the sheet was open. Coop enforces the same rule
+    // authoritatively in upsert_pos_event; this is the friendly local guard.
+    const covering = await getActiveEvent();
+    if (covering) {
+      showToast({
+        variant: 'error',
+        title: 'Today already has an event',
+        message: `${covering.name} covers today. Set its opening cash instead.`,
+      });
+      return;
+    }
     const now = new Date().toISOString();
     const today = localDateKey();
     await upsertLocalEvent({
@@ -149,10 +162,6 @@ export default function EventSetupModal() {
             <TouchableOpacity style={styles.primaryBtn} onPress={saveFloat} activeOpacity={0.85}>
               <Text style={styles.primaryBtnText}>Save opening cash</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.linkBtn} onPress={() => setCreating(true)} activeOpacity={0.7}>
-              <Text style={styles.linkText}>Start a different event instead</Text>
-            </TouchableOpacity>
           </>
         )}
 
@@ -210,12 +219,6 @@ export default function EventSetupModal() {
             <TouchableOpacity style={styles.primaryBtn} onPress={createEvent} activeOpacity={0.85}>
               <Text style={styles.primaryBtnText}>Create &amp; select</Text>
             </TouchableOpacity>
-
-            {active && (
-              <TouchableOpacity style={styles.linkBtn} onPress={() => setCreating(false)} activeOpacity={0.7}>
-                <Text style={styles.linkText}>Back to today's event</Text>
-              </TouchableOpacity>
-            )}
           </>
         )}
       </ScrollView>
@@ -254,6 +257,4 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.pink, borderRadius: R.md, paddingVertical: 15, alignItems: 'center', marginTop: 18,
   },
   primaryBtnText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
-  linkBtn: { paddingVertical: 12, alignItems: 'center' },
-  linkText: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
 });

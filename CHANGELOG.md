@@ -17,6 +17,12 @@ Dates are local working dates (GMT+8). Newest first.
 Three features that all hang off one new idea: a bazaar **Event**. Planning +
 mockups were reviewed as an artifact first; this is the build.
 
+- **Open decisions settled (2026-09-15).** Closing-drawer count stays a
+  fast-follow; pre-event sales keep a null `event_id` ("Unassigned"); opening
+  cash never gates selling. Overlapping event dates are **blocked at creation**:
+  `upsert_pos_event` rejects a range that intersects another event, and the POS
+  pre-checks (an on-site event can't be created when today is already an event
+  day, pointing the cashier to set that event's float instead).
 - **Event auto-detection (no cashier step).** Coop schedules an event with a
   date range; the POS caches events locally (`pos_events`, pulled on every
   catalog sync) and resolves "today's event" by matching the **device date**

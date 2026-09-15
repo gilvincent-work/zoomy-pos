@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import type { PaymentMethod } from '../db/transactions';
+import type { PaymentMethod, PetType } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
 
 type Props = {
@@ -11,19 +11,31 @@ type Props = {
   total: number;
   customerHandle: string;
   onChangeCustomerHandle: (value: string) => void;
+  petType: PetType | null;
+  onChangePetType: (value: PetType | null) => void;
   onConfirm: () => void;
   onCancel: () => void;
 };
+
+const PET_OPTIONS: { key: PetType; emoji: string; label: string }[] = [
+  { key: 'dog', emoji: '🐶', label: 'Dog' },
+  { key: 'cat', emoji: '🐱', label: 'Cat' },
+  { key: 'both', emoji: '🐶🐱', label: 'Both' },
+];
 
 /**
  * A last-tap guard before a sale is committed. Restates the chosen method and
  * the amount so an accidental Pay press can be waved off. Tapping the backdrop
  * cancels; only the green Paid button records.
  */
-export function ConfirmPaymentModal({ visible, method, total, customerHandle, onChangeCustomerHandle, onConfirm, onCancel }: Props) {
+export function ConfirmPaymentModal({ visible, method, total, customerHandle, onChangeCustomerHandle, petType, onChangePetType, onConfirm, onCancel }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const meta = quickMethodMeta(method);
+
+  // Tapping the selected pet clears it (back to untagged), so the choice is
+  // never sticky and a wrong tap is one tap to undo.
+  const pickPet = (p: PetType) => onChangePetType(petType === p ? null : p);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -51,6 +63,30 @@ export function ConfirmPaymentModal({ visible, method, total, customerHandle, on
             autoCapitalize="none"
             autoCorrect={false}
           />
+
+          <Text style={styles.handleLabel}>
+            PET <Text style={styles.optionalTag}>tap one, optional</Text>
+          </Text>
+          <View style={styles.petRow}>
+            {PET_OPTIONS.map((opt) => {
+              const active = petType === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  testID={`pet-chip-${opt.key}`}
+                  style={[styles.petChip, active && styles.petChipActive]}
+                  onPress={() => pickPet(opt.key)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Tag as ${opt.label}`}
+                >
+                  <Text style={styles.petEmoji}>{opt.emoji}</Text>
+                  <Text style={[styles.petLabel, active && styles.petLabelActive]}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <View style={styles.actions}>
             <TouchableOpacity
@@ -130,6 +166,22 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: F.md,
   },
+  petRow: { flexDirection: 'row', gap: 8, marginTop: 6, marginBottom: 4 },
+  petChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 10,
+    borderRadius: R.md,
+    borderWidth: 1.5,
+    borderColor: c.border,
+    backgroundColor: c.elevated,
+  },
+  petChipActive: { borderColor: c.pink, backgroundColor: c.pinkSubtle },
+  petEmoji: { fontSize: F.lg },
+  petLabel: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
+  petLabelActive: { color: c.pink },
   actions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   btn: {
     flex: 1,

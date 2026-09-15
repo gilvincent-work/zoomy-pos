@@ -16,6 +16,7 @@ import { CartPanel } from '../components/CartPanel';
 import { CartSheet } from '../components/CartSheet';
 import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { SyncStatusBar } from '../components/SyncStatusBar';
+import { EventBadge } from '../components/EventBadge';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -23,7 +24,8 @@ import {
   Product, ProductVariant, CategoryGroup,
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
-import { insertTransaction, markTransactionSynced, type PaymentMethod } from '../db/transactions';
+import { insertTransaction, markTransactionSynced, type PaymentMethod, type PetType } from '../db/transactions';
+import { getActiveEvent, type PosEvent } from '../db/events';
 import { refreshPendingCount } from '../utils/outbox';
 import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
@@ -104,6 +106,13 @@ export default function POSScreen() {
   const [confirmPay, setConfirmPay] = useState(false);
   const [confirmOnPay, setConfirmOnPay] = useState(true);
   const [customerHandle, setCustomerHandle] = useState('');
+  // Pet tag for the sale in progress (Dog/Cat/Both); null = untagged. Reset
+  // after each sale so it never carries over to the next customer.
+  const [petType, setPetType] = useState<PetType | null>(null);
+  // The bazaar covering today (device date), or null on a normal day. Drives the
+  // header event chip and stamps each sale's event_id. Refreshed on focus (so a
+  // change made in the event-setup modal reflects on return) and on catalog pull.
+  const [activeEvent, setActiveEvent] = useState<PosEvent | null>(null);
   // Guards against a double-tap booking the same cart twice: the cart isn't
   // cleared until after the (awaited) local insert, so without this a second
   // tap mid-insert would create a second sale with its own client_uuid.
@@ -154,16 +163,22 @@ export default function POSScreen() {
     }
   }, [loadCatalog, showToast]);
 
+  // Resolve today's event from the local cache (offline; matches device date).
+  const loadActiveEvent = useCallback(() => {
+    getActiveEvent().then(setActiveEvent).catch(() => setActiveEvent(null));
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadCatalog();
       loadPaymentConfig();
-    }, [loadCatalog, loadPaymentConfig])
+      loadActiveEvent(); // re-check on return from the event-setup modal
+    }, [loadCatalog, loadPaymentConfig, loadActiveEvent])
   );
 
-  // A catalog pull from Coop (price / listing) updates local SQLite; re-read so
-  // the tiles reflect the new prices without waiting for the next screen focus.
-  useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); }), [loadCatalog]);
+  // A catalog pull from Coop (price / listing / events) updates local SQLite;
+  // re-read so tiles and the event chip reflect the pull without a screen focus.
+  useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); loadActiveEvent(); }), [loadCatalog, loadActiveEvent]);
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
   const categoryNames = [
@@ -256,6 +271,9 @@ export default function POSScreen() {
     const saleItems = buildInsertItems(items, bundles);
     const method = payMethod;
     const label = quickMethodMeta(method).label;
+    // Snapshot the event + pet tag for this sale (state is cleared after).
+    const eventId = activeEvent?.event_id ?? null;
+    const salePetType = petType;
     // One shared id for both the local row and the Coop push, so the Transactions
     // merge can dedupe this sale against the copy it pulls back from Coop.
     const clientUuid = Crypto.randomUUID();
@@ -268,6 +286,8 @@ export default function POSScreen() {
         customerHandle: customerHandle.trim() || undefined,
         isBundle: bundles.length > 0,
         clientUuid,
+        eventId,
+        petType: salePetType,
         items: saleItems,
       });
       // Reflect this sale on the local stock cache right away, so the tile
@@ -279,6 +299,7 @@ export default function POSScreen() {
       await loadCatalog();
       clearCart();
       setCustomerHandle('');
+      setPetType(null);
       showToast({
         variant: 'success',
         title: 'Sale recorded',
@@ -286,7 +307,7 @@ export default function POSScreen() {
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
-      pushSale({ items: saleItems, bundles: bundles.map((b) => ({ presetId: b.presetId, price: b.price })), subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method, customerHandle: customerHandle.trim() || null, clientUuid }).then((res) => {
+      pushSale({ items: saleItems, bundles: bundles.map((b) => ({ presetId: b.presetId, price: b.price })), subtotal: saleTotal, discount: null, total: saleTotal, paymentMethod: method, customerHandle: customerHandle.trim() || null, eventId, petType: salePetType, clientUuid }).then((res) => {
         if (!res.ok) {
           showToast({
             variant: 'error',
@@ -414,7 +435,10 @@ export default function POSScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.brandName}>Zoomy</Text>
-          <SyncStatusBar />
+          <View style={styles.syncRow}>
+            <SyncStatusBar />
+            <EventBadge event={activeEvent} onPress={() => router.push('/modals/event-setup')} />
+          </View>
         </View>
         <View style={styles.headerActions}>
           {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
@@ -477,6 +501,8 @@ export default function POSScreen() {
         total={total}
         customerHandle={customerHandle}
         onChangeCustomerHandle={setCustomerHandle}
+        petType={petType}
+        onChangePetType={setPetType}
         onConfirm={handleConfirmPay}
         onCancel={() => setConfirmPay(false)}
       />
@@ -508,7 +534,10 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: c.borderDark,
   },
-  headerLeft: { gap: 4 },
+  headerLeft: { gap: 4, flexShrink: 1 },
+  // The sync marker and the event chip share one line under the brand, so the
+  // chip costs no extra header height and never pushes the product grid down.
+  syncRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   brandName: { color: c.pink, fontSize: F.xl, fontWeight: '800', letterSpacing: 0.3 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBtn: {

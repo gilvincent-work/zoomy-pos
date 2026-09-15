@@ -29,6 +29,8 @@ type OrderRow = {
   payment_method: string | null;
   status: string | null;
   remarks: string | null;
+  event_id: string | null;
+  pet_type: string | null;
   created_at: string;
 };
 
@@ -47,7 +49,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     // pos_orders keyed for dedup by client_uuid; join items by the order id.
     const {data: orders, error: ordersErr} = await sb
       .from('pos_orders')
-      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, created_at')
+      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, event_id, pet_type, created_at')
       .order('created_at', {ascending: false})
       .limit(MAX_ORDERS);
     if (ordersErr || !orders) return {ok: false};
@@ -97,6 +99,8 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         status: o.status === 'voided' ? 'voided' : 'completed',
         created_at: o.created_at,
         remarks: o.remarks ?? null,
+        event_id: o.event_id ?? null,
+        pet_type: (o.pet_type as Transaction['pet_type']) ?? null,
         client_uuid: o.client_uuid ?? null,
         // Sync-tracking columns are local-only; a remote-sourced row carries none.
         synced_at: null,

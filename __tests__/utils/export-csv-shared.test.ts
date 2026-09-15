@@ -15,6 +15,8 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     status: 'completed',
     created_at: '2026-04-24T07:36:00.000Z',
     remarks: null,
+    event_id: null,
+    pet_type: null,
     client_uuid: null,
     synced_at: null,
     void_synced_at: null,

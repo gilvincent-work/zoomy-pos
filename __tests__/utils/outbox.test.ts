@@ -17,6 +17,10 @@ jest.mock('../../utils/orders-remote', () => ({
   voidRemoteOrder: jest.fn(),
   setRemoteOrderRemarks: jest.fn(),
 }));
+// The outbox also drains locally-created/edited events; stub both so these
+// tests exercise only the sale/void/remarks path.
+jest.mock('../../db/events', () => ({ getUnsyncedEvents: jest.fn().mockResolvedValue([]) }));
+jest.mock('../../utils/events-sync', () => ({ drainEvents: jest.fn().mockResolvedValue({ pushed: 0, failed: 0 }) }));
 jest.mock('../../utils/sync-status', () => ({
   beginSync: jest.fn(),
   endSync: jest.fn(),
@@ -41,6 +45,8 @@ function tx(over: Partial<Transaction> & { id: number; client_uuid: string }): T
     status: 'completed',
     created_at: '2026-09-10T07:40:00.000Z',
     remarks: null,
+    event_id: null,
+    pet_type: null,
     synced_at: null,
     void_synced_at: null,
     remarks_synced_at: '2026-09-10T07:40:00.000Z',

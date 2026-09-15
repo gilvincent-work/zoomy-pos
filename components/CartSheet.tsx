@@ -8,13 +8,16 @@ import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 import { CartPanel } from './CartPanel';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
-import type { PaymentMethod } from '../db/transactions';
+import { PetTypeChips } from './PetTypeChips';
+import type { PaymentMethod, PetType } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
 
 type Props = {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   enabledMethods?: PaymentMethod[];
+  petType: PetType | null;
+  onPetTypeChange: (value: PetType | null) => void;
   onCharge: () => void;
   /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
   canIncrement?: (productId: number) => boolean;
@@ -25,7 +28,7 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, canIncrement }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, petType, onPetTypeChange, onCharge, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
@@ -104,6 +107,7 @@ export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, ca
       >
         <View style={styles.grabber} />
         <View style={styles.peekMethods}>
+          <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={cartCount === 0} />
           <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={cartCount === 0} compact />
         </View>
         <View style={styles.peekRow}>
@@ -148,7 +152,7 @@ export function CartSheet({ method, onMethodChange, enabledMethods, onCharge, ca
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={styles.grabber} />
         </View>
-        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} onCharge={onCharge} canIncrement={canIncrement} />
+        <CartPanel method={method} onMethodChange={onMethodChange} enabledMethods={enabledMethods} petType={petType} onPetTypeChange={onPetTypeChange} onCharge={onCharge} canIncrement={canIncrement} />
       </Animated.View>
     </>
   );
@@ -163,7 +167,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     borderTopColor: c.borderDark,
     backgroundColor: c.surface,
   },
-  peekMethods: { marginBottom: 10 },
+  peekMethods: { marginBottom: 10, gap: 8 },
   peekRow: {
     flexDirection: 'row',
     alignItems: 'center',

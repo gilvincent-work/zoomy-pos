@@ -212,7 +212,7 @@ begin
 
   v_order_id := gen_random_uuid();
 
-  insert into pos_orders (id, client_uuid, device_id, cashier, customer_handle, subtotal, discount, total, oversold, payment_method, created_at)
+  insert into pos_orders (id, client_uuid, device_id, cashier, customer_handle, subtotal, discount, total, oversold, payment_method, event_id, pet_type, created_at)
   values (
     v_order_id,
     v_client_uuid,
@@ -224,6 +224,8 @@ begin
     (p_order->>'total')::numeric,
     false,
     coalesce(nullif(p_order->>'payment_method', ''), 'cash'),
+    nullif(p_order->>'event_id', '')::uuid,      -- event day the sale belongs to (null = normal day)
+    nullif(p_order->>'pet_type', ''),            -- 'dog' | 'cat' | 'both' | null (untagged)
     coalesce((p_order->>'created_at')::timestamptz, now())
   );
 
@@ -1108,3 +1110,108 @@ $$;
 alter table public.pos_settings enable row level security;
 create policy pos_settings_read on public.pos_settings for select to anon using (true);
 grant execute on function public.set_pos_daily_target(numeric, text) to anon;
+
+-- =========================================================================
+-- 6. Events, opening cash & pet tagging (added 2026-09-15) — one Event per
+--    bazaar day. Coop schedules a date range; the POS auto-detects "today's
+--    event" by matching the device date and stamps each sale's event_id
+--    (null = normal day). Opening cash lives on the event (POS on-site count
+--    or Coop pre-plan; last write wins). Each sale also carries an optional
+--    pet_type. Additive; same pos_* RLS/RPC fence as everything above.
+-- =========================================================================
+
+-- pos_events: one row per bazaar. Client supplies event_id so the POS can
+-- create offline; upsert stays idempotent (last-write-wins on updated_at).
+create table if not exists public.pos_events (
+  event_id     uuid primary key default gen_random_uuid(),
+  name         text not null,
+  venue        text,            -- mall / venue
+  city         text,
+  organizer    text,            -- optional
+  starts_on    date,
+  ends_on      date,
+  opening_cash numeric,         -- opening cash float (Priority 1)
+  cash_note    text,            -- optional free-text note
+  closing_cash numeric,         -- optional; counted at close
+  status       text not null default 'active',  -- active | closed
+  created_by   text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+create index if not exists pos_events_dates_idx on public.pos_events(starts_on, ends_on);
+
+-- pos_orders gains two nullable columns (fully backward-compatible). event_id
+-- ties a sale to its bazaar; pet_type is the Dog/Cat/Both tap (null = untagged).
+alter table public.pos_orders
+  add column if not exists event_id uuid references public.pos_events(event_id),
+  add column if not exists pet_type text;   -- 'dog' | 'cat' | 'both' | null
+create index if not exists pos_orders_event_id_idx on public.pos_orders(event_id);
+
+-- upsert_pos_event: create or edit an event (incl. opening cash). Idempotent on
+-- the client-supplied event_id. Only overwrites a field the payload carries, so
+-- a partial edit (e.g. just opening_cash from the POS) never clobbers the rest.
+create or replace function public.upsert_pos_event(p_event jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid := nullif(p_event->>'event_id', '')::uuid;
+begin
+  if v_id is null then
+    v_id := gen_random_uuid();
+  end if;
+
+  insert into pos_events (event_id, name, venue, city, organizer, starts_on, ends_on,
+                          opening_cash, cash_note, status, created_by, created_at, updated_at)
+  values (
+    v_id,
+    coalesce(p_event->>'name', ''),
+    p_event->>'venue',
+    p_event->>'city',
+    p_event->>'organizer',
+    nullif(p_event->>'starts_on', '')::date,
+    nullif(p_event->>'ends_on', '')::date,
+    nullif(p_event->>'opening_cash', '')::numeric,
+    p_event->>'cash_note',
+    coalesce(nullif(p_event->>'status', ''), 'active'),
+    p_event->>'created_by',
+    now(), now()
+  )
+  on conflict (event_id) do update set
+    name         = case when p_event ? 'name'         then coalesce(excluded.name, pos_events.name) else pos_events.name end,
+    venue        = case when p_event ? 'venue'        then excluded.venue        else pos_events.venue end,
+    city         = case when p_event ? 'city'         then excluded.city         else pos_events.city end,
+    organizer    = case when p_event ? 'organizer'    then excluded.organizer    else pos_events.organizer end,
+    starts_on    = case when p_event ? 'starts_on'    then excluded.starts_on    else pos_events.starts_on end,
+    ends_on      = case when p_event ? 'ends_on'      then excluded.ends_on      else pos_events.ends_on end,
+    opening_cash = case when p_event ? 'opening_cash' then excluded.opening_cash else pos_events.opening_cash end,
+    cash_note    = case when p_event ? 'cash_note'    then excluded.cash_note    else pos_events.cash_note end,
+    status       = case when p_event ? 'status'       then excluded.status       else pos_events.status end,
+    updated_at   = now();
+
+  return v_id;
+end;
+$$;
+
+-- close_pos_event: mark an event closed; optionally record the counted drawer.
+create or replace function public.close_pos_event(p_event_id uuid, p_closing_cash numeric)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update pos_events
+     set status = 'closed',
+         closing_cash = coalesce(p_closing_cash, closing_cash),
+         updated_at = now()
+   where event_id = p_event_id;
+end;
+$$;
+
+alter table public.pos_events enable row level security;
+create policy pos_events_read on public.pos_events for select to anon using (true);
+grant execute on function public.upsert_pos_event(jsonb)        to anon;
+grant execute on function public.close_pos_event(uuid, numeric) to anon;

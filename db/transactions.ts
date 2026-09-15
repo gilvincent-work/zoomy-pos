@@ -13,6 +13,9 @@ export type TransactionItem = {
 
 export type PaymentMethod = 'cash' | 'qrph' | 'gcash' | 'card' | 'maya' | 'bpi' | 'bank_transfer';
 
+/** The pet a sale is for, tapped at checkout. null (absent) = untagged. */
+export type PetType = 'dog' | 'cat' | 'both';
+
 export type Transaction = {
   id: number;
   total: number;
@@ -26,6 +29,11 @@ export type Transaction = {
   status: 'completed' | 'voided';
   created_at: string;
   remarks: string | null;
+  /** The bazaar this sale belongs to (Coop pos_events.event_id); null on a
+   *  normal, non-event day. Auto-detected at checkout from the device date. */
+  event_id: string | null;
+  /** Dog/Cat/Both tap at checkout; null = untagged. */
+  pet_type: PetType | null;
   client_uuid: string | null;
   /** Set only once pushSale() confirms Coop has this sale; null = never confirmed synced. */
   synced_at: string | null;
@@ -58,6 +66,8 @@ export async function insertTransaction(data: {
   isBundle?: boolean;
   remarks?: string;
   clientUuid?: string;
+  eventId?: string | null;
+  petType?: PetType | null;
   items: InsertItem[];
 }): Promise<number> {
   const db = await getDatabase();
@@ -76,8 +86,8 @@ export async function insertTransaction(data: {
   // since a concurrent read on this shared expo-sqlite connection sees the
   // transaction's own uncommitted rows.
   const result = await db.runAsync(
-    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks, client_uuid, remarks_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', createdAt, remarks, data.clientUuid ?? null, remarksSyncedAt]
+    'INSERT INTO transactions (total, cash_tendered, change, payment_method, ref_number, proof_photo_uri, customer_handle, is_bundle, status, created_at, remarks, event_id, pet_type, client_uuid, remarks_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.total, data.cashTendered, data.change, data.paymentMethod, data.refNumber ?? null, data.proofPhotoUri ?? null, data.customerHandle ?? null, data.isBundle ? 1 : 0, 'completed', createdAt, remarks, data.eventId ?? null, data.petType ?? null, data.clientUuid ?? null, remarksSyncedAt]
   );
   const transactionId = result.lastInsertRowId;
 
@@ -273,6 +283,8 @@ type TxRow = {
   t_status: string;
   t_created: string;
   t_remarks: string | null;
+  t_event_id: string | null;
+  t_pet_type: string | null;
   t_client_uuid: string | null;
   t_synced_at: string | null;
   t_void_synced_at: string | null;
@@ -298,6 +310,7 @@ const TX_SELECT =
           t.ref_number AS t_ref, t.proof_photo_uri AS t_proof,
           t.customer_handle AS t_handle, t.is_bundle AS t_bundle,
           t.status AS t_status, t.created_at AS t_created, t.remarks AS t_remarks,
+          t.event_id AS t_event_id, t.pet_type AS t_pet_type,
           t.client_uuid AS t_client_uuid, t.synced_at AS t_synced_at,
           t.void_synced_at AS t_void_synced_at, t.remarks_synced_at AS t_remarks_synced_at,
           ti.id AS ti_id, ti.transaction_id, ti.product_id,
@@ -328,6 +341,8 @@ function mapTxRows(rows: TxRow[]): Transaction[] {
         status: row.t_status as 'completed' | 'voided',
         created_at: row.t_created,
         remarks: row.t_remarks ?? null,
+        event_id: row.t_event_id ?? null,
+        pet_type: (row.t_pet_type as PetType | null) ?? null,
         client_uuid: row.t_client_uuid ?? null,
         synced_at: row.t_synced_at ?? null,
         void_synced_at: row.t_void_synced_at ?? null,

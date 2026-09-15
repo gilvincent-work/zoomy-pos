@@ -13,6 +13,8 @@ function tx(over: Partial<Transaction> & { id: number; created_at: string }): Tr
     is_bundle: false,
     status: 'completed',
     remarks: null,
+    event_id: null,
+    pet_type: null,
     client_uuid: null,
     synced_at: null,
     void_synced_at: null,

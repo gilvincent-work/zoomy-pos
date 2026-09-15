@@ -178,6 +178,12 @@ export async function pullCatalog(): Promise<{updated: number} | null> {
   const bundleChanges = await pullBundles();
   if (bundleChanges && bundleChanges > 0) updated += bundleChanges;
 
+  // Mirror Coop's scheduled events (date ranges + opening cash) so the POS can
+  // detect "today's event" offline. Best-effort; a null result is a no-op.
+  const {pullEvents} = await import('./events-sync');
+  const eventChanges = await pullEvents();
+  if (eventChanges && eventChanges.updated > 0) updated += eventChanges.updated;
+
   await markSynced();
 
   // Best-effort audit trail (pos_sync_log); never let it fail the pull.

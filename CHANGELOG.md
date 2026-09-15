@@ -12,6 +12,45 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-15 — Event days, opening cash, and pet tagging (Staging) — `feat(events)`
+
+Three features that all hang off one new idea: a bazaar **Event**. Planning +
+mockups were reviewed as an artifact first; this is the build.
+
+- **Event auto-detection (no cashier step).** Coop schedules an event with a
+  date range; the POS caches events locally (`pos_events`, pulled on every
+  catalog sync) and resolves "today's event" by matching the **device date**
+  against the cached ranges, fully offline. A sale made on an event day is
+  stamped with that `event_id`; a normal day leaves it null. On overlapping
+  ranges the most recently created wins, so a sale is never dropped. Pure logic
+  in `db/events.ts` (`pickEventForDate`), unit-tested.
+- **Inline event marker (no tile squeeze).** On an event day a small `🗓️`
+  chip rides on the header's existing sync line (`EventBadge`, next to
+  `SyncStatusBar`), so it costs zero extra header height and never pushes the
+  product grid down. A small dot means the opening cash float isn't set yet.
+  Tapping it opens the event setup sheet. Informational + a shortcut, never a
+  gate on selling. No marker on a normal day.
+- **Opening cash.** `pos_events.opening_cash` + `cash_note`, editable on-site
+  from the setup sheet (`app/modals/event-setup.tsx`) or on Coop ahead of time;
+  last write wins by `updated_at`. The sheet also creates an unplanned on-site
+  event (name/venue/city/organizer) for pop-ups not scheduled on Coop.
+- **Pet tag at checkout.** Dog / Cat / Both chips in the confirm-payment sheet
+  (`ConfirmPaymentModal`); skippable, so no tap = untagged. Four reporting
+  states. Stored as `pos_orders.pet_type` and shown on the Coop Offline Sales
+  home as a "Pet mix" split.
+- **Schema (additive, Staging).** New `pos_events` table + `pos_orders.event_id`
+  / `pet_type` columns + `upsert_pos_event` / `close_pos_event` RPCs;
+  `apply_pos_order` extended to carry `event_id` + `pet_type` (no signature
+  change). Same `pos_*` RLS/RPC fence as everything else. Mirrored in
+  `supabase/pos_schema.sql`.
+- **Sync.** Events reuse the existing catalog-pull + outbox-drain paths (local
+  creates/edits push via `upsert_pos_event`, idempotent on `event_id`), so no
+  new sync machinery. `event_id` + `pet_type` thread through the sale payload
+  (local insert, `sales-sync`, outbox retry) and are read back on remote-order
+  pull. Typecheck clean; full suite green (292 tests, +6 new).
+
+---
+
 ## 2026-09-14 — Bundles show pre-populated on edit; custom bundles saveable (Staging only) — `fix(transactions)`
 
 - **The edit sheet shows the sale's real content on first load** — each bundle

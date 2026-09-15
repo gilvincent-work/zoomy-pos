@@ -8,6 +8,8 @@ import {
 } from '../db/transactions';
 import { pushSale, type SaleForPush } from './sales-sync';
 import { voidRemoteOrder, setRemoteOrderRemarks } from './orders-remote';
+import { drainEvents } from './events-sync';
+import { getUnsyncedEvents } from '../db/events';
 import { beginSync, endSync, setPendingCount } from './sync-status';
 
 /**
@@ -44,6 +46,8 @@ export function saleForPushFromTransaction(t: Transaction): SaleForPush {
     total: t.total,
     paymentMethod: t.payment_method,
     customerHandle: t.customer_handle,
+    eventId: t.event_id,
+    petType: t.pet_type,
     clientUuid: t.client_uuid ?? undefined,
     createdAt: t.created_at,
   };
@@ -75,9 +79,20 @@ export async function drainOutbox(): Promise<DrainResult> {
   let failed = 0;
   try {
     const pending = await getPendingSyncTransactions();
-    if (pending.length === 0) return { pushed: 0, failed: 0 };
+    // Locally-created/edited events (opening cash, on-site events) also owe Coop
+    // a push. They drain alongside sales, keyed idempotently on event_id.
+    const pendingEvents = await getUnsyncedEvents();
+    if (pending.length === 0 && pendingEvents.length === 0) return { pushed, failed };
 
     beginSync();
+
+    // Events first (independent of sales; a sale never depends on an event push).
+    if (pendingEvents.length > 0) {
+      const events = await drainEvents();
+      pushed += events.pushed;
+      failed += events.failed;
+    }
+
     for (const t of pending) {
       const uuid = t.client_uuid;
       if (!uuid) continue; // guarded by the query, but keep TS + logic honest

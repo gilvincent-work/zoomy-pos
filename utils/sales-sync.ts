@@ -3,7 +3,7 @@ import {getSupabase} from '../lib/supabase';
 import {getDatabase} from '../db/database';
 import {markSynced} from './sync-status';
 import type {InsertItem} from './cart-transaction';
-import type {PaymentMethod} from '../db/transactions';
+import type {PaymentMethod, PetType} from '../db/transactions';
 
 /**
  * Sales push: when online, a completed sale is written up to Coop via the
@@ -101,6 +101,11 @@ export type SaleForPush = {
   paymentMethod?: PaymentMethod;
   /** Optional furbaby / IG handle captured at checkout; stored on Coop's order. */
   customerHandle?: string | null;
+  /** The bazaar this sale belongs to (Coop pos_events.event_id); null on a
+   *  normal day. Auto-detected at checkout from the device date. */
+  eventId?: string | null;
+  /** Dog/Cat/Both tap at checkout; null = untagged. */
+  petType?: PetType | null;
   /** Shared idempotency key; reused as the local sale's client_uuid so the
    *  Transactions merge can dedupe this sale against the row pulled from Coop. */
   clientUuid?: string;
@@ -133,6 +138,8 @@ export async function pushSale(sale: SaleForPush): Promise<{ok: boolean; error?:
     discount: sale.discount,
     total: sale.total,
     payment_method: sale.paymentMethod ?? 'cash',
+    event_id: sale.eventId ?? null,
+    pet_type: sale.petType ?? null,
     created_at: sale.createdAt ?? new Date().toISOString(),
   };
 

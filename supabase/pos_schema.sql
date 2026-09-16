@@ -1111,6 +1111,143 @@ alter table public.pos_settings enable row level security;
 create policy pos_settings_read on public.pos_settings for select to anon using (true);
 grant execute on function public.set_pos_daily_target(numeric, text) to anon;
 
+-- Stock Forecast Phase 2 (added 2026-09-16): the tuning config + the next-event
+-- surge plan, both stored in pos_settings. Additive; two keys + two upsert RPCs
+-- mirroring set_pos_daily_target. Applied to Staging via the
+-- pos_stock_forecast_settings migration; NOT yet on prod.
+insert into public.pos_settings (key, value)
+values ('stock_forecast_config', jsonb_build_object(
+  'threshold', 10,
+  'threshold_overrides', '{}'::jsonb,       -- per-SKU low threshold { "SKU": n }
+  'target_cover_events', 6,                 -- reorder aims to hold ~2 weekends
+  'lead_time_days', 3,                      -- reorder-by = run-out - this
+  'early_warning_events', 3,                -- Low if it runs out within N event-days
+  'velocity_mode', 'event_aware',           -- offline; 'trailing_14d' for online later
+  'event_days', jsonb_build_array(5, 6, 0)  -- Fri, Sat, Sun (0=Sun..6=Sat)
+))
+on conflict (key) do nothing;
+
+insert into public.pos_settings (key, value)
+values ('next_event_plan', jsonb_build_object(
+  'event_this_weekend', true,
+  'multiplier', 1,                          -- global uplift on a normal event's demand
+  'by_category', '{}'::jsonb,               -- category -> multiplier override
+  'by_product', '{}'::jsonb                 -- SKU -> absolute expected units
+))
+on conflict (key) do nothing;
+
+create or replace function public.set_pos_stock_config(p_config jsonb, p_by text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if jsonb_typeof(p_config) is distinct from 'object' then
+    raise exception 'config must be a json object';
+  end if;
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('stock_forecast_config', p_config, p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+create or replace function public.set_pos_next_event_plan(p_plan jsonb, p_by text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if jsonb_typeof(p_plan) is distinct from 'object' then
+    raise exception 'plan must be a json object';
+  end if;
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('next_event_plan', p_plan, p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+grant execute on function public.set_pos_stock_config(jsonb, text) to anon;
+grant execute on function public.set_pos_next_event_plan(jsonb, text) to anon;
+
+-- Stock Forecast Phase 3 (added 2026-09-16): Add-stock batch write + void-last-add
+-- undo. Additive; receive_lot untouched. Both stamp who (p_by). Applied to Staging
+-- via the pos_add_stock_and_void migration; NOT yet on prod.
+create or replace function public.add_pos_stock(p_lines jsonb, p_by text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_line jsonb; v_sku text; v_qty integer; v_lot_id uuid; v_count integer := 0;
+begin
+  if jsonb_typeof(p_lines) is distinct from 'array' then
+    raise exception 'lines must be a json array';
+  end if;
+  for v_line in select * from jsonb_array_elements(p_lines) loop
+    v_sku := v_line->>'sku';
+    v_qty := (v_line->>'qty')::integer;
+    if v_sku is null or v_qty is null or v_qty <= 0 then
+      raise exception 'each line needs a product and a positive quantity';
+    end if;
+    if not exists (select 1 from pos_products where product_id = v_sku) then
+      raise exception 'unknown product %', v_sku;
+    end if;
+    v_lot_id := gen_random_uuid();
+    insert into pos_inventory_lots (lot_id, product_id, lot_code, expires_on, qty_received, qty_on_hand, received_at, updated_at)
+    values (v_lot_id, v_sku, 'coop-add', null, v_qty, v_qty, now(), now());
+    insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+    values (v_sku, v_lot_id, null, v_qty, 'receipt', p_by, now());
+    v_count := v_count + 1;
+  end loop;
+  if v_count = 0 then raise exception 'no lines to add'; end if;
+  return v_count;
+end;
+$$;
+
+create or replace function public.void_last_stock_add(p_product_id text, p_by text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_mov record; v_on_hand integer; v_remove integer;
+begin
+  select m.id, m.lot_id, m.delta into v_mov
+    from pos_stock_movements m
+    where m.product_id = p_product_id and m.reason = 'receipt'
+    order by m.created_at desc limit 1;
+  if v_mov.lot_id is null then return 0; end if;
+  select qty_on_hand into v_on_hand from pos_inventory_lots where lot_id = v_mov.lot_id for update;
+  v_remove := least(coalesce(v_on_hand, 0), v_mov.delta);
+  if v_remove <= 0 then return 0; end if;
+  update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remove, updated_at = now()
+    where lot_id = v_mov.lot_id;
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+  values (p_product_id, v_mov.lot_id, null, -v_remove, 'add-void', p_by, now());
+  return v_remove;
+end;
+$$;
+
+grant execute on function public.add_pos_stock(jsonb, text) to anon;
+grant execute on function public.void_last_stock_add(text, text) to anon;
+
+-- Stock Forecast Phase 4 (added 2026-09-16): the low-stock email dedupe log. One
+-- open row per product while it's below the line; the job (zoomy-observability
+-- run-stock-check.mjs) fires on the CROSSING (insert) and resolves on recovery.
+-- Additive; service-role only (no anon policy), like pos_stock_movements.
+create table if not exists public.pos_stock_alert_log (
+  id            bigint generated always as identity primary key,
+  product_id    text not null references public.pos_products(product_id),
+  level_at_fire text not null,          -- 'low' | 'out'
+  stock_at_fire integer not null,
+  fired_at      timestamptz not null default now(),
+  resolved_at   timestamptz
+);
+create index if not exists pos_stock_alert_log_open_idx
+  on public.pos_stock_alert_log (product_id) where resolved_at is null;
+alter table public.pos_stock_alert_log enable row level security;
+
+-- Captured Coop dashboard sign-ins (Google SSO), so the low-stock email reaches
+-- everyone who uses Coop. Additive; service-role only. The dashboard upserts on
+-- sign-in (auth.ts events.signIn); the batch job reads the list. The upsert sends
+-- only {email, last_seen}, so first_seen is preserved across logins.
+create table if not exists public.pos_dashboard_users (
+  email      text primary key,
+  first_seen timestamptz not null default now(),
+  last_seen  timestamptz not null default now()
+);
+alter table public.pos_dashboard_users enable row level security;
+
 -- =========================================================================
 -- 6. Events, opening cash & pet tagging (added 2026-09-15) — one Event per
 --    bazaar day. Coop schedules a date range; the POS auto-detects "today's

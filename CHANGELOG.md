@@ -41,6 +41,11 @@ synced through `upsert_pos_event`.
   an active event day. `db/events.ts` gained pure `overlappingEvent` + `isValidDateKey`
   (6 new tests, 303 total green). Schema mirrored in `supabase/pos_schema.sql`,
   applied to Staging; partial-upsert verified (closing cash set, other fields intact).
+- **Always-reachable entry point.** The header event chip (`EventBadge`) used to
+  render nothing on a normal day, so creating/scheduling had no door. It now shows a
+  quiet "Set up event" pill when there's no event today (the active-day pink chip is
+  unchanged), both opening the setup sheet. Without this, the create/schedule flow
+  was unreachable except on an event day.
 
 ## 2026-09-16 — Stock Forecast schema + immediate low-stock alerts (Staging) — `feat(pos)`
 

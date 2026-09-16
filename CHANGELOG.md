@@ -12,6 +12,27 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-16 — Stock Forecast schema + immediate low-stock alerts (Staging) — `feat(pos)`
+
+The `pos_*` backend for the Coop Stock Forecast feature (UI + email job live in
+`../zoomy-observability-dashboard` and `../zoomy-observability`). All additive,
+Staging-only, mirrored in `supabase/pos_schema.sql`. Not yet on prod.
+
+- **Settings + surge:** `stock_forecast_config` and `next_event_plan` in
+  `pos_settings`, with `set_pos_stock_config` / `set_pos_next_event_plan` RPCs.
+- **Add stock + history:** `add_pos_stock` (batch, all-or-nothing) and
+  `void_last_stock_add` (offsetting reversal) RPCs; `pos_dashboard_users`
+  (captured Coop sign-ins, for alert recipients).
+- **Immediate low-stock alerts (event-driven):** `pos_stock_alert_log` (dedupe,
+  unique one-open-per-product) + a fail-soft `AFTER INSERT` trigger on
+  `pos_stock_movements` that calls the `stock-alert` Edge Function
+  (`supabase/functions/stock-alert/`) via `pg_net`. The function recomputes the
+  band, dedupes/escalates/resolves, and emails via Resend the instant a sale
+  crosses a product into low/out. Trigger is async + fail-soft, so it can never
+  block or slow a POS sale; the Resend key is a function secret, not in the DB.
+- **Verified on Staging:** real POS sales fired low, then out (escalation), and
+  auto-resolved on restock, emailing two recipients within seconds.
+
 ## 2026-09-15 — Event days, opening cash, and pet tagging (Staging) — `feat(events)`
 
 Three features that all hang off one new idea: a bazaar **Event**. Planning +

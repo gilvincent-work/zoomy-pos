@@ -1248,6 +1248,42 @@ create table if not exists public.pos_dashboard_users (
 );
 alter table public.pos_dashboard_users enable row level security;
 
+-- Immediate low-stock alerts (event-driven, added 2026-09-16). A trigger on every
+-- stock movement fires the `stock-alert` Edge Function (supabase/functions/stock-alert)
+-- via pg_net; the function recomputes the product's band, dedupes against
+-- pos_stock_alert_log, and emails via Resend the instant a product crosses low/out.
+-- pg_net enqueues async (after commit) and the trigger is fail-soft, so alerting
+-- can never block or break a POS sale. The unique partial index gives atomic
+-- one-open-alert-per-product dedup. The Resend key is a FUNCTION secret, not stored
+-- in the DB. Staging; not yet on prod.
+create extension if not exists pg_net;
+
+drop index if exists pos_stock_alert_log_open_idx;
+create unique index pos_stock_alert_log_open_idx
+  on public.pos_stock_alert_log (product_id) where resolved_at is null;
+
+create or replace function public.pos_fire_stock_alert()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.product_id is null then return new; end if;
+  -- anon key is PUBLIC (guarded by RLS); it only authenticates the call to the
+  -- JWT-verified function, which does its real work with its own service-role env.
+  perform net.http_post(
+    url := 'https://<project-ref>.supabase.co/functions/v1/stock-alert',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <anon-key>'),
+    body := jsonb_build_object('product_id', new.product_id)
+  );
+  return new;
+exception when others then
+  return new; -- alerting must NEVER break or slow a sale
+end;
+$$;
+
+drop trigger if exists pos_stock_movements_alert_ai on public.pos_stock_movements;
+create trigger pos_stock_movements_alert_ai
+after insert on public.pos_stock_movements
+for each row execute function public.pos_fire_stock_alert();
+
 -- =========================================================================
 -- 6. Events, opening cash & pet tagging (added 2026-09-15) — one Event per
 --    bazaar day. Coop schedules a date range; the POS auto-detects "today's

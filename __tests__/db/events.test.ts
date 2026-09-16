@@ -1,4 +1,4 @@
-import { pickEventForDate, type PosEvent } from '../../db/events';
+import { pickEventForDate, overlappingEvent, isValidDateKey, type PosEvent } from '../../db/events';
 
 function ev(over: Partial<PosEvent> & { event_id: string }): PosEvent {
   return {
@@ -9,6 +9,7 @@ function ev(over: Partial<PosEvent> & { event_id: string }): PosEvent {
     starts_on: null,
     ends_on: null,
     opening_cash: null,
+    closing_cash: null,
     cash_note: null,
     status: 'active',
     created_at: '2026-09-10T00:00:00.000Z',
@@ -60,5 +61,43 @@ describe('pickEventForDate', () => {
       ev({ event_id: 'new', starts_on: '2026-09-17', ends_on: '2026-09-19', created_at: '2026-09-10T00:00:00.000Z' }),
     ];
     expect(pickEventForDate(events, '2026-09-17')?.event_id).toBe('new');
+  });
+});
+
+describe('overlappingEvent', () => {
+  const existing = [ev({ event_id: 'a', name: 'Bazaar A', starts_on: '2026-09-17', ends_on: '2026-09-18' })];
+
+  it('flags a range that intersects an existing event', () => {
+    expect(overlappingEvent(existing, '2026-09-18', '2026-09-19')?.event_id).toBe('a');
+    expect(overlappingEvent(existing, '2026-09-16', '2026-09-17')?.event_id).toBe('a');
+  });
+  it('allows a range that abuts but does not intersect', () => {
+    expect(overlappingEvent(existing, '2026-09-19', '2026-09-20')).toBeNull();
+    expect(overlappingEvent(existing, '2026-09-15', '2026-09-16')).toBeNull();
+  });
+  it('excludes self when editing', () => {
+    expect(overlappingEvent(existing, '2026-09-17', '2026-09-18', 'a')).toBeNull();
+  });
+  it('a proposal with no dates never clashes', () => {
+    expect(overlappingEvent(existing, null, null)).toBeNull();
+  });
+  it('treats a single-bound existing event as that one day', () => {
+    const oneDay = [ev({ event_id: 'b', starts_on: '2026-09-20', ends_on: null })];
+    expect(overlappingEvent(oneDay, '2026-09-20', '2026-09-20')?.event_id).toBe('b');
+    expect(overlappingEvent(oneDay, '2026-09-21', '2026-09-22')).toBeNull();
+  });
+});
+
+describe('isValidDateKey', () => {
+  it('accepts a real YYYY-MM-DD date', () => {
+    expect(isValidDateKey('2026-09-17')).toBe(true);
+    expect(isValidDateKey('2026-02-28')).toBe(true);
+  });
+  it('rejects malformed or impossible dates', () => {
+    expect(isValidDateKey('2026-9-1')).toBe(false);
+    expect(isValidDateKey('2026-13-01')).toBe(false);
+    expect(isValidDateKey('2026-02-30')).toBe(false);
+    expect(isValidDateKey('not-a-date')).toBe(false);
+    expect(isValidDateKey('')).toBe(false);
   });
 });

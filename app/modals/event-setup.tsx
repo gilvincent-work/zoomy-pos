@@ -7,8 +7,10 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 import {
   getActiveEvent,
-  setLocalEventCash,
+  getLocalEvents,
   upsertLocalEvent,
+  overlappingEvent,
+  isValidDateKey,
   localDateKey,
   type PosEvent,
 } from '../../db/events';
@@ -16,13 +18,12 @@ import { newEventId } from '../../utils/events-sync';
 import { drainOutbox } from '../../utils/outbox';
 
 /**
- * Event day setup sheet (opened from the header event chip). Two modes:
- *  - An event is detected for today (the common case): count the drawer and
- *    save the opening cash float onto that event.
- *  - No event today, or the cashier taps "Start a new event": create an
- *    unplanned on-site event (name/venue/city/organizer + float).
- * Every write is local-first and queues a Coop push (upsert_pos_event) via the
- * outbox, so this works fully offline. Selling is never gated on any of it.
+ * Event setup sheet (opened from the header event chip). One full form for both
+ * modes: edit today's detected event (name, venue, dates, opening + closing cash)
+ * or schedule a new one (any date range, not just today). Every write is
+ * local-first and queues a Coop push (upsert_pos_event) via the outbox, so it works
+ * fully offline; the date range is guarded against overlaps the way Coop enforces.
+ * Selling is never gated on any of it.
  */
 export default function EventSetupModal() {
   const { colors } = useTheme();
@@ -30,33 +31,46 @@ export default function EventSetupModal() {
   const { showToast } = useToast();
 
   const [active, setActive] = useState<PosEvent | null>(null);
+  const [allEvents, setAllEvents] = useState<PosEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  // Float form (existing event)
-  const [cash, setCash] = useState('');
-  const [cashNote, setCashNote] = useState('');
-
-  // New-event form
   const [name, setName] = useState('');
   const [venue, setVenue] = useState('');
   const [city, setCity] = useState('');
   const [organizer, setOrganizer] = useState('');
-  const [newCash, setNewCash] = useState('');
+  const [startsOn, setStartsOn] = useState('');
+  const [endsOn, setEndsOn] = useState('');
+  const [openingCash, setOpeningCash] = useState('');
+  const [cashNote, setCashNote] = useState('');
+  const [closingCash, setClosingCash] = useState('');
+
+  const fillFrom = useCallback((ev: PosEvent | null) => {
+    const today = localDateKey();
+    setName(ev?.name ?? '');
+    setVenue(ev?.venue ?? '');
+    setCity(ev?.city ?? '');
+    setOrganizer(ev?.organizer ?? '');
+    setStartsOn(ev?.starts_on ?? today);
+    setEndsOn(ev?.ends_on ?? today);
+    setOpeningCash(ev?.opening_cash != null ? String(ev.opening_cash) : '');
+    setCashNote(ev?.cash_note ?? '');
+    setClosingCash(ev?.closing_cash != null ? String(ev.closing_cash) : '');
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      getActiveEvent().then((ev) => {
+      Promise.all([getActiveEvent(), getLocalEvents()]).then(([ev, all]) => {
         if (cancelled) return;
         setActive(ev);
+        setAllEvents(all);
         setCreating(ev == null); // no event today -> go straight to create
-        setCash(ev?.opening_cash != null ? String(ev.opening_cash) : '');
-        setCashNote(ev?.cash_note ?? '');
+        fillFrom(ev);
         setLoaded(true);
       });
       return () => { cancelled = true; };
-    }, [])
+    }, [fillFrom])
   );
 
   /** Parse a peso amount; empty -> null, invalid -> null. */
@@ -65,51 +79,60 @@ export default function EventSetupModal() {
     return v.trim() === '' || Number.isNaN(n) ? null : n;
   }
 
-  async function saveFloat() {
-    if (!active) return;
-    await setLocalEventCash(active.event_id, parseAmount(cash), cashNote.trim() || null);
-    drainOutbox().catch(() => {});
-    showToast({ variant: 'success', title: 'Opening cash saved', message: `${active.venue?.trim() || active.name}` });
-    router.back();
+  function startCreate() {
+    setCreating(true);
+    fillFrom(null);
+  }
+  function cancelCreate() {
+    setCreating(false);
+    fillFrom(active);
   }
 
-  async function createEvent() {
+  async function save() {
+    const editing = !creating && active;
     if (name.trim() === '') {
       showToast({ variant: 'error', title: 'Name the event', message: 'An event needs a name.' });
       return;
     }
-    // Block overlaps at creation (decided 2026-09-15): an on-site event covers
-    // today, so refuse if today is already an event day. Re-check fresh in case
-    // a pull arrived while the sheet was open. Coop enforces the same rule
-    // authoritatively in upsert_pos_event; this is the friendly local guard.
-    const covering = await getActiveEvent();
-    if (covering) {
-      showToast({
-        variant: 'error',
-        title: 'Today already has an event',
-        message: `${covering.name} covers today. Set its opening cash instead.`,
-      });
+    const start = startsOn.trim();
+    const end = endsOn.trim();
+    if (start && !isValidDateKey(start)) {
+      showToast({ variant: 'error', title: 'Check the start date', message: 'Use YYYY-MM-DD.' });
       return;
     }
+    if (end && !isValidDateKey(end)) {
+      showToast({ variant: 'error', title: 'Check the end date', message: 'Use YYYY-MM-DD.' });
+      return;
+    }
+    if (start && end && end < start) {
+      showToast({ variant: 'error', title: 'Dates are backwards', message: 'The end date is before the start date.' });
+      return;
+    }
+    // Coop rejects overlapping ranges; block it here first with a friendly message.
+    const clash = overlappingEvent(allEvents, start || null, end || null, editing ? active!.event_id : undefined);
+    if (clash) {
+      showToast({ variant: 'error', title: 'Dates overlap another event', message: `${clash.name} already covers these dates.` });
+      return;
+    }
+
     const now = new Date().toISOString();
-    const today = localDateKey();
     await upsertLocalEvent({
-      event_id: newEventId(),
+      event_id: editing ? active!.event_id : newEventId(),
       name: name.trim(),
       venue: venue.trim() || null,
       city: city.trim() || null,
       organizer: organizer.trim() || null,
-      // On-site events default to a single day (today), so detection covers it now.
-      starts_on: today,
-      ends_on: today,
-      opening_cash: parseAmount(newCash),
-      cash_note: null,
-      status: 'active',
-      created_at: now,
+      starts_on: start || null,
+      ends_on: end || null,
+      opening_cash: parseAmount(openingCash),
+      closing_cash: editing ? parseAmount(closingCash) : null,
+      cash_note: cashNote.trim() || null,
+      status: editing ? active!.status : 'active',
+      created_at: editing ? active!.created_at : now,
       updated_at: now,
     });
     drainOutbox().catch(() => {});
-    showToast({ variant: 'success', title: 'Event created', message: name.trim() });
+    showToast({ variant: 'success', title: editing ? 'Event saved' : 'Event created', message: name.trim() });
     router.back();
   }
 
@@ -117,110 +140,132 @@ export default function EventSetupModal() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {!creating && active && (
-          <>
-            <Text style={styles.sectionLabel}>TODAY'S EVENT</Text>
-            <View style={styles.eventCard}>
-              <Text style={styles.eventName}>{active.name}</Text>
-              <Text style={styles.eventMeta}>
-                {[active.venue, active.city].filter(Boolean).join(' · ') || 'No location set'}
-              </Text>
-              {(active.starts_on || active.ends_on) && (
-                <Text style={styles.eventDates}>
-                  {active.starts_on === active.ends_on
-                    ? active.starts_on
-                    : `${active.starts_on ?? '…'} to ${active.ends_on ?? '…'}`}
-                </Text>
-              )}
-            </View>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.sectionLabel}>{creating ? 'NEW EVENT' : "TODAY'S EVENT"}</Text>
+        <Text style={styles.hint}>
+          {creating
+            ? 'Schedule a bazaar. Set its date range, or leave today for a same-day pop-up.'
+            : 'Edit this event and count the drawer. Changes sync to Coop and every device.'}
+        </Text>
 
-            <Text style={styles.sectionLabel}>OPENING CASH FLOAT</Text>
-            <Text style={styles.hint}>Count the drawer at open. Enter the starting cash.</Text>
+        <Text style={styles.fieldLabel}>Event name</Text>
+        <TextInput
+          testID="new-event-name"
+          style={styles.textInput}
+          placeholder="Pet Bazaar · Weekend 4"
+          placeholderTextColor={colors.textMuted}
+          value={name}
+          onChangeText={setName}
+        />
+        <Text style={styles.fieldLabel}>Venue / mall</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Ayala Trinoma"
+          placeholderTextColor={colors.textMuted}
+          value={venue}
+          onChangeText={setVenue}
+        />
+        <Text style={styles.fieldLabel}>City</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Quezon City"
+          placeholderTextColor={colors.textMuted}
+          value={city}
+          onChangeText={setCity}
+        />
+        <Text style={styles.fieldLabel}>Organizer <Text style={styles.optional}>optional</Text></Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Pet Express…"
+          placeholderTextColor={colors.textMuted}
+          value={organizer}
+          onChangeText={setOrganizer}
+        />
+
+        <View style={styles.datesRow}>
+          <View style={styles.dateCol}>
+            <Text style={styles.fieldLabel}>Start date</Text>
+            <TextInput
+              testID="event-start-date"
+              style={styles.textInput}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.textMuted}
+              value={startsOn}
+              onChangeText={setStartsOn}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <View style={styles.dateCol}>
+            <Text style={styles.fieldLabel}>End date</Text>
+            <TextInput
+              testID="event-end-date"
+              style={styles.textInput}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.textMuted}
+              value={endsOn}
+              onChangeText={setEndsOn}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </View>
+
+        <Text style={styles.fieldLabel}>Opening cash float</Text>
+        <View style={styles.amountWrap}>
+          <Text style={styles.peso}>₱</Text>
+          <TextInput
+            testID="event-opening-cash"
+            style={styles.amountInput}
+            placeholder="0"
+            placeholderTextColor={colors.textMuted}
+            value={openingCash}
+            onChangeText={setOpeningCash}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <Text style={styles.fieldLabel}>Cash note <Text style={styles.optional}>optional</Text></Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Mostly ₱20s and ₱50s…"
+          placeholderTextColor={colors.textMuted}
+          value={cashNote}
+          onChangeText={setCashNote}
+        />
+
+        {!creating && (
+          <>
+            <Text style={styles.fieldLabel}>Counted at close <Text style={styles.optional}>optional</Text></Text>
+            <Text style={styles.hint}>Count the drawer at end of day.</Text>
             <View style={styles.amountWrap}>
               <Text style={styles.peso}>₱</Text>
               <TextInput
-                testID="event-opening-cash"
+                testID="event-closing-cash"
                 style={styles.amountInput}
                 placeholder="0"
                 placeholderTextColor={colors.textMuted}
-                value={cash}
-                onChangeText={setCash}
+                value={closingCash}
+                onChangeText={setClosingCash}
                 keyboardType="numeric"
               />
             </View>
-
-            <Text style={styles.sectionLabel}>CASH NOTE <Text style={styles.optional}>optional</Text></Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Mostly ₱20s and ₱50s…"
-              placeholderTextColor={colors.textMuted}
-              value={cashNote}
-              onChangeText={setCashNote}
-            />
-
-            <TouchableOpacity style={styles.primaryBtn} onPress={saveFloat} activeOpacity={0.85}>
-              <Text style={styles.primaryBtnText}>Save opening cash</Text>
-            </TouchableOpacity>
           </>
         )}
 
-        {creating && (
-          <>
-            <Text style={styles.sectionLabel}>NEW EVENT</Text>
-            <Text style={styles.hint}>For an unplanned pop-up not scheduled on Coop. Covers today.</Text>
+        <TouchableOpacity style={styles.primaryBtn} onPress={save} activeOpacity={0.85}>
+          <Text style={styles.primaryBtnText}>{creating ? 'Create event' : 'Save changes'}</Text>
+        </TouchableOpacity>
 
-            <Text style={styles.fieldLabel}>Event name</Text>
-            <TextInput
-              testID="new-event-name"
-              style={styles.textInput}
-              placeholder="Pet Bazaar · Weekend 4"
-              placeholderTextColor={colors.textMuted}
-              value={name}
-              onChangeText={setName}
-            />
-            <Text style={styles.fieldLabel}>Venue / mall</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Ayala Trinoma"
-              placeholderTextColor={colors.textMuted}
-              value={venue}
-              onChangeText={setVenue}
-            />
-            <Text style={styles.fieldLabel}>City</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Quezon City"
-              placeholderTextColor={colors.textMuted}
-              value={city}
-              onChangeText={setCity}
-            />
-            <Text style={styles.fieldLabel}>Organizer <Text style={styles.optional}>optional</Text></Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Pet Express…"
-              placeholderTextColor={colors.textMuted}
-              value={organizer}
-              onChangeText={setOrganizer}
-            />
-            <Text style={styles.fieldLabel}>Opening cash float</Text>
-            <View style={styles.amountWrap}>
-              <Text style={styles.peso}>₱</Text>
-              <TextInput
-                style={styles.amountInput}
-                placeholder="0"
-                placeholderTextColor={colors.textMuted}
-                value={newCash}
-                onChangeText={setNewCash}
-                keyboardType="numeric"
-              />
-            </View>
-
-            <TouchableOpacity style={styles.primaryBtn} onPress={createEvent} activeOpacity={0.85}>
-              <Text style={styles.primaryBtnText}>Create &amp; select</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        {creating && active ? (
+          <TouchableOpacity style={styles.secondaryBtn} onPress={cancelCreate} activeOpacity={0.85}>
+            <Text style={styles.secondaryBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        ) : !creating ? (
+          <TouchableOpacity style={styles.secondaryBtn} onPress={startCreate} activeOpacity={0.85}>
+            <Text style={styles.secondaryBtnText}>Schedule another event</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -235,18 +280,13 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   optional: { color: c.textMuted, fontSize: F.xs, fontWeight: '400', letterSpacing: 0, textTransform: 'none' },
   hint: { color: c.textMuted, fontSize: F.xs, marginTop: -2, marginBottom: 4 },
-  eventCard: {
-    backgroundColor: c.surface, borderRadius: R.md, borderWidth: 1, borderColor: c.border,
-    padding: 14, gap: 3,
-  },
-  eventName: { color: c.textPrimary, fontSize: F.md, fontWeight: '800' },
-  eventMeta: { color: c.textSecondary, fontSize: F.sm },
-  eventDates: { color: c.textMuted, fontSize: F.xs, fontWeight: '600' },
   fieldLabel: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700', marginTop: 8 },
   textInput: {
     backgroundColor: c.surface, color: c.textPrimary, borderRadius: R.sm, borderWidth: 1,
     borderColor: c.border, paddingVertical: 11, paddingHorizontal: 14, fontSize: F.md,
   },
+  datesRow: { flexDirection: 'row', gap: 10 },
+  dateCol: { flex: 1 },
   amountWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.surface,
     borderRadius: R.sm, borderWidth: 1, borderColor: c.border, paddingHorizontal: 14,
@@ -257,4 +297,9 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.pink, borderRadius: R.md, paddingVertical: 15, alignItems: 'center', marginTop: 18,
   },
   primaryBtnText: { color: '#fff', fontSize: F.md, fontWeight: '800' },
+  secondaryBtn: {
+    backgroundColor: c.surface, borderRadius: R.md, borderWidth: 1, borderColor: c.border,
+    paddingVertical: 13, alignItems: 'center', marginTop: 10,
+  },
+  secondaryBtnText: { color: c.textSecondary, fontSize: F.md, fontWeight: '700' },
 });

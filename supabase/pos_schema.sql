@@ -1363,7 +1363,7 @@ begin
   end if;
 
   insert into pos_events (event_id, name, venue, city, organizer, starts_on, ends_on,
-                          opening_cash, cash_note, status, created_by, created_at, updated_at)
+                          opening_cash, closing_cash, cash_note, status, created_by, created_at, updated_at)
   values (
     v_id,
     coalesce(p_event->>'name', ''),
@@ -1373,6 +1373,7 @@ begin
     v_start,
     v_end,
     nullif(p_event->>'opening_cash', '')::numeric,
+    nullif(p_event->>'closing_cash', '')::numeric,
     p_event->>'cash_note',
     coalesce(nullif(p_event->>'status', ''), 'active'),
     p_event->>'created_by',
@@ -1386,6 +1387,7 @@ begin
     starts_on    = case when p_event ? 'starts_on'    then excluded.starts_on    else pos_events.starts_on end,
     ends_on      = case when p_event ? 'ends_on'      then excluded.ends_on      else pos_events.ends_on end,
     opening_cash = case when p_event ? 'opening_cash' then excluded.opening_cash else pos_events.opening_cash end,
+    closing_cash = case when p_event ? 'closing_cash' then excluded.closing_cash else pos_events.closing_cash end,
     cash_note    = case when p_event ? 'cash_note'    then excluded.cash_note    else pos_events.cash_note end,
     status       = case when p_event ? 'status'       then excluded.status       else pos_events.status end,
     updated_at   = now();

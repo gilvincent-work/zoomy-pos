@@ -12,6 +12,28 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-17 — POS event controls reach parity with Coop — `feat(pos)`
+
+The event-setup sheet (opened from the header event chip) was a two-mode form:
+edit today's event's opening cash, or spin up a today-only pop-up. It's now a full
+create/edit form matching Coop's scheduling controls, still fully offline and
+synced through `upsert_pos_event`.
+
+- **Date range on create + edit.** Start/End date fields (validated `YYYY-MM-DD`)
+  replace the hard-coded today-only event, so the POS can schedule ahead and
+  multi-day bazaars, and edit a scheduled event's dates. A pure `overlappingEvent`
+  guard (mirrors Coop's rule) blocks a clashing range locally before Coop would
+  reject it, so a bad create can't get stuck unsynced.
+- **Edit event details.** Name, venue, city, organizer, and dates are now editable
+  on a detected event (were read-only) via `upsertLocalEvent`, not just opening cash.
+- **Closing cash.** New `closing_cash` on the local `pos_events` (+ pull/push), and
+  `upsert_pos_event` extended to carry it (partial upsert, never touches status, so
+  recording closing cash never closes a multi-day event). Counted at close, on-site.
+- A "Schedule another event" action lets the cashier create a future event even on
+  an active event day. `db/events.ts` gained pure `overlappingEvent` + `isValidDateKey`
+  (6 new tests, 303 total green). Schema mirrored in `supabase/pos_schema.sql`,
+  applied to Staging; partial-upsert verified (closing cash set, other fields intact).
+
 ## 2026-09-16 — Stock Forecast schema + immediate low-stock alerts (Staging) — `feat(pos)`
 
 The `pos_*` backend for the Coop Stock Forecast feature (UI + email job live in

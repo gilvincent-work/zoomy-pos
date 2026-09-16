@@ -25,6 +25,7 @@ type RemoteEventRow = {
   starts_on: string | null;
   ends_on: string | null;
   opening_cash: number | null;
+  closing_cash: number | null;
   cash_note: string | null;
   status: string | null;
   created_at: string;
@@ -46,7 +47,7 @@ export async function pullEvents(): Promise<{ updated: number } | null> {
   try {
     const { data, error } = await sb
       .from('pos_events')
-      .select('event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, cash_note, status, created_at, updated_at');
+      .select('event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, closing_cash, cash_note, status, created_at, updated_at');
     if (error) throw new Error(error.message);
     rows = (data ?? []) as RemoteEventRow[];
   } catch {
@@ -70,6 +71,7 @@ export async function pullEvents(): Promise<{ updated: number } | null> {
         starts_on: r.starts_on ?? null,
         ends_on: r.ends_on ?? null,
         opening_cash: r.opening_cash == null ? null : Number(r.opening_cash),
+        closing_cash: r.closing_cash == null ? null : Number(r.closing_cash),
         cash_note: r.cash_note ?? null,
         status: r.status ?? 'active',
         created_at: r.created_at,
@@ -95,6 +97,7 @@ export async function pushEvent(e: PosEvent): Promise<boolean> {
     starts_on: e.starts_on,
     ends_on: e.ends_on,
     opening_cash: e.opening_cash,
+    closing_cash: e.closing_cash,
     cash_note: e.cash_note,
     status: e.status,
     created_by: 'pos',

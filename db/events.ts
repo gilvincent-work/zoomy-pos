@@ -18,6 +18,7 @@ export type PosEvent = {
   starts_on: string | null; // 'YYYY-MM-DD'
   ends_on: string | null;   // 'YYYY-MM-DD'
   opening_cash: number | null;
+  closing_cash: number | null; // counted at the till at close (mirrors Coop)
   cash_note: string | null;
   status: string; // 'active' | 'closed'
   created_at: string;
@@ -57,6 +58,40 @@ export function pickEventForDate(events: PosEvent[], dateKey: string): PosEvent 
   return covering[0];
 }
 
+/**
+ * Pure: the first event whose dates clash with a proposed [startsOn, endsOn]
+ * range, or null if the range is free. Mirrors Coop's upsert_pos_event overlap
+ * guard exactly (single bound = that one day; ranges intersect when each starts on
+ * or before the other ends), so the POS can block a create/edit locally before
+ * Coop would reject it. Pass selfId when editing so an event never clashes with
+ * itself. A proposal with no dates never clashes.
+ */
+export function overlappingEvent(
+  events: PosEvent[],
+  startsOn: string | null,
+  endsOn: string | null,
+  selfId?: string
+): PosEvent | null {
+  if (!startsOn && !endsOn) return null;
+  const from = (startsOn ?? endsOn) as string;
+  const to = (endsOn ?? startsOn) as string;
+  for (const e of events) {
+    if (e.event_id === selfId) continue;
+    const eFrom = e.starts_on ?? e.ends_on;
+    const eTo = e.ends_on ?? e.starts_on;
+    if (!eFrom || !eTo) continue;
+    if (eFrom <= to && from <= eTo) return e;
+  }
+  return null;
+}
+
+/** Validate a 'YYYY-MM-DD' string; returns true for a real calendar date. */
+export function isValidDateKey(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(v + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && v === d.toISOString().slice(0, 10);
+}
+
 function rowToEvent(r: Record<string, unknown>): PosEvent {
   return {
     event_id: r.event_id as string,
@@ -67,6 +102,7 @@ function rowToEvent(r: Record<string, unknown>): PosEvent {
     starts_on: (r.starts_on as string) ?? null,
     ends_on: (r.ends_on as string) ?? null,
     opening_cash: r.opening_cash == null ? null : Number(r.opening_cash),
+    closing_cash: r.closing_cash == null ? null : Number(r.closing_cash),
     cash_note: (r.cash_note as string) ?? null,
     status: (r.status as string) ?? 'active',
     created_at: r.created_at as string,
@@ -113,8 +149,8 @@ export async function upsertLocalEvent(
   const syncedAt = opts.synced ? e.updated_at : null;
   await db.runAsync(
     `INSERT INTO pos_events
-       (event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, cash_note, status, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, closing_cash, cash_note, status, created_at, updated_at, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(event_id) DO UPDATE SET
        name = excluded.name,
        venue = excluded.venue,
@@ -123,13 +159,14 @@ export async function upsertLocalEvent(
        starts_on = excluded.starts_on,
        ends_on = excluded.ends_on,
        opening_cash = excluded.opening_cash,
+       closing_cash = excluded.closing_cash,
        cash_note = excluded.cash_note,
        status = excluded.status,
        updated_at = excluded.updated_at,
        synced_at = excluded.synced_at`,
     [
       e.event_id, e.name, e.venue, e.city, e.organizer, e.starts_on, e.ends_on,
-      e.opening_cash, e.cash_note, e.status, e.created_at, e.updated_at, syncedAt,
+      e.opening_cash, e.closing_cash, e.cash_note, e.status, e.created_at, e.updated_at, syncedAt,
     ]
   );
 }

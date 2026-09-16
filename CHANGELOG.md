@@ -12,6 +12,14 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-17 — Fix red CI: exclude Deno edge functions from typecheck — `chore(ci)`
+
+CI's `quality` job (typecheck) had been failing since the `stock-alert` Supabase
+Edge Function landed: the app `tsconfig.json` includes `**/*.ts`, so `tsc` tried to
+typecheck the Deno function and errored on `Deno` globals. Added an `exclude` for
+`supabase/functions/**` (and `node_modules`) so the app typecheck ignores Deno code
+(it has its own runtime). `npm run typecheck` is green again; tests already passed.
+
 ## 2026-09-17 — POS event controls reach parity with Coop — `feat(pos)`
 
 The event-setup sheet (opened from the header event chip) was a two-mode form:

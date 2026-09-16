@@ -1410,7 +1410,49 @@ begin
 end;
 $$;
 
+-- attribute_untagged_orders_to_event (added 2026-09-17): persist Coop's read-time
+-- "fill the blanks" attribution. When an event's dates are set/extended, stamp
+-- event_id onto UNTAGGED (null) orders whose Manila date falls in the range, so the
+-- POS app + raw pos_orders agree with Coop's reporting. Fills blanks only (never
+-- re-tags a POS-stamped sale, never un-stamps); the overlap guard means a date maps
+-- to at most one event, so this is unambiguous. Idempotent; returns rows attached.
+-- Called from the dashboard (service_role) right after upsert_pos_event.
+create or replace function public.attribute_untagged_orders_to_event(p_event_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from date;
+  v_to   date;
+  v_count integer;
+begin
+  select coalesce(starts_on, ends_on), coalesce(ends_on, starts_on)
+    into v_from, v_to
+    from pos_events
+   where event_id = p_event_id;
+
+  if v_from is null or v_to is null then
+    return 0;  -- event has no dates; nothing to attribute
+  end if;
+
+  with updated as (
+    update pos_orders o
+       set event_id = p_event_id
+     where o.event_id is null
+       and (o.created_at at time zone 'Asia/Manila')::date between v_from and v_to
+    returning 1
+  )
+  select count(*) into v_count from updated;
+
+  return v_count;
+end;
+$$;
+
 alter table public.pos_events enable row level security;
 create policy pos_events_read on public.pos_events for select to anon using (true);
 grant execute on function public.upsert_pos_event(jsonb)        to anon;
 grant execute on function public.close_pos_event(uuid, numeric) to anon;
+-- Coop-only (service_role); the POS never calls this, so anon is deliberately not granted.
+grant execute on function public.attribute_untagged_orders_to_event(uuid) to service_role;

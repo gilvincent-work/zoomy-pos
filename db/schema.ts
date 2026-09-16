@@ -245,6 +245,12 @@ export async function initSchema(): Promise<void> {
     `ALTER TABLE transactions ADD COLUMN pet_type TEXT`
   ).catch(() => {});
 
+  // Closing cash counted at the till at end of day, mirrors Coop's pos_events
+  // column. Edited on the POS (event-setup) and synced up via upsert_pos_event.
+  await db.runAsync(
+    `ALTER TABLE pos_events ADD COLUMN closing_cash REAL`
+  ).catch(() => {});
+
   // One-time backfill so the first drain doesn't flag the entire history as
   // "pending". Gated by a settings marker so it runs at most once.
   //  - remarks_synced_at: seed to created_at for every existing row (nothing to

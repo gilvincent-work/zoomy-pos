@@ -12,6 +12,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-17 — v1.2.2: lockstep release — `chore(release)`
+
+**Version bumped to 1.2.2** (`package.json` + Expo `app.json`; was 1.2.0) in lockstep
+with the Coop dashboard's 1.2.2 (compare-days event chart + low-stock email STAGING
+tagging). No POS app runtime change in this bump beyond the staging alert-email tag.
+
 ## 2026-09-17 — Tag staging low-stock alert emails — `feat(alerts)`
 
 The event-driven `stock-alert` Edge Function now marks non-prod alert emails so a

@@ -12,7 +12,53 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
-## 2026-09-17 — Fix red CI: exclude Deno edge functions from typecheck — `chore(ci)`
+## 2026-09-17 — v1.2.0: prep prod promotion of the Sept-15→17 POS features — `chore(release)`
+
+**Version bumped to 1.2.0** (`package.json` + Expo `app.json`; was 1.1.2) to mark
+the prod cutover of the events/cash/pet-tag, stock-intake, forecast-config, order
+edit/void, and low-stock-alert work. Dashboard bumped to 1.2.0 in lockstep.
+
+Assembled the reviewed, additive SQL + edge-fn package to bring Coop **prod**
+(`qkxbwzdxhwcbwgriwipi`) up to Staging parity. Prod was frozen at the 2026-09-09
+baseline; a live object diff (prod's migration ledger is empty and Staging carries
+untracked objects) showed the real delta, which is bigger than the tracked
+migrations. **No product/stock/order data is copied. prod sales data is untouched.**
+
+- **New files.** `supabase/prod_promotion_2026-09-17.sql` (one controlled pass) and
+  `supabase/prod_promotion_2026-09-17_RUNBOOK.md` (apply order, edge-fn secrets,
+  data-safety audit, verification).
+- **Delta.** 4 tables (`pos_events`, `pos_settings`, `pos_stock_alert_log`,
+  `pos_dashboard_users`); 4 columns (`pos_orders.event_id/pet_type/edited_at`,
+  `pos_order_items.bundle_group`); 11 new functions; 3 replaced (drifted:
+  `apply_pos_order`, `set_product_stock`, `void_pos_order`); the alert trigger;
+  `pg_net`; the `stock-alert` edge fn; config seeds.
+- **`pos_fire_stock_alert` made environment-aware.** Reads its endpoint + (public)
+  anon key from per-database settings (`app.stock_alert_url/key`) instead of a
+  hardcoded Staging ref, so the identical body promotes clean and can never
+  cross-wire prod movements to the Staging function.
+- **Left untouched (verified identical on prod):** `pos_inventory` view,
+  `pos_products.emoji`, and 10 shared functions (byte-for-byte match).
+- **Seeds.** `stock_forecast_config`, `next_event_plan`, and `daily_revenue_target`
+  = ₱13,500 (confirmed for prod).
+- **APPLIED to prod 2026-09-17.** Ran via MCP against `qkxbwzdxhwcbwgriwipi`:
+  pg_net + 4 tables + 4 columns + 14 functions + trigger + seeds + grants + ledger.
+  Verified: 4/4 tables, 4/4 columns, 14/14 functions, trigger live, ledger max =
+  `20260916185642` (matches staging). Security advisors: no new findings (all
+  warnings are the established anon-RPC/service-role-RLS posture staging shares).
+- **Two runtime deviations from the written plan** (repo SQL updated to match):
+  1. The env-aware endpoint config moved from `ALTER DATABASE … SET` (GUC) to a
+     `pos_settings` row (`stock_alert_endpoint`) — the MCP role is not superuser on
+     Supabase, so the GUC set was permission-denied. The `pos_settings` approach is
+     actually better (always fresh, no connection-cycle lag). `pos_fire_stock_alert`
+     reads `url`/`anon_key` from that row.
+  2. Prod had no `supabase_migrations` schema at all (never used migrations), so the
+     ledger table was created before backfilling it.
+- **Remaining manual steps (not doable via MCP):** set the `stock-alert` edge-fn
+  secrets on prod (`RESEND_API_KEY`, `INVENTORY_URL`=prod dashboard, confirm
+  `EMAIL_FROM`); deploy dashboard `main` to prod Vercel (co-worker); cut the POS
+  prod build. Alerts stay dormant (no email) until `RESEND_API_KEY` is set — by
+  design the fn does not record the crossing while unconfigured, so the first real
+  low-stock event still emails once the key lands.
 
 CI's `quality` job (typecheck) had been failing since the `stock-alert` Supabase
 Edge Function landed: the app `tsconfig.json` includes `**/*.ts`, so `tsc` tried to

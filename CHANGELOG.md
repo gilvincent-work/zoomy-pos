@@ -12,6 +12,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-17 — Tag staging low-stock alert emails — `feat(alerts)`
+
+The event-driven `stock-alert` Edge Function now marks non-prod alert emails so a
+staging test is unmistakable: a `[STAGING]` subject prefix and a STAGING chip in the
+email header. Prod stays clean. Self-configuring, no secret: the function reads its
+own `SUPABASE_URL`, so the Staging project ref identifies staging (prod ref = no tag).
+Deployed to the Staging project (v5); prod unchanged. The batch digest/immediate
+emails (in `zoomy-observability`) carry the same tag, driven by the workflow ENVIRONMENT.
+
 ## 2026-09-17 — v1.2.0: prep prod promotion of the Sept-15→17 POS features — `chore(release)`
 
 **Version bumped to 1.2.0** (`package.json` + Expo `app.json`; was 1.1.2) to mark

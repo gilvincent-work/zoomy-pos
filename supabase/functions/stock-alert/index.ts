@@ -15,6 +15,10 @@ const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const EMAIL_FROM = Deno.env.get('EMAIL_FROM') ?? 'coop-alerts@hello.lanceamiel.site';
 const EMAIL_TO_FALLBACK = (Deno.env.get('EMAIL_TO') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const INVENTORY_URL = Deno.env.get('INVENTORY_URL') ?? 'https://coop-brand-os-staging.vercel.app/inventory?channel=offline';
+// Tag non-prod alert emails so a staging test is unmistakable; prod stays clean.
+// Self-configuring: each project's function has its own SUPABASE_URL, so the staging
+// project ref identifies staging with no secret. (Prod ref -> null -> no tag.)
+const ENV_TAG = SUPABASE_URL.includes('syxwixxzmytvhwhkwdvw') ? 'STAGING' : null;
 
 const FORECAST_WINDOW_DAYS = 60;
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -101,7 +105,7 @@ Deno.serve(async (req) => {
     const targetCover = Number(cfg.target_cover_events ?? 6);
     const reorderQty = perDay > 0 ? Math.max(0, Math.ceil(targetCover * perDay - stock)) : null;
 
-    const {subject, html} = buildEmail({name, stock, level, reorderQty});
+    const {subject, html} = buildEmail({name, stock, level, reorderQty, envTag: ENV_TAG});
     const send = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json'},
@@ -116,7 +120,7 @@ Deno.serve(async (req) => {
 
 // Single-product immediate email. Poppins with a system fallback, warm palette,
 // status pill, no em/en dashes. Mirrors the digest template's look.
-function buildEmail({name, stock, level, reorderQty}: {name: string; stock: number; level: 'low' | 'out'; reorderQty: number | null}) {
+function buildEmail({name, stock, level, reorderQty, envTag}: {name: string; stock: number; level: 'low' | 'out'; reorderQty: number | null; envTag?: string | null}) {
   const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c] as string));
   const FONT = "'Poppins','Segoe UI',Roboto,-apple-system,Helvetica,Arial,sans-serif";
   const MONO = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
@@ -135,6 +139,7 @@ body{margin:0;padding:0;background:#f4f5f2}</style></head>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f2"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:560px;background:#fff;border:1px solid ${LINE};border-radius:16px;overflow:hidden">
 <tr><td style="padding:28px 28px 0">
+${envTag ? `<div style="margin:0 0 12px"><span style="font-family:${MONO};font-size:10.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:${INK};padding:3px 8px;border-radius:5px">${esc(envTag)}</span></div>` : ''}
 <div style="font-family:${FONT};font-size:19px;font-weight:700;letter-spacing:-0.02em;color:${INK}">${isOut ? '&#128308;' : '&#128992;'}&nbsp; ${esc(headline)}</div>
 <div style="height:3px;width:34px;background:${OCHRE};border-radius:3px;margin:14px 0 0"></div>
 <p style="font-family:${FONT};font-size:14px;line-height:1.6;color:${MUTED};margin:16px 0 0">${isOut ? 'It just hit zero during today&rsquo;s selling. Bring more if you can.' : 'It crossed the low line during today&rsquo;s selling. Restock before it runs out.'}</p>
@@ -152,6 +157,6 @@ body{margin:0;padding:0;background:#f4f5f2}</style></head>
 <div style="font-family:${MONO};font-size:11px;color:${MUTED};line-height:1.5">Coop · Offline stock forecast<br>You are receiving this because you use the Coop dashboard.</div>
 </td></tr>
 </table></td></tr></table></body></html>`;
-  const subject = `${isOut ? '🔴' : '🟠'} ${headline}`;
+  const subject = `${envTag ? `[${envTag}] ` : ''}${isOut ? '🔴' : '🟠'} ${headline}`;
   return {subject, html};
 }

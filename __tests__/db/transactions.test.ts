@@ -1,6 +1,7 @@
 import {
   insertTransaction,
   voidTransaction,
+  unvoidTransaction,
   getAllTransactions,
   importTransaction,
   transactionExists,
@@ -11,6 +12,7 @@ import {
   getPendingSyncCount,
   getPendingSyncTransactions,
   deleteTransactionsByClientUuids,
+  replaceLocalTransactionContents,
 } from '../../db/transactions';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
@@ -84,6 +86,16 @@ describe('voidTransaction', () => {
     await voidTransaction(10);
     expect(mockDb.runAsync).toHaveBeenCalledWith(
       "UPDATE transactions SET status = 'voided', void_synced_at = NULL WHERE id = ?",
+      [10]
+    );
+  });
+});
+
+describe('unvoidTransaction', () => {
+  it('restores status to completed and nulls void_synced_at', async () => {
+    await unvoidTransaction(10);
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      "UPDATE transactions SET status = 'completed', void_synced_at = NULL WHERE id = ?",
       [10]
     );
   });
@@ -245,6 +257,42 @@ describe('markTransactionSynced', () => {
     expect(mockDb.runAsync).toHaveBeenCalledWith(
       'UPDATE transactions SET synced_at = ? WHERE client_uuid = ?',
       [expect.any(String), 'abc-123']
+    );
+  });
+});
+
+describe('replaceLocalTransactionContents', () => {
+  it('clears old items, inserts the new lines, and updates fields as confirmed-synced', async () => {
+    await replaceLocalTransactionContents(
+      42,
+      { paymentMethod: 'qrph', customerHandle: '@edited', total: 800 },
+      [
+        { productId: 5, productName: 'Beef', price: 200, quantity: 1 },
+        { productId: 6, productName: 'Chicken', price: 200, quantity: 3 },
+      ],
+    );
+    // 1) delete old items
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      1,
+      'DELETE FROM transaction_items WHERE transaction_id = ?',
+      [42]
+    );
+    // 2,3) insert the two new lines against the same transaction id
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('INSERT INTO transaction_items'),
+      [42, 5, 'Beef', 200, 1, null, null]
+    );
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('INSERT INTO transaction_items'),
+      [42, 6, 'Chicken', 200, 3, null, null]
+    );
+    // 4) update fields + mark synced (synced_at is a timestamp string)
+    expect(mockDb.runAsync).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining('UPDATE transactions SET payment_method = ?, customer_handle = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ?'),
+      ['qrph', '@edited', 800, 800, expect.any(String), 42]
     );
   });
 });

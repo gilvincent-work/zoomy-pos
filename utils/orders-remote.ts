@@ -1,5 +1,6 @@
 import {getSupabase} from '../lib/supabase';
 import {stripLinePrefix} from './catalog-sync';
+import {reconstructEntries, type EditEntry, type RawOrderLine, type BundleMatch} from './order-entries';
 import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactions';
 
 /**
@@ -28,6 +29,8 @@ type OrderRow = {
   payment_method: string | null;
   status: string | null;
   remarks: string | null;
+  event_id: string | null;
+  pet_type: string | null;
   created_at: string;
 };
 
@@ -46,7 +49,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     // pos_orders keyed for dedup by client_uuid; join items by the order id.
     const {data: orders, error: ordersErr} = await sb
       .from('pos_orders')
-      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, created_at')
+      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, event_id, pet_type, created_at')
       .order('created_at', {ascending: false})
       .limit(MAX_ORDERS);
     if (ordersErr || !orders) return {ok: false};
@@ -96,6 +99,8 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         status: o.status === 'voided' ? 'voided' : 'completed',
         created_at: o.created_at,
         remarks: o.remarks ?? null,
+        event_id: o.event_id ?? null,
+        pet_type: (o.pet_type as Transaction['pet_type']) ?? null,
         client_uuid: o.client_uuid ?? null,
         // Sync-tracking columns are local-only; a remote-sourced row carries none.
         synced_at: null,
@@ -127,6 +132,28 @@ export async function voidRemoteOrder(clientUuid: string): Promise<boolean> {
   }
 }
 
+/**
+ * Unvoid a previously voided sale on Coop by client_uuid (inverse of
+ * voidRemoteOrder): restores it to completed and re-applies its inventory. Unlike
+ * void, this is online-only — there's no offline queue for it. Returns
+ * {ok:false} when Supabase is unconfigured/unreachable or the RPC rejects (e.g.
+ * the order isn't voided).
+ */
+export async function unvoidRemoteOrder(clientUuid: string): Promise<{ok: boolean; error?: string}> {
+  const sb = getSupabase();
+  if (!sb) return {ok: false, error: 'No connection to Coop'};
+  try {
+    const {data, error} = await sb.rpc('unvoid_pos_order', {p_client_uuid: clientUuid});
+    if (error) return {ok: false, error: error.message};
+    if (data && (data as {ok?: boolean}).ok === false) {
+      return {ok: false, error: (data as {error?: string}).error ?? 'Unvoid failed'};
+    }
+    return {ok: true};
+  } catch (e) {
+    return {ok: false, error: e instanceof Error ? e.message : 'network error'};
+  }
+}
+
 /** Set (or clear, with null) a sale's remarks on Coop by client_uuid. Best-effort. */
 export async function setRemoteOrderRemarks(clientUuid: string, remarks: string | null): Promise<boolean> {
   const sb = getSupabase();
@@ -136,5 +163,82 @@ export async function setRemoteOrderRemarks(clientUuid: string, remarks: string 
     return !error;
   } catch {
     return false;
+  }
+}
+
+export type EditOrderPatch = {payment_method?: string; customer_handle?: string | null};
+
+/**
+ * Fetch a synced order's real Coop lines (which carry bundle_group) and rebuild
+ * them into editable entries. The POS edit flow is online-only, so it seeds the
+ * editor from Coop's authoritative shape rather than the flat local copy (which
+ * has no bundle grouping). {ok:false} when unconfigured/unreachable or unknown.
+ */
+export async function fetchRemoteOrderEntries(
+  clientUuid: string,
+  defs: BundleMatch[] = [],
+): Promise<{ok: true; entries: EditEntry[]} | {ok: false}> {
+  const sb = getSupabase();
+  if (!sb) return {ok: false};
+  try {
+    const {data: order, error: oErr} = await sb
+      .from('pos_orders').select('id,total').eq('client_uuid', clientUuid).maybeSingle();
+    if (oErr || !order) return {ok: false};
+    const {data: items, error} = await sb
+      .from('pos_order_items')
+      .select('product_id,bundle_id,bundle_group,qty,unit_price,line_total')
+      .eq('order_id', (order as {id: string}).id);
+    if (error || !items) return {ok: false};
+    const lines: RawOrderLine[] = (items as ItemRow2[]).map((it) => ({
+      product_id: it.product_id ?? null,
+      bundle_id: it.bundle_id ?? null,
+      bundle_group: it.bundle_group ?? null,
+      qty: Number(it.qty ?? 0),
+      unit_price: Number(it.unit_price ?? 0),
+      line_total: Number(it.line_total ?? 0),
+    }));
+    return {ok: true, entries: reconstructEntries(lines, Number((order as {total: number}).total ?? 0), defs)};
+  } catch {
+    return {ok: false};
+  }
+}
+
+type ItemRow2 = {
+  product_id: string | null;
+  bundle_id: string | null;
+  bundle_group: string | null;
+  qty: number | null;
+  unit_price: number | null;
+  line_total: number | null;
+};
+
+/**
+ * Edit a synced sale on Coop in place via edit_pos_order (reverses + re-applies
+ * inventory, recomputes the total, enforces each bundle's rules). Online-only —
+ * returns {ok:false} when Supabase is unconfigured/unreachable or the RPC rejects
+ * (a voided order, or a bundle that breaks its rule). Entries carry Coop SKUs +
+ * bundle ids, not local ids.
+ */
+export async function editRemoteOrder(
+  clientUuid: string,
+  patch: EditOrderPatch,
+  entries: EditEntry[],
+): Promise<{ok: boolean; error?: string}> {
+  const sb = getSupabase();
+  if (!sb) return {ok: false, error: 'No connection to Coop'};
+
+  const p_patch: Record<string, string> = {};
+  if (patch.payment_method) p_patch.payment_method = patch.payment_method;
+  if (patch.customer_handle !== undefined) p_patch.customer_handle = patch.customer_handle ?? '';
+
+  try {
+    const {data, error} = await sb.rpc('edit_pos_order', {p_client_uuid: clientUuid, p_patch, p_entries: entries});
+    if (error) return {ok: false, error: error.message};
+    if (data && (data as {ok?: boolean}).ok === false) {
+      return {ok: false, error: (data as {error?: string}).error ?? 'Edit failed'};
+    }
+    return {ok: true};
+  } catch (e) {
+    return {ok: false, error: e instanceof Error ? e.message : 'network error'};
   }
 }

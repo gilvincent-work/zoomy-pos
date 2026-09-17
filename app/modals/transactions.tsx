@@ -7,18 +7,39 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, Transaction, PaymentMethod } from '../../db/transactions';
-import { fetchRemoteOrders, setRemoteOrderRemarks } from '../../utils/orders-remote';
+import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, replaceLocalTransactionContents, Transaction, PaymentMethod } from '../../db/transactions';
+import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder, fetchRemoteOrderEntries } from '../../utils/orders-remote';
+import type { EditEntry } from '../../utils/order-entries';
+import { getSavedBundles, type SavedBundle } from '../../db/saved-bundles';
 import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import { refreshPendingCount } from '../../utils/outbox';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
+import { getAllProducts, Product } from '../../db/products';
+import { pullCatalog } from '../../utils/catalog-sync';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { quickMethodMeta } from '../../constants/payment';
 import {
   DateFilter, DateRange, getFilterRange, formatRangeLabel, formatRangeForFilename,
 } from '../../utils/date-range';
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+
+// Payment methods offered in the edit form.
+const EDIT_METHODS: PaymentMethod[] = ['cash', 'qrph', 'gcash', 'maya', 'card'];
+// Editable draft entries: an individual item, or a bundle group (editable price,
+// plus picks for a "Buy Any N" bundle). Prices/qtys are strings while editing.
+type DraftPick = { product_id: string; qty: string };
+type DraftEntry =
+  | { kind: 'item'; product_id: string; name: string; qty: string; price: string }
+  | { kind: 'bundle'; bundle_id: string; name: string; price: string; picks: DraftPick[] };
+// Where the product picker writes its selection.
+type PickerTarget =
+  | { kind: 'add-item' }
+  | { kind: 'set-item'; idx: number }
+  | { kind: 'add-pick'; idx: number }
+  | { kind: 'set-pick'; idx: number; pickIdx: number };
 
 type MethodFilter = 'all' | PaymentMethod;
 
@@ -182,6 +203,19 @@ export default function TransactionsModal() {
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
+  // Edit form (online-only): the local catalog for the product picker, and the
+  // in-progress edit draft. editingTx null = editor closed.
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editMethod, setEditMethod] = useState<PaymentMethod>('cash');
+  const [editHandle, setEditHandle] = useState('');
+  const [editEntries, setEditEntries] = useState<DraftEntry[]>([]);
+  const [bundleDefs, setBundleDefs] = useState<SavedBundle[]>([]);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editOpening, setEditOpening] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  const [bundleChooserFor, setBundleChooserFor] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
   const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,7 +268,11 @@ export default function TransactionsModal() {
   }, []);
 
   useFocusEffect(
-    useCallback(() => { loadTransactions(); }, [loadTransactions])
+    useCallback(() => {
+      loadTransactions();
+      // Load the catalog for the edit form's product picker (best-effort).
+      getAllProducts().then(setCatalog).catch(() => {});
+    }, [loadTransactions])
   );
 
   const filtered = useMemo(() => {
@@ -354,6 +392,196 @@ export default function TransactionsModal() {
       pathname: '/modals/admin',
       params: { action: 'void_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
     });
+  }
+
+  // Unvoiding restores a voided sale (re-applies its inventory + revenue on Coop),
+  // so it's online-only and needs the sale to already live on Coop (client_uuid).
+  // The admin PIN gate performs it; failure leaves the sale voided.
+  const canUnvoid =
+    !!selected &&
+    selected.status === 'voided' &&
+    !!selected.client_uuid &&
+    isSupabaseConfigured();
+
+  function handleUnvoid() {
+    if (!selected) return;
+    const { id, client_uuid } = selected;
+    setSelected(null);
+    router.push({
+      pathname: '/modals/admin',
+      params: { action: 'unvoid_transaction', transactionId: String(id), clientUuid: client_uuid ?? '' },
+    });
+  }
+
+  // Editing is online-only (it calls edit_pos_order on Coop) and limited to a
+  // completed, non-bundle sale that lives on THIS device (isLocalTransaction) and
+  // has reached Coop (client_uuid). Bundle sales are excluded — their price lives
+  // in the total, not the lines, so re-applying lines would zero the revenue.
+  // Other devices' sales are edited from the Coop dashboard, which seeds directly
+  // from the order (no fragile local catalog re-match). Requires the catalog
+  // loaded so line-seeding can resolve every item to a SKU.
+  const canEdit =
+    !!selected &&
+    selected.status === 'completed' &&
+    !!selected.client_uuid &&
+    isLocalTransaction(selected) &&
+    catalog.length > 0 &&
+    isSupabaseConfigured();
+
+  // Product lookups by Coop SKU (names/prices/local id for the mirror + picker).
+  const prodBySku = useMemo(() => {
+    const m = new Map<string, Product>();
+    for (const p of catalog) if (p.sku) m.set(p.sku, p);
+    return m;
+  }, [catalog]);
+  const bundleDefById = useMemo(() => {
+    const m = new Map<string, SavedBundle>();
+    for (const d of bundleDefs) if (d.bundle_uuid) m.set(d.bundle_uuid, d);
+    return m;
+  }, [bundleDefs]);
+
+  // Editing is online-only, so seed the draft from Coop's authoritative lines
+  // (they carry the bundle grouping the flat local copy lacks). Bundle rules come
+  // from local saved_bundles (keyed by the shared bundle_uuid).
+  async function openEdit() {
+    if (!selected || !selected.client_uuid) return;
+    setEditError(null);
+    setEditOpening(true);
+    setEditMethod((EDIT_METHODS.includes(selected.payment_method) ? selected.payment_method : 'cash'));
+    setEditHandle(selected.customer_handle ?? '');
+    const defs = await getSavedBundles().catch(() => [] as SavedBundle[]);
+    setBundleDefs(defs);
+    const matchDefs = defs
+      .filter((d) => d.bundle_uuid)
+      .map((d) => ({ bundle_id: d.bundle_uuid as string, bundle_type: d.bundle_type, pick_count: d.pick_count, price: d.price }));
+    const remote = await fetchRemoteOrderEntries(selected.client_uuid, matchDefs);
+    const defByUuid = new Map(defs.filter((d) => d.bundle_uuid).map((d) => [d.bundle_uuid as string, d]));
+    const skuName = new Map(catalog.filter((p) => p.sku).map((p) => [p.sku as string, p.name]));
+    let entries: EditEntry[];
+    if (remote.ok) {
+      entries = remote.entries;
+    } else {
+      // Fallback: seed loose items from the local copy (no bundle grouping).
+      entries = selected.items
+        .map((it): EditEntry | null => {
+          const prod = (it.product_id != null && catalog.find((p) => p.id === it.product_id)) || catalog.find((p) => p.name === it.product_name);
+          return prod && prod.sku ? { kind: 'item', product_id: prod.sku, qty: it.quantity, unit_price: it.price } : null;
+        })
+        .filter((e): e is EditEntry => e != null);
+    }
+    setEditEntries(entries.map((e): DraftEntry =>
+      e.kind === 'item'
+        ? { kind: 'item', product_id: e.product_id, name: skuName.get(e.product_id) ?? e.product_id, qty: String(e.qty), price: String(e.unit_price) }
+        : { kind: 'bundle', bundle_id: e.bundle_id, name: defByUuid.get(e.bundle_id)?.name ?? 'Bundle', price: String(e.price), picks: e.picks.map((p) => ({ product_id: p.product_id, qty: String(p.qty) })) },
+    ));
+    setEditOpening(false);
+    setEditingTx(selected);
+  }
+
+  const entryAmount = (e: DraftEntry) => e.kind === 'item' ? (Number(e.qty) || 0) * (Number(e.price) || 0) : Number(e.price) || 0;
+  function editTotal(): number { return editEntries.reduce((s, e) => s + entryAmount(e), 0); }
+  const picksTotal = (picks: DraftPick[]) => picks.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  // A "pick" bundle must have exactly its pick_count picks, each with a product.
+  function bundleProblem(e: Extract<DraftEntry, { kind: 'bundle' }>): string | null {
+    if (e.picks.some((p) => !p.product_id)) return 'choose a product for every pick';
+    const def = e.bundle_id ? bundleDefById.get(e.bundle_id) : undefined;
+    if (!def || def.bundle_type !== 'pick' || def.pick_count == null) return null;
+    const n = picksTotal(e.picks);
+    if (n !== def.pick_count) return `needs exactly ${def.pick_count} (has ${n})`;
+    return null;
+  }
+  const editCanSave = editEntries.length > 0 && editEntries.every((e) => e.kind === 'item' ? (!!e.product_id && Number(e.qty) > 0) : !bundleProblem(e));
+
+  const patchEntry = (i: number, next: DraftEntry) => setEditEntries((es) => es.map((e, idx) => (idx === i ? next : e)));
+  const removeEntry = (i: number) => setEditEntries((es) => es.filter((_, idx) => idx !== i));
+  function addBundleDef(def: SavedBundle) {
+    if (!def.bundle_uuid) return;
+    const picks = def.bundle_type === 'pick' && def.pick_count
+      ? Array.from({ length: def.pick_count }, () => ({ product_id: '', qty: '1' }))
+      : [];
+    setEditEntries((es) => [...es, { kind: 'bundle', bundle_id: def.bundle_uuid!, name: def.name, price: String(def.price), picks }]);
+  }
+  // Link/relink a bundle group to a bundle (keeps picks; a folded legacy bundle
+  // shouldn't lose them). Fills an empty price from the chosen bundle's default.
+  function relinkBundle(def: SavedBundle) {
+    if (bundleChooserFor == null || !def.bundle_uuid) { setBundleChooserFor(null); return; }
+    const i = bundleChooserFor;
+    setEditEntries((es) => es.map((e, idx) => idx === i && e.kind === 'bundle'
+      ? { ...e, bundle_id: def.bundle_uuid!, name: def.name, price: e.price && e.price !== '0' ? e.price : String(def.price) }
+      : e));
+    setBundleChooserFor(null);
+  }
+
+  // Product picker resolves against its target (add/replace an item, or a bundle pick).
+  function pickProduct(p: Product) {
+    if (!p.sku || !pickerTarget) { setPickerTarget(null); return; }
+    const t = pickerTarget;
+    setEditEntries((es) => es.map((e, idx) => {
+      if (t.kind === 'set-item' && idx === t.idx && e.kind === 'item') return { ...e, product_id: p.sku!, name: p.name, price: String(p.price ?? 0) };
+      if ((t.kind === 'set-pick' || t.kind === 'add-pick') && idx === t.idx && e.kind === 'bundle') {
+        if (t.kind === 'add-pick') return { ...e, picks: [...e.picks, { product_id: p.sku!, qty: '1' }] };
+        return { ...e, picks: e.picks.map((pk, j) => (j === t.pickIdx ? { ...pk, product_id: p.sku! } : pk)) };
+      }
+      return e;
+    }));
+    if (t.kind === 'add-item') setEditEntries((es) => [...es, { kind: 'item', product_id: p.sku!, name: p.name, qty: '1', price: String(p.price ?? 0) }]);
+    setPickerTarget(null);
+  }
+
+  // Catalog options for the open picker; a bundle-pick target restricts to the
+  // bundle's eligible categories.
+  const pickerOptions = useMemo(() => {
+    const base = catalog.filter((p) => p.sku && p.has_variants !== 1 && p.is_active === 1);
+    const t = pickerTarget;
+    if (t && (t.kind === 'set-pick' || t.kind === 'add-pick')) {
+      const e = editEntries[t.idx];
+      const def = e && e.kind === 'bundle' ? bundleDefById.get(e.bundle_id) : undefined;
+      const cats = def?.line_categories;
+      if (cats && cats.length > 0) return base.filter((p) => p.category != null && cats.includes(p.category));
+    }
+    return base;
+  }, [catalog, pickerTarget, editEntries, bundleDefById]);
+
+  async function handleSaveEdit() {
+    if (!editingTx || !editingTx.client_uuid) return;
+    if (!editCanSave) { setEditError('Check the items and bundle picks.'); return; }
+    setEditSaving(true);
+    setEditError(null);
+    const payload: EditEntry[] = editEntries.map((e) =>
+      e.kind === 'item'
+        ? { kind: 'item', product_id: e.product_id, qty: Number(e.qty) || 0, unit_price: Number(e.price) || 0 }
+        : { kind: 'bundle', bundle_id: e.bundle_id, price: Number(e.price) || 0, picks: e.picks.map((p) => ({ product_id: p.product_id, qty: Number(p.qty) || 0 })) },
+    );
+    const res = await editRemoteOrder(editingTx.client_uuid, { payment_method: editMethod, customer_handle: editHandle.trim() }, payload);
+    setEditSaving(false);
+    if (!res.ok) { setEditError(res.error ?? 'Edit failed.'); return; }
+
+    // Best-effort local mirror: flatten to lines (bundle picks at ₱0, the bundle
+    // price as its own line). loadTransactions re-fetches Coop's authoritative copy.
+    if (isLocalTransaction(editingTx)) {
+      const localItems: { productId: number; productName: string; price: number; quantity: number }[] = [];
+      for (const e of editEntries) {
+        if (e.kind === 'item') {
+          const prod = prodBySku.get(e.product_id);
+          if (prod) localItems.push({ productId: prod.id, productName: prod.name, price: Number(e.price) || 0, quantity: Number(e.qty) || 0 });
+        } else {
+          for (const pk of e.picks) {
+            const prod = prodBySku.get(pk.product_id);
+            if (prod) localItems.push({ productId: prod.id, productName: prod.name, price: 0, quantity: Number(pk.qty) || 0 });
+          }
+        }
+      }
+      await replaceLocalTransactionContents(
+        editingTx.id,
+        { paymentMethod: editMethod, customerHandle: editHandle.trim() || null, total: editTotal() },
+        localItems,
+      );
+    }
+    setEditingTx(null);
+    setSelected(null);
+    await loadTransactions();       // reflect the edit (re-fetches Coop too)
+    pullCatalog().catch(() => {});  // refresh local stock cache after reconcile
+    getAllProducts().then(setCatalog).catch(() => {});
   }
 
   return (
@@ -555,9 +783,19 @@ export default function TransactionsModal() {
                   <TouchableOpacity style={styles.remarksBtn} onPress={openRemarksModal}>
                     <Text style={styles.remarksBtnText} numberOfLines={1}>{selected.remarks ? '✎ Remarks' : '+ Remarks'}</Text>
                   </TouchableOpacity>
+                  {canEdit && (
+                    <TouchableOpacity style={styles.editBtn} onPress={openEdit}>
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
                   {canVoid && (
                     <TouchableOpacity style={styles.voidBtn} onPress={handleVoid}>
                       <Text style={styles.voidBtnText}>Void</Text>
+                    </TouchableOpacity>
+                  )}
+                  {canUnvoid && (
+                    <TouchableOpacity style={styles.unvoidBtn} onPress={handleUnvoid}>
+                      <Text style={styles.unvoidBtnText}>Unvoid</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -594,6 +832,198 @@ export default function TransactionsModal() {
                   <Text style={styles.remarksSaveText}>Save</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </View>
+        </Modal>
+      </Modal>
+
+      {/* Edit sale (online-only). Reconciles stock + total on Coop via the RPC. */}
+      <Modal visible={!!editingTx} transparent animationType="slide" onRequestClose={() => setEditingTx(null)}>
+        <View style={styles.editOverlay}>
+          <View style={styles.editSheet}>
+            <Text style={styles.editTitle}>Edit sale</Text>
+            <ScrollView style={styles.editScroll} keyboardShouldPersistTaps="handled">
+              <Text style={styles.editSectionLabel}>Payment method</Text>
+              <View style={styles.methodRow}>
+                {EDIT_METHODS.map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[styles.methodPill, editMethod === m && styles.methodPillActive]}
+                    onPress={() => setEditMethod(m)}
+                  >
+                    <Text style={[styles.methodPillText, editMethod === m && styles.methodPillTextActive]}>
+                      {quickMethodMeta(m).label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.editSectionLabel}>Furbaby / IG handle</Text>
+              <TextInput
+                style={styles.editInput}
+                placeholder="@username or name"
+                placeholderTextColor={colors.textMuted}
+                value={editHandle}
+                onChangeText={setEditHandle}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <Text style={styles.editSectionLabel}>Items &amp; bundles</Text>
+              {editEntries.map((e, i) => e.kind === 'item' ? (
+                <View key={`i-${i}`} style={styles.editLineRow}>
+                  <TouchableOpacity style={styles.editLineNamePick} onPress={() => setPickerTarget({ kind: 'set-item', idx: i })}>
+                    <Text style={styles.editLineName} numberOfLines={2}>{e.name || 'Select product…'}</Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    style={styles.editQtyInput} keyboardType="number-pad" value={e.qty}
+                    onChangeText={(v) => patchEntry(i, { ...e, qty: v.replace(/[^0-9]/g, '') })}
+                    accessibilityLabel={`Quantity for ${e.name}`}
+                  />
+                  <View style={styles.editPriceWrap}>
+                    <Text style={styles.editPricePeso}>₱</Text>
+                    <TextInput
+                      style={styles.editPriceInput} keyboardType="decimal-pad" value={e.price}
+                      onChangeText={(v) => patchEntry(i, { ...e, price: v.replace(/[^0-9.]/g, '') })}
+                      accessibilityLabel={`Unit price for ${e.name}`}
+                    />
+                  </View>
+                  <Text style={styles.editLineSubtotal} numberOfLines={1}>₱{entryAmount(e).toFixed(2)}</Text>
+                  <TouchableOpacity onPress={() => removeEntry(i)} style={styles.editRemoveBtn} accessibilityLabel={`Remove ${e.name}`}>
+                    <Ionicons name="close" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View key={`b-${i}`} style={styles.bundleCard}>
+                  <View style={styles.bundleCardHead}>
+                    <View style={styles.bundleBadge}><Text style={styles.bundleBadgeText}>BUNDLE</Text></View>
+                    <TouchableOpacity style={styles.bundleNamePick} onPress={() => setBundleChooserFor(i)}>
+                      <Text style={[styles.bundleName, !e.bundle_id && styles.bundleNameUnset]} numberOfLines={1}>
+                        {e.bundle_id ? e.name : 'Select bundle…'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                    </TouchableOpacity>
+                    <View style={styles.editPriceWrap}>
+                      <Text style={styles.editPricePeso}>₱</Text>
+                      <TextInput
+                        style={styles.editPriceInput} keyboardType="decimal-pad" value={e.price}
+                        onChangeText={(v) => patchEntry(i, { ...e, price: v.replace(/[^0-9.]/g, '') })}
+                        accessibilityLabel="Bundle price"
+                      />
+                    </View>
+                    <TouchableOpacity onPress={() => removeEntry(i)} style={styles.editRemoveBtn} accessibilityLabel="Remove bundle">
+                      <Ionicons name="close" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  {bundleDefById.get(e.bundle_id)?.bundle_type !== 'fixed' ? (
+                    <>
+                      <View style={styles.bundlePicksHead}>
+                        <Text style={styles.bundlePicksLabel}>Picks</Text>
+                        <Text style={[styles.bundlePicksCount, bundleProblem(e) ? styles.bundlePicksBad : styles.bundlePicksOk]}>
+                          {picksTotal(e.picks)}{bundleDefById.get(e.bundle_id)?.pick_count != null ? ` / ${bundleDefById.get(e.bundle_id)!.pick_count}` : ''}
+                        </Text>
+                      </View>
+                      {e.picks.map((pk, j) => {
+                        const pn = prodBySku.get(pk.product_id)?.name ?? '';
+                        return (
+                          <View key={`p-${j}`} style={styles.bundlePickRow}>
+                            <TouchableOpacity style={styles.editLineNamePick} onPress={() => setPickerTarget({ kind: 'set-pick', idx: i, pickIdx: j })}>
+                              <Text style={styles.editLineName} numberOfLines={1}>{pn || 'Select pick…'}</Text>
+                            </TouchableOpacity>
+                            <TextInput
+                              style={styles.editQtyInput} keyboardType="number-pad" value={pk.qty}
+                              onChangeText={(v) => patchEntry(i, { ...e, picks: e.picks.map((x, k) => k === j ? { ...x, qty: v.replace(/[^0-9]/g, '') } : x) })}
+                              accessibilityLabel="Pick quantity"
+                            />
+                            <TouchableOpacity onPress={() => patchEntry(i, { ...e, picks: e.picks.filter((_, k) => k !== j) })} style={styles.editRemoveBtn} accessibilityLabel="Remove pick">
+                              <Ionicons name="close" size={15} color={colors.textMuted} />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                      <TouchableOpacity style={styles.addPickBtn} onPress={() => setPickerTarget({ kind: 'add-pick', idx: i })}>
+                        <Ionicons name="add" size={14} color={colors.pink} />
+                        <Text style={styles.addPickText}>Add pick</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={styles.bundleFixedNote} numberOfLines={2}>
+                      {(bundleDefById.get(e.bundle_id)?.items ?? []).map((it) => `${it.name} ×${it.quantity}`).join(', ') || 'Fixed bundle'}
+                    </Text>
+                  )}
+                  {bundleProblem(e) && <Text style={styles.bundleProblem}>This bundle {bundleProblem(e)}.</Text>}
+                </View>
+              ))}
+
+              <View style={styles.addRow}>
+                <TouchableOpacity style={styles.addItemBtn} onPress={() => setPickerTarget({ kind: 'add-item' })}>
+                  <Ionicons name="add" size={16} color={colors.pink} />
+                  <Text style={styles.addItemText}>Add item</Text>
+                </TouchableOpacity>
+                {bundleDefs.filter((d) => d.bundle_uuid).map((d) => (
+                  <TouchableOpacity key={d.id} style={styles.addBundleBtn} onPress={() => addBundleDef(d)}>
+                    <Ionicons name="add" size={14} color={colors.pink} />
+                    <Text style={styles.addItemText} numberOfLines={1}>{d.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {editError && <Text style={styles.editError}>{editError}</Text>}
+            </ScrollView>
+
+            <View style={styles.editFooter}>
+              <Text style={styles.editTotalText}>Total ₱{editTotal().toFixed(2)}</Text>
+              <View style={styles.editFooterBtns}>
+                <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditingTx(null)} disabled={editSaving}>
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.editSaveBtn, (!editCanSave || editSaving) && styles.editSaveBtnDisabled]} onPress={handleSaveEdit} disabled={editSaving || !editCanSave}>
+                  <Text style={styles.editSaveText}>{editSaving ? 'Saving…' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Product picker: adds/replaces an item, or a bundle pick (restricted to
+            the bundle's eligible categories). */}
+        <Modal visible={pickerTarget != null} transparent animationType="fade" onRequestClose={() => setPickerTarget(null)}>
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.editTitle}>
+                {pickerTarget && (pickerTarget.kind === 'set-pick' || pickerTarget.kind === 'add-pick') ? 'Choose a pick' : 'Choose a product'}
+              </Text>
+              <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
+                {pickerOptions.map((p) => (
+                  <TouchableOpacity key={p.id} style={styles.pickerItem} onPress={() => pickProduct(p)}>
+                    <Text style={styles.pickerItemName} numberOfLines={1}>{p.emoji ? `${p.emoji}  ` : ''}{p.name}</Text>
+                    <Text style={styles.pickerItemPrice}>₱{(p.price ?? 0).toFixed(2)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setPickerTarget(null)}>
+                <Text style={styles.editCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Bundle chooser: link a bundle group to one of the saved bundles. */}
+        <Modal visible={bundleChooserFor != null} transparent animationType="fade" onRequestClose={() => setBundleChooserFor(null)}>
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.editTitle}>Choose a bundle</Text>
+              <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
+                {bundleDefs.filter((d) => d.bundle_uuid).map((d) => (
+                  <TouchableOpacity key={d.id} style={styles.pickerItem} onPress={() => relinkBundle(d)}>
+                    <Text style={styles.pickerItemName} numberOfLines={1}>{d.name}</Text>
+                    <Text style={styles.pickerItemPrice}>{d.bundle_type === 'pick' ? `Pick ${d.pick_count ?? '?'}` : 'Fixed'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setBundleChooserFor(null)}>
+                <Text style={styles.editCancelText}>Close</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -737,11 +1167,100 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     borderWidth: 1, borderColor: c.border,
   },
   remarksBtnText: { color: c.textPrimary, fontWeight: '700', fontSize: F.sm },
+  editBtn: {
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: c.pink,
+  },
+  editBtnText: { color: c.pink, fontWeight: '800', fontSize: F.md },
   voidBtn: {
     flex: 1, backgroundColor: c.red, borderRadius: R.sm,
     padding: 14, alignItems: 'center',
   },
   voidBtnText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+  unvoidBtn: {
+    flex: 1, backgroundColor: c.elevated, borderRadius: R.sm,
+    padding: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: c.green,
+  },
+  unvoidBtnText: { color: c.green, fontWeight: '800', fontSize: F.md },
+
+  // Edit-sale modal
+  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  editSheet: {
+    backgroundColor: c.surface, borderTopLeftRadius: R.lg, borderTopRightRadius: R.lg,
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
+    maxHeight: '88%', borderWidth: 1, borderColor: c.borderDark,
+  },
+  editTitle: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800', marginBottom: 12 },
+  editScroll: { flexGrow: 0 },
+  editSectionLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 14, marginBottom: 8 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  methodPill: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  methodPillActive: { backgroundColor: c.pink, borderColor: c.pink },
+  methodPillText: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  methodPillTextActive: { color: '#fff' },
+  editInput: {
+    backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border,
+    paddingVertical: 10, paddingHorizontal: 12, color: c.textPrimary, fontSize: F.md,
+  },
+  editLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  editLineName: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '600' },
+  editQtyInput: {
+    width: 48, textAlign: 'center', backgroundColor: c.elevated, borderRadius: R.sm,
+    borderWidth: 1, borderColor: c.border, paddingVertical: 8, color: c.textPrimary, fontSize: F.md,
+  },
+  editPriceWrap: { flexDirection: 'row', alignItems: 'center', width: 84, backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border, paddingHorizontal: 8 },
+  editPricePeso: { color: c.textMuted, fontSize: F.sm },
+  editPriceInput: { flex: 1, textAlign: 'right', paddingVertical: 8, color: c.textPrimary, fontSize: F.md },
+  editLineSubtotal: { width: 72, textAlign: 'right', color: c.textMuted, fontSize: F.sm, fontWeight: '700' },
+  editLineNamePick: { flex: 1, paddingVertical: 6, paddingHorizontal: 8, backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border },
+  editRemoveBtn: { padding: 4 },
+  addRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 8 },
+  addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
+  addBundleBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: 160, paddingVertical: 4, paddingHorizontal: 8, borderRadius: R.sm, borderWidth: 1, borderColor: c.pink },
+  addItemText: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
+  // Bundle group card
+  bundleCard: { borderWidth: 1, borderColor: c.border, borderRadius: R.sm, padding: 10, marginBottom: 8, backgroundColor: c.elevated },
+  bundleCardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bundleBadge: { backgroundColor: c.pink + '26', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  bundleBadgeText: { color: c.pink, fontSize: 10, fontWeight: '800' },
+  bundleNamePick: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: c.surface, borderRadius: R.sm, borderWidth: 1, borderColor: c.border },
+  bundleName: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '700' },
+  bundleNameUnset: { color: c.red, fontWeight: '600' },
+  bundlePicksHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 2 },
+  bundlePicksLabel: { color: c.textMuted, fontSize: F.xs, fontWeight: '600' },
+  bundlePicksCount: { fontSize: F.xs, fontWeight: '800' },
+  bundlePicksOk: { color: c.green },
+  bundlePicksBad: { color: c.red },
+  bundlePickRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  addPickBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', marginTop: 8 },
+  addPickText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
+  bundleFixedNote: { color: c.textMuted, fontSize: F.xs, marginTop: 6 },
+  bundleProblem: { color: c.red, fontSize: F.xs, marginTop: 6 },
+  editSaveBtnDisabled: { opacity: 0.5 },
+  editError: { color: c.red, fontSize: F.sm, marginTop: 12 },
+  editFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, gap: 12 },
+  editTotalText: { color: c.textPrimary, fontSize: F.md, fontWeight: '800' },
+  editFooterBtns: { flexDirection: 'row', gap: 10 },
+  editCancelBtn: {
+    backgroundColor: c.elevated, borderRadius: R.sm, paddingVertical: 12, paddingHorizontal: 18,
+    alignItems: 'center', borderWidth: 1, borderColor: c.border,
+  },
+  editCancelText: { color: c.textSecondary, fontWeight: '700', fontSize: F.md },
+  editSaveBtn: { backgroundColor: c.pink, borderRadius: R.sm, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center' },
+  editSaveText: { color: '#fff', fontWeight: '800', fontSize: F.md },
+
+  // Product picker
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  pickerSheet: { backgroundColor: c.surface, borderRadius: R.lg, padding: 18, width: '100%', maxHeight: '70%', borderWidth: 1, borderColor: c.borderDark },
+  pickerScroll: { marginBottom: 12 },
+  pickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  pickerItemName: { flex: 1, color: c.textPrimary, fontSize: F.md, marginRight: 10 },
+  pickerItemPrice: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
 
   remarksOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',

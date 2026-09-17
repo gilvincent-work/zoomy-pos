@@ -95,6 +95,7 @@ create table public.pos_orders (
   status         text not null default 'completed', -- completed / voided (void from any device)
   remarks        text,               -- free-text note; editable from any device
   voided_at      timestamptz,        -- when the sale was voided (audit)
+  edited_at      timestamptz,        -- when the sale was last edited (null = never; audit)
   created_at     timestamptz not null default now(),
   synced_at      timestamptz not null default now()
 );
@@ -104,11 +105,25 @@ create table public.pos_order_items (
   order_id    uuid not null references public.pos_orders(id),
   product_id  text references public.pos_products(product_id),
   bundle_id   text references public.pos_bundles(bundle_id),
+  -- Groups a bundle's header line and its ₱0 pick lines into one bundle instance
+  -- on the order (a per-order counter, distinct from bundle_id so two of the same
+  -- bundle stay separable). Null on plain individual items. Orthogonal to the
+  -- product-XOR-bundle constraint below, so reporting (which keys on product_id /
+  -- bundle_id) is unaffected. Added 2026-09-14 for bundle-aware editing.
+  bundle_group text,
   qty         integer not null,
   unit_price  numeric not null,
   line_total  numeric not null,
+  -- A line is a product line, a bundle header (linked to a pos_bundles row), or a
+  -- custom-bundle premium line (both ids null, tied to a bundle_group) that carries
+  -- an unlinked/ad-hoc bundle's price. The third shape was added 2026-09-14 so a
+  -- bundle sale whose Coop bundle_id can't be resolved still records its price.
   constraint pos_order_items_one_of_product_or_bundle
-    check ((product_id is not null and bundle_id is null) or (product_id is null and bundle_id is not null))
+    check (
+      (product_id is not null and bundle_id is null)
+      or (product_id is null and bundle_id is not null)
+      or (product_id is null and bundle_id is null and bundle_group is not null)
+    )
 );
 create index pos_order_items_order_id_idx on public.pos_order_items(order_id);
 
@@ -175,6 +190,7 @@ declare
   v_item              jsonb;
   v_product_id        text;
   v_bundle_id         text;
+  v_bundle_group      text;
   v_qty               integer;
   v_unit_price        numeric;
   v_line_total        numeric;
@@ -196,7 +212,7 @@ begin
 
   v_order_id := gen_random_uuid();
 
-  insert into pos_orders (id, client_uuid, device_id, cashier, customer_handle, subtotal, discount, total, oversold, payment_method, created_at)
+  insert into pos_orders (id, client_uuid, device_id, cashier, customer_handle, subtotal, discount, total, oversold, payment_method, event_id, pet_type, created_at)
   values (
     v_order_id,
     v_client_uuid,
@@ -208,6 +224,8 @@ begin
     (p_order->>'total')::numeric,
     false,
     coalesce(nullif(p_order->>'payment_method', ''), 'cash'),
+    nullif(p_order->>'event_id', '')::uuid,      -- event day the sale belongs to (null = normal day)
+    nullif(p_order->>'pet_type', ''),            -- 'dog' | 'cat' | 'both' | null (untagged)
     coalesce((p_order->>'created_at')::timestamptz, now())
   );
 
@@ -215,14 +233,17 @@ begin
   -- (bundle lines expand into their component products).
   for v_item in select * from jsonb_array_elements(p_items)
   loop
-    v_product_id := v_item->>'product_id';
-    v_bundle_id  := v_item->>'bundle_id';
-    v_qty        := (v_item->>'qty')::integer;
-    v_unit_price := (v_item->>'unit_price')::numeric;
-    v_line_total := (v_item->>'line_total')::numeric;
+    v_product_id   := v_item->>'product_id';
+    v_bundle_id    := v_item->>'bundle_id';
+    v_bundle_group := v_item->>'bundle_group';
+    v_qty          := (v_item->>'qty')::integer;
+    v_unit_price   := (v_item->>'unit_price')::numeric;
+    v_line_total   := (v_item->>'line_total')::numeric;
 
-    insert into pos_order_items (order_id, product_id, bundle_id, qty, unit_price, line_total)
-    values (v_order_id, v_product_id, v_bundle_id, v_qty, v_unit_price, v_line_total);
+    -- bundle_group ties a bundle's header + its ₱0 pick lines into one instance
+    -- so the order stays editable under the bundle's rules (null on plain items).
+    insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+    values (v_order_id, v_product_id, v_bundle_id, v_bundle_group, v_qty, v_unit_price, v_line_total);
 
     if v_product_id is not null then
       v_decrements := jsonb_set(
@@ -487,11 +508,13 @@ begin
 end;
 $$;
 
--- Void a sale by its client_uuid, from any device, AND restock it: the sold
--- quantities are added back to the lots they were drawn from. Idempotent
--- (re-voiding a voided order is a no-op, so stock is never restored twice).
--- Returns rows affected so the caller knows if the order was found. Voids are
--- monotonic — there is no un-void.
+-- Void a sale by its client_uuid, from any device, AND restock it. The restock
+-- neutralizes the order's ENTIRE net inventory footprint (its 'sale' decrements
+-- plus any later 'edit-reverse'/'edit-sale' movements from edit_pos_order), so
+-- an edited-then-voided order still returns to exactly its pre-sale stock.
+-- Backward-compatible: a never-edited order's net == its original sale.
+-- Idempotent (re-voiding finds status='voided' -> 0 rows, so stock is never
+-- restored twice). Reversible via unvoid_pos_order (below).
 create or replace function public.void_pos_order(p_client_uuid text)
 returns integer
 language plpgsql
@@ -516,28 +539,416 @@ begin
     return 0;
   end if;
 
-  -- Add each sold qty back to the lot it was drawn from (grouped so multiple
-  -- lines on one lot sum). total_delta is negative (a 'sale' decrement), so
-  -- subtracting it adds the stock back. Movements with no lot (pure oversell)
-  -- restore nothing to a lot but are still logged reversed below.
+  -- Restock: add back the net of every movement this order made per lot, so its
+  -- effect on qty_on_hand becomes 0 (net is negative for an outstanding sale, so
+  -- subtracting it adds stock back).
   update pos_inventory_lots l
-     set qty_on_hand = l.qty_on_hand - agg.total_delta,
+     set qty_on_hand = l.qty_on_hand - agg.net,
          updated_at = now()
   from (
-    select lot_id, sum(delta) as total_delta
+    select lot_id, sum(delta) as net
     from pos_stock_movements
-    where order_id = v_order_id and reason = 'sale' and lot_id is not null
+    where order_id = v_order_id and lot_id is not null
     group by lot_id
+    having sum(delta) <> 0
   ) agg
   where l.lot_id = agg.lot_id;
 
-  -- Compensating audit rows: one reversed movement per original sale decrement.
+  -- Compensating audit rows: reverse the entire current net per (product, lot)
+  -- group, INCLUDING lot_id-null oversell groups, so movements-by-product net to
+  -- zero for a voided order regardless of prior void/unvoid history. Re-void is
+  -- guarded by the status flip above (0 rows -> early return), so this never
+  -- compounds. Only the lot-mutating UPDATE above filters lot_id; the audit does
+  -- not.
   insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
-  select product_id, lot_id, order_id, -delta, 'void', null, now()
+  select product_id, lot_id, v_order_id, -sum(delta), 'void', null, now()
   from pos_stock_movements
-  where order_id = v_order_id and reason = 'sale';
+  where order_id = v_order_id
+  group by product_id, lot_id
+  having sum(delta) <> 0;
 
   return v_count;
+end;
+$$;
+
+-- Edit a completed order in place (online-only from the clients). Bundle-aware:
+-- p_entries is a list of individual items and bundle groups. It reverses the
+-- order's entire net inventory footprint (restoring the exact lots it drew from),
+-- then re-applies the new entry set FEFO, and updates the editable fields
+-- (payment_method / customer_handle / remarks). Recomputes subtotal + total
+-- server-side (created_at / discount preserved). State-based and thus convergent:
+-- re-running with the same payload lands the same result, never double-counting.
+-- Rejects a voided order.
+--
+-- p_entries element shapes:
+--   {"kind":"item","product_id":SKU,"qty":N,"unit_price":P}
+--   {"kind":"bundle","bundle_id":B,"price":P,"picks":[{"product_id":SKU,"qty":N}]}
+-- A 'pick' bundle must supply exactly its pick_count picks, all from the bundle's
+-- eligible line_categories (else the edit is rejected before anything mutates); a
+-- 'fixed' bundle ignores picks and decrements its defined components. Each bundle
+-- becomes a header line (bundle_id, price) plus ₱0 pick lines, all sharing one
+-- bundle_group so the editor can reconstruct the group. Total = Σ item line totals
+-- + Σ bundle prices.
+--
+-- NOTE: the parameter list changed (p_items -> p_entries) on 2026-09-14. A fresh
+-- apply creates this cleanly; promoting over an older edit_pos_order requires a
+-- `drop function edit_pos_order(text,jsonb,jsonb)` first (Postgres can't rename an
+-- input parameter via create-or-replace).
+create or replace function public.edit_pos_order(p_client_uuid text, p_patch jsonb, p_entries jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id     uuid;
+  v_status       text;
+  v_discount     numeric;
+  v_oversold     boolean := false;
+  v_entry        jsonb;
+  v_kind         text;
+  v_product_id   text;
+  v_qty          integer;
+  v_unit_price   numeric;
+  v_line_total   numeric;
+  v_bundle_id    text;
+  v_bprice       numeric;
+  v_btype        text;
+  v_pick_count   integer;
+  v_line_cats    jsonb;
+  v_pick         jsonb;
+  v_pick_sum     integer;
+  v_pick_pid     text;
+  v_pick_qty     integer;
+  v_cat          text;
+  v_group        integer := 0;
+  v_grp          text;
+  v_bi           record;
+  v_decrement    record;
+  v_lot          record;
+  v_remaining    integer;
+  v_take         integer;
+  v_overdraw_lot uuid;
+  v_decrements   jsonb := '{}'::jsonb;
+  v_subtotal     numeric := 0;
+  v_total        numeric;
+  v_rows         integer;
+begin
+  -- Lock the order row up front so a concurrent void/edit is serialized (a void
+  -- committing mid-edit could otherwise leave a voided order with a live total).
+  select id, status, discount into v_order_id, v_status, v_discount
+    from pos_orders where client_uuid = p_client_uuid
+    for update;
+
+  if v_order_id is null then
+    return jsonb_build_object('ok', false, 'error', 'order not found');
+  end if;
+  if v_status = 'voided' then
+    return jsonb_build_object('ok', false, 'error', 'cannot edit a voided order');
+  end if;
+  if coalesce(jsonb_array_length(p_entries), 0) = 0 then
+    return jsonb_build_object('ok', false, 'error', 'an order needs at least one item');
+  end if;
+
+  -- 0. Validate every bundle entry FIRST, so an invalid edit rejects before any
+  --    mutation (pick_count exactness + pick eligibility to line_categories).
+  for v_entry in select * from jsonb_array_elements(p_entries) loop
+    if (v_entry->>'kind') = 'bundle' then
+      v_bundle_id := v_entry->>'bundle_id';
+      -- Custom / unlinked bundle (no bundle_id): no rules to enforce.
+      if v_bundle_id is null or v_bundle_id = '' then
+        continue;
+      end if;
+      select bundle_type, pick_count, line_categories into v_btype, v_pick_count, v_line_cats
+        from pos_bundles where bundle_id = v_bundle_id;
+      if v_btype is null then
+        return jsonb_build_object('ok', false, 'error', 'unknown bundle: ' || coalesce(v_bundle_id, ''));
+      end if;
+      if v_btype = 'pick' then
+        v_pick_sum := 0;
+        for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+          v_pick_sum := v_pick_sum + coalesce((v_pick->>'qty')::integer, 0);
+          if v_line_cats is not null and jsonb_array_length(v_line_cats) > 0 then
+            select category into v_cat from pos_products where product_id = v_pick->>'product_id';
+            if v_cat is null or not (v_line_cats ? v_cat) then
+              return jsonb_build_object('ok', false, 'error', 'a picked item is not eligible for this bundle');
+            end if;
+          end if;
+        end loop;
+        if v_pick_count is not null and v_pick_sum <> v_pick_count then
+          return jsonb_build_object('ok', false, 'error', 'this bundle needs exactly ' || v_pick_count || ' items');
+        end if;
+      end if;
+    end if;
+  end loop;
+
+  -- 1. Neutralize this order's entire inventory footprint (restore the lots).
+  update pos_inventory_lots l
+     set qty_on_hand = l.qty_on_hand - agg.net, updated_at = now()
+  from (
+    select lot_id, sum(delta) as net
+    from pos_stock_movements
+    where order_id = v_order_id and lot_id is not null
+    group by lot_id
+    having sum(delta) <> 0
+  ) agg
+  where l.lot_id = agg.lot_id;
+
+  -- Audit rows for the reversal, INCLUDING lot_id-null oversell groups; exclude
+  -- prior edit-reverse rows so re-edits don't compound the audit. Only the
+  -- lot-mutating UPDATE above filters lot_id.
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+  select product_id, lot_id, v_order_id, -sum(delta), 'edit-reverse', now()
+  from pos_stock_movements
+  where order_id = v_order_id and reason not in ('edit-reverse')
+  group by product_id, lot_id
+  having sum(delta) <> 0;
+
+  -- 2. Replace line items from the entries; accumulate per-product decrements.
+  delete from pos_order_items where order_id = v_order_id;
+  for v_entry in select * from jsonb_array_elements(p_entries) loop
+    v_kind := coalesce(v_entry->>'kind', 'item');
+    if v_kind = 'item' then
+      v_product_id := v_entry->>'product_id';
+      v_qty        := (v_entry->>'qty')::integer;
+      v_unit_price := coalesce((v_entry->>'unit_price')::numeric, 0);
+      v_line_total := v_qty * v_unit_price;
+      insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+      values (v_order_id, v_product_id, null, null, v_qty, v_unit_price, v_line_total);
+      v_subtotal := v_subtotal + v_line_total;
+      if v_product_id is not null then
+        v_decrements := jsonb_set(v_decrements, array[v_product_id],
+          to_jsonb(coalesce((v_decrements->>v_product_id)::integer, 0) + v_qty));
+      end if;
+    elsif v_kind = 'bundle' then
+      v_bundle_id := v_entry->>'bundle_id';
+      v_bprice    := coalesce((v_entry->>'price')::numeric, 0);
+      v_group     := v_group + 1;
+      v_grp       := v_group::text;
+      if v_bundle_id is null or v_bundle_id = '' then
+        -- Custom / unlinked bundle: a premium line (both ids null) carries the
+        -- price; its picks are ₱0 product lines tagged to the group. No rules.
+        insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+        values (v_order_id, null, null, v_grp, 1, v_bprice, v_bprice);
+        v_subtotal := v_subtotal + v_bprice;
+        for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+          v_pick_pid := v_pick->>'product_id';
+          v_pick_qty := coalesce((v_pick->>'qty')::integer, 0);
+          if v_pick_pid is not null and v_pick_qty > 0 then
+            insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+            values (v_order_id, v_pick_pid, null, v_grp, v_pick_qty, 0, 0);
+            v_decrements := jsonb_set(v_decrements, array[v_pick_pid],
+              to_jsonb(coalesce((v_decrements->>v_pick_pid)::integer, 0) + v_pick_qty));
+          end if;
+        end loop;
+      else
+        select bundle_type into v_btype from pos_bundles where bundle_id = v_bundle_id;
+        -- Header line: bundle identity + price (product_id null; tagged to the group).
+        insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+        values (v_order_id, null, v_bundle_id, v_grp, 1, v_bprice, v_bprice);
+        v_subtotal := v_subtotal + v_bprice;
+        if v_btype = 'pick' then
+          for v_pick in select * from jsonb_array_elements(coalesce(v_entry->'picks', '[]'::jsonb)) loop
+            v_pick_pid := v_pick->>'product_id';
+            v_pick_qty := coalesce((v_pick->>'qty')::integer, 0);
+            if v_pick_pid is not null and v_pick_qty > 0 then
+              -- Pick line: a ₱0 product line tagged to the bundle group (bundle_id
+              -- null to satisfy the product-XOR-bundle constraint).
+              insert into pos_order_items (order_id, product_id, bundle_id, bundle_group, qty, unit_price, line_total)
+              values (v_order_id, v_pick_pid, null, v_grp, v_pick_qty, 0, 0);
+              v_decrements := jsonb_set(v_decrements, array[v_pick_pid],
+                to_jsonb(coalesce((v_decrements->>v_pick_pid)::integer, 0) + v_pick_qty));
+            end if;
+          end loop;
+        else
+          -- Fixed bundle: decrement its defined components (no separate pick lines).
+          for v_bi in select product_id, qty from pos_bundle_items where bundle_id = v_bundle_id loop
+            v_decrements := jsonb_set(v_decrements, array[v_bi.product_id],
+              to_jsonb(coalesce((v_decrements->>v_bi.product_id)::integer, 0) + v_bi.qty));
+          end loop;
+        end if;
+      end if;
+    end if;
+  end loop;
+
+  -- 3. Apply the new decrements FEFO (mirrors apply_pos_order), reason 'edit-sale'.
+  for v_decrement in
+    select key as product_id, value::integer as qty from jsonb_each_text(v_decrements)
+  loop
+    v_remaining := v_decrement.qty;
+
+    for v_lot in
+      select lot_id, qty_on_hand
+      from pos_inventory_lots
+      where product_id = v_decrement.product_id and qty_on_hand > 0
+      order by expires_on asc nulls last, received_at asc
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(v_lot.qty_on_hand, v_remaining);
+      update pos_inventory_lots set qty_on_hand = qty_on_hand - v_take, updated_at = now()
+        where lot_id = v_lot.lot_id;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_lot.lot_id, v_order_id, -v_take, 'edit-sale', now());
+      v_remaining := v_remaining - v_take;
+    end loop;
+
+    if v_remaining > 0 then
+      v_oversold := true;
+      select lot_id into v_overdraw_lot
+        from pos_inventory_lots
+        where product_id = v_decrement.product_id
+        order by expires_on asc nulls last, received_at asc
+        limit 1;
+      if v_overdraw_lot is not null then
+        update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remaining, updated_at = now()
+          where lot_id = v_overdraw_lot;
+      end if;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_overdraw_lot, v_order_id, -v_remaining, 'edit-sale', now());
+    end if;
+  end loop;
+
+  -- 4. Update the editable order fields (created_at preserved). Floor the total
+  --    at 0, and re-guard status <> 'voided' so a void that raced us can't be
+  --    overwritten with a live total (row lock makes this deterministic).
+  v_total := greatest(v_subtotal - coalesce(v_discount, 0), 0);
+  update pos_orders set
+    payment_method  = coalesce(nullif(p_patch->>'payment_method', ''), payment_method),
+    customer_handle = case when p_patch ? 'customer_handle' then nullif(p_patch->>'customer_handle', '') else customer_handle end,
+    remarks         = case when p_patch ? 'remarks' then nullif(p_patch->>'remarks', '') else remarks end,
+    subtotal        = v_subtotal,
+    total           = v_total,
+    oversold        = v_oversold,
+    edited_at       = now()
+  where id = v_order_id and status <> 'voided';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then
+    return jsonb_build_object('ok', false, 'error', 'order was voided during edit');
+  end if;
+
+  return jsonb_build_object('ok', true, 'order_id', v_order_id, 'oversold', v_oversold, 'total', v_total);
+end;
+$$;
+
+-- Unvoid a voided order: restore it to 'completed' and re-apply its inventory
+-- footprint FEFO from its existing line items. Inverse of void_pos_order.
+-- State-based/convergent: it first neutralizes the order's entire current net
+-- footprint (a cleanly voided order nets to 0 here), then re-decrements FEFO, so
+-- re-running lands the same result. Oversell-safe (overdraws the earliest lot).
+-- Rejects an order that isn't voided. Online-only from the clients.
+create or replace function public.unvoid_pos_order(p_client_uuid text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id     uuid;
+  v_status       text;
+  v_oversold     boolean := false;
+  v_decrement    record;
+  v_lot          record;
+  v_item         record;
+  v_remaining    integer;
+  v_take         integer;
+  v_overdraw_lot uuid;
+  v_decrements   jsonb := '{}'::jsonb;
+  v_rows         integer;
+begin
+  -- Lock the order row so a concurrent void/edit is serialized.
+  select id, status into v_order_id, v_status
+    from pos_orders where client_uuid = p_client_uuid
+    for update;
+
+  if v_order_id is null then
+    return jsonb_build_object('ok', false, 'error', 'order not found');
+  end if;
+  if v_status <> 'voided' then
+    return jsonb_build_object('ok', false, 'error', 'order is not voided');
+  end if;
+
+  -- 1. Neutralize the order's entire current net footprint (restore lots). A
+  --    cleanly voided order nets to 0 here; this defends against odd states.
+  update pos_inventory_lots l
+     set qty_on_hand = l.qty_on_hand - agg.net, updated_at = now()
+  from (
+    select lot_id, sum(delta) as net
+    from pos_stock_movements
+    where order_id = v_order_id and lot_id is not null
+    group by lot_id
+    having sum(delta) <> 0
+  ) agg
+  where l.lot_id = agg.lot_id;
+
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+  select product_id, lot_id, v_order_id, -sum(delta), 'unvoid-reverse', now()
+  from pos_stock_movements
+  where order_id = v_order_id
+  group by product_id, lot_id
+  having sum(delta) <> 0;
+
+  -- 2. Accumulate per-product decrements from the order's existing line items.
+  for v_item in
+    select product_id, sum(qty)::integer as qty
+    from pos_order_items
+    where order_id = v_order_id and product_id is not null
+    group by product_id
+  loop
+    v_decrements := jsonb_set(v_decrements, array[v_item.product_id], to_jsonb(v_item.qty));
+  end loop;
+
+  -- 3. Re-apply the decrements FEFO (mirrors apply_pos_order), reason 'unvoid-sale'.
+  for v_decrement in
+    select key as product_id, value::integer as qty from jsonb_each_text(v_decrements)
+  loop
+    v_remaining := v_decrement.qty;
+
+    for v_lot in
+      select lot_id, qty_on_hand
+      from pos_inventory_lots
+      where product_id = v_decrement.product_id and qty_on_hand > 0
+      order by expires_on asc nulls last, received_at asc
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(v_lot.qty_on_hand, v_remaining);
+      update pos_inventory_lots set qty_on_hand = qty_on_hand - v_take, updated_at = now()
+        where lot_id = v_lot.lot_id;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_lot.lot_id, v_order_id, -v_take, 'unvoid-sale', now());
+      v_remaining := v_remaining - v_take;
+    end loop;
+
+    if v_remaining > 0 then
+      v_oversold := true;
+      select lot_id into v_overdraw_lot
+        from pos_inventory_lots
+        where product_id = v_decrement.product_id
+        order by expires_on asc nulls last, received_at asc
+        limit 1;
+      if v_overdraw_lot is not null then
+        update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remaining, updated_at = now()
+          where lot_id = v_overdraw_lot;
+      end if;
+      insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_at)
+      values (v_decrement.product_id, v_overdraw_lot, v_order_id, -v_remaining, 'unvoid-sale', now());
+    end if;
+  end loop;
+
+  -- 4. Restore completed status; clear voided_at; refresh oversold. Re-guard
+  --    status = 'voided' so a concurrent change can't be silently overwritten.
+  update pos_orders set
+    status = 'completed',
+    voided_at = null,
+    oversold = v_oversold
+  where id = v_order_id and status = 'voided';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then
+    return jsonb_build_object('ok', false, 'error', 'order changed during unvoid');
+  end if;
+
+  return jsonb_build_object('ok', true, 'order_id', v_order_id, 'oversold', v_oversold);
 end;
 $$;
 
@@ -655,6 +1066,395 @@ grant execute on function public.record_sync(text, text, jsonb, text)       to a
 grant execute on function public.set_product_stock(text, integer, text)     to anon;
 grant execute on function public.set_product_emoji(text, text)              to anon;
 grant execute on function public.void_pos_order(text)                       to anon;
+grant execute on function public.unvoid_pos_order(text)                     to anon;
+grant execute on function public.edit_pos_order(text, jsonb, jsonb)         to anon;
 grant execute on function public.set_pos_order_remarks(text, text)          to anon;
 grant execute on function public.apply_pos_bundle(jsonb, jsonb)             to anon;
 grant execute on function public.delete_pos_bundle(text)                    to anon;
+
+-- =========================================================================
+-- 5. Store settings (added 2026-09-11) — a tiny key/value store for owner-set
+--    dashboard config. First key: daily_revenue_target (the gamified daily
+--    sales goal on the Coop Offline Sales page). Additive; writes flow through
+--    the SECURITY DEFINER RPC only, like every other pos_* write path.
+-- =========================================================================
+
+create table if not exists public.pos_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+
+-- Seed the daily revenue target (₱5,000 default). Idempotent — re-running the
+-- schema never clobbers an owner-set value.
+insert into public.pos_settings (key, value)
+values ('daily_revenue_target', jsonb_build_object('amount', 5000))
+on conflict (key) do nothing;
+
+-- set_pos_daily_target: upsert the daily revenue goal in one call.
+create or replace function public.set_pos_daily_target(p_amount numeric, p_by text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('daily_revenue_target', jsonb_build_object('amount', p_amount), p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+alter table public.pos_settings enable row level security;
+create policy pos_settings_read on public.pos_settings for select to anon using (true);
+grant execute on function public.set_pos_daily_target(numeric, text) to anon;
+
+-- Stock Forecast Phase 2 (added 2026-09-16): the tuning config + the next-event
+-- surge plan, both stored in pos_settings. Additive; two keys + two upsert RPCs
+-- mirroring set_pos_daily_target. Applied to Staging via the
+-- pos_stock_forecast_settings migration; NOT yet on prod.
+insert into public.pos_settings (key, value)
+values ('stock_forecast_config', jsonb_build_object(
+  'threshold', 10,
+  'threshold_overrides', '{}'::jsonb,       -- per-SKU low threshold { "SKU": n }
+  'target_cover_events', 6,                 -- reorder aims to hold ~2 weekends
+  'lead_time_days', 3,                      -- reorder-by = run-out - this
+  'early_warning_events', 3,                -- Low if it runs out within N event-days
+  'velocity_mode', 'event_aware',           -- offline; 'trailing_14d' for online later
+  'event_days', jsonb_build_array(5, 6, 0)  -- Fri, Sat, Sun (0=Sun..6=Sat)
+))
+on conflict (key) do nothing;
+
+insert into public.pos_settings (key, value)
+values ('next_event_plan', jsonb_build_object(
+  'event_this_weekend', true,
+  'multiplier', 1,                          -- global uplift on a normal event's demand
+  'by_category', '{}'::jsonb,               -- category -> multiplier override
+  'by_product', '{}'::jsonb                 -- SKU -> absolute expected units
+))
+on conflict (key) do nothing;
+
+create or replace function public.set_pos_stock_config(p_config jsonb, p_by text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if jsonb_typeof(p_config) is distinct from 'object' then
+    raise exception 'config must be a json object';
+  end if;
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('stock_forecast_config', p_config, p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+create or replace function public.set_pos_next_event_plan(p_plan jsonb, p_by text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if jsonb_typeof(p_plan) is distinct from 'object' then
+    raise exception 'plan must be a json object';
+  end if;
+  insert into pos_settings (key, value, updated_by, updated_at)
+  values ('next_event_plan', p_plan, p_by, now())
+  on conflict (key) do update
+    set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
+end;
+$$;
+
+grant execute on function public.set_pos_stock_config(jsonb, text) to anon;
+grant execute on function public.set_pos_next_event_plan(jsonb, text) to anon;
+
+-- Stock Forecast Phase 3 (added 2026-09-16): Add-stock batch write + void-last-add
+-- undo. Additive; receive_lot untouched. Both stamp who (p_by). Applied to Staging
+-- via the pos_add_stock_and_void migration; NOT yet on prod.
+create or replace function public.add_pos_stock(p_lines jsonb, p_by text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_line jsonb; v_sku text; v_qty integer; v_lot_id uuid; v_count integer := 0;
+begin
+  if jsonb_typeof(p_lines) is distinct from 'array' then
+    raise exception 'lines must be a json array';
+  end if;
+  for v_line in select * from jsonb_array_elements(p_lines) loop
+    v_sku := v_line->>'sku';
+    v_qty := (v_line->>'qty')::integer;
+    if v_sku is null or v_qty is null or v_qty <= 0 then
+      raise exception 'each line needs a product and a positive quantity';
+    end if;
+    if not exists (select 1 from pos_products where product_id = v_sku) then
+      raise exception 'unknown product %', v_sku;
+    end if;
+    v_lot_id := gen_random_uuid();
+    insert into pos_inventory_lots (lot_id, product_id, lot_code, expires_on, qty_received, qty_on_hand, received_at, updated_at)
+    values (v_lot_id, v_sku, 'coop-add', null, v_qty, v_qty, now(), now());
+    insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+    values (v_sku, v_lot_id, null, v_qty, 'receipt', p_by, now());
+    v_count := v_count + 1;
+  end loop;
+  if v_count = 0 then raise exception 'no lines to add'; end if;
+  return v_count;
+end;
+$$;
+
+create or replace function public.void_last_stock_add(p_product_id text, p_by text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_mov record; v_on_hand integer; v_remove integer;
+begin
+  select m.id, m.lot_id, m.delta into v_mov
+    from pos_stock_movements m
+    where m.product_id = p_product_id and m.reason = 'receipt'
+    order by m.created_at desc limit 1;
+  if v_mov.lot_id is null then return 0; end if;
+  select qty_on_hand into v_on_hand from pos_inventory_lots where lot_id = v_mov.lot_id for update;
+  v_remove := least(coalesce(v_on_hand, 0), v_mov.delta);
+  if v_remove <= 0 then return 0; end if;
+  update pos_inventory_lots set qty_on_hand = qty_on_hand - v_remove, updated_at = now()
+    where lot_id = v_mov.lot_id;
+  insert into pos_stock_movements (product_id, lot_id, order_id, delta, reason, created_by, created_at)
+  values (p_product_id, v_mov.lot_id, null, -v_remove, 'add-void', p_by, now());
+  return v_remove;
+end;
+$$;
+
+grant execute on function public.add_pos_stock(jsonb, text) to anon;
+grant execute on function public.void_last_stock_add(text, text) to anon;
+
+-- Stock Forecast Phase 4 (added 2026-09-16): the low-stock email dedupe log. One
+-- open row per product while it's below the line; the job (zoomy-observability
+-- run-stock-check.mjs) fires on the CROSSING (insert) and resolves on recovery.
+-- Additive; service-role only (no anon policy), like pos_stock_movements.
+create table if not exists public.pos_stock_alert_log (
+  id            bigint generated always as identity primary key,
+  product_id    text not null references public.pos_products(product_id),
+  level_at_fire text not null,          -- 'low' | 'out'
+  stock_at_fire integer not null,
+  fired_at      timestamptz not null default now(),
+  resolved_at   timestamptz
+);
+create index if not exists pos_stock_alert_log_open_idx
+  on public.pos_stock_alert_log (product_id) where resolved_at is null;
+alter table public.pos_stock_alert_log enable row level security;
+
+-- Captured Coop dashboard sign-ins (Google SSO), so the low-stock email reaches
+-- everyone who uses Coop. Additive; service-role only. The dashboard upserts on
+-- sign-in (auth.ts events.signIn); the batch job reads the list. The upsert sends
+-- only {email, last_seen}, so first_seen is preserved across logins.
+create table if not exists public.pos_dashboard_users (
+  email      text primary key,
+  first_seen timestamptz not null default now(),
+  last_seen  timestamptz not null default now()
+);
+alter table public.pos_dashboard_users enable row level security;
+
+-- Immediate low-stock alerts (event-driven, added 2026-09-16). A trigger on every
+-- stock movement fires the `stock-alert` Edge Function (supabase/functions/stock-alert)
+-- via pg_net; the function recomputes the product's band, dedupes against
+-- pos_stock_alert_log, and emails via Resend the instant a product crosses low/out.
+-- pg_net enqueues async (after commit) and the trigger is fail-soft, so alerting
+-- can never block or break a POS sale. The unique partial index gives atomic
+-- one-open-alert-per-product dedup. The Resend key is a FUNCTION secret, not stored
+-- in the DB. Staging; not yet on prod.
+create extension if not exists pg_net;
+
+drop index if exists pos_stock_alert_log_open_idx;
+create unique index pos_stock_alert_log_open_idx
+  on public.pos_stock_alert_log (product_id) where resolved_at is null;
+
+create or replace function public.pos_fire_stock_alert()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.product_id is null then return new; end if;
+  -- anon key is PUBLIC (guarded by RLS); it only authenticates the call to the
+  -- JWT-verified function, which does its real work with its own service-role env.
+  perform net.http_post(
+    url := 'https://<project-ref>.supabase.co/functions/v1/stock-alert',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <anon-key>'),
+    body := jsonb_build_object('product_id', new.product_id)
+  );
+  return new;
+exception when others then
+  return new; -- alerting must NEVER break or slow a sale
+end;
+$$;
+
+drop trigger if exists pos_stock_movements_alert_ai on public.pos_stock_movements;
+create trigger pos_stock_movements_alert_ai
+after insert on public.pos_stock_movements
+for each row execute function public.pos_fire_stock_alert();
+
+-- =========================================================================
+-- 6. Events, opening cash & pet tagging (added 2026-09-15) — one Event per
+--    bazaar day. Coop schedules a date range; the POS auto-detects "today's
+--    event" by matching the device date and stamps each sale's event_id
+--    (null = normal day). Opening cash lives on the event (POS on-site count
+--    or Coop pre-plan; last write wins). Each sale also carries an optional
+--    pet_type. Additive; same pos_* RLS/RPC fence as everything above.
+-- =========================================================================
+
+-- pos_events: one row per bazaar. Client supplies event_id so the POS can
+-- create offline; upsert stays idempotent (last-write-wins on updated_at).
+create table if not exists public.pos_events (
+  event_id     uuid primary key default gen_random_uuid(),
+  name         text not null,
+  venue        text,            -- mall / venue
+  city         text,
+  organizer    text,            -- optional
+  starts_on    date,
+  ends_on      date,
+  opening_cash numeric,         -- opening cash float (Priority 1)
+  cash_note    text,            -- optional free-text note
+  closing_cash numeric,         -- optional; counted at close
+  status       text not null default 'active',  -- active | closed
+  created_by   text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+create index if not exists pos_events_dates_idx on public.pos_events(starts_on, ends_on);
+
+-- pos_orders gains two nullable columns (fully backward-compatible). event_id
+-- ties a sale to its bazaar; pet_type is the Dog/Cat/Both tap (null = untagged).
+alter table public.pos_orders
+  add column if not exists event_id uuid references public.pos_events(event_id),
+  add column if not exists pet_type text;   -- 'dog' | 'cat' | 'both' | null
+create index if not exists pos_orders_event_id_idx on public.pos_orders(event_id);
+
+-- upsert_pos_event: create or edit an event (incl. opening cash). Idempotent on
+-- the client-supplied event_id. Only overwrites a field the payload carries, so
+-- a partial edit (e.g. just opening_cash from the POS) never clobbers the rest.
+create or replace function public.upsert_pos_event(p_event jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id    uuid := nullif(p_event->>'event_id', '')::uuid;
+  v_start date := nullif(p_event->>'starts_on', '')::date;
+  v_end   date := nullif(p_event->>'ends_on', '')::date;
+  v_from  date;
+  v_to    date;
+  v_conflict text;
+begin
+  if v_id is null then
+    v_id := gen_random_uuid();
+  end if;
+
+  -- Overlap guard: block a create/edit whose date range intersects another
+  -- event (decided 2026-09-15). Runs only when this write carries a date range;
+  -- self is excluded so a pure opening-cash edit never conflicts with itself. A
+  -- single-bound event counts as that one day (coalesce), matching the client's
+  -- pickEventForDate detection semantics.
+  if (p_event ? 'starts_on' or p_event ? 'ends_on') and (v_start is not null or v_end is not null) then
+    v_from := coalesce(v_start, v_end);
+    v_to   := coalesce(v_end, v_start);
+    select e.name into v_conflict
+      from pos_events e
+     where e.event_id <> v_id
+       and coalesce(e.starts_on, e.ends_on) is not null
+       and coalesce(e.starts_on, e.ends_on) <= v_to
+       and v_from <= coalesce(e.ends_on, e.starts_on)
+     limit 1;
+    if v_conflict is not null then
+      raise exception 'event dates overlap an existing event: %', v_conflict
+        using errcode = 'check_violation';
+    end if;
+  end if;
+
+  insert into pos_events (event_id, name, venue, city, organizer, starts_on, ends_on,
+                          opening_cash, closing_cash, cash_note, status, created_by, created_at, updated_at)
+  values (
+    v_id,
+    coalesce(p_event->>'name', ''),
+    p_event->>'venue',
+    p_event->>'city',
+    p_event->>'organizer',
+    v_start,
+    v_end,
+    nullif(p_event->>'opening_cash', '')::numeric,
+    nullif(p_event->>'closing_cash', '')::numeric,
+    p_event->>'cash_note',
+    coalesce(nullif(p_event->>'status', ''), 'active'),
+    p_event->>'created_by',
+    now(), now()
+  )
+  on conflict (event_id) do update set
+    name         = case when p_event ? 'name'         then coalesce(excluded.name, pos_events.name) else pos_events.name end,
+    venue        = case when p_event ? 'venue'        then excluded.venue        else pos_events.venue end,
+    city         = case when p_event ? 'city'         then excluded.city         else pos_events.city end,
+    organizer    = case when p_event ? 'organizer'    then excluded.organizer    else pos_events.organizer end,
+    starts_on    = case when p_event ? 'starts_on'    then excluded.starts_on    else pos_events.starts_on end,
+    ends_on      = case when p_event ? 'ends_on'      then excluded.ends_on      else pos_events.ends_on end,
+    opening_cash = case when p_event ? 'opening_cash' then excluded.opening_cash else pos_events.opening_cash end,
+    closing_cash = case when p_event ? 'closing_cash' then excluded.closing_cash else pos_events.closing_cash end,
+    cash_note    = case when p_event ? 'cash_note'    then excluded.cash_note    else pos_events.cash_note end,
+    status       = case when p_event ? 'status'       then excluded.status       else pos_events.status end,
+    updated_at   = now();
+
+  return v_id;
+end;
+$$;
+
+-- close_pos_event: mark an event closed; optionally record the counted drawer.
+create or replace function public.close_pos_event(p_event_id uuid, p_closing_cash numeric)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update pos_events
+     set status = 'closed',
+         closing_cash = coalesce(p_closing_cash, closing_cash),
+         updated_at = now()
+   where event_id = p_event_id;
+end;
+$$;
+
+-- attribute_untagged_orders_to_event (added 2026-09-17): persist Coop's read-time
+-- "fill the blanks" attribution. When an event's dates are set/extended, stamp
+-- event_id onto UNTAGGED (null) orders whose Manila date falls in the range, so the
+-- POS app + raw pos_orders agree with Coop's reporting. Fills blanks only (never
+-- re-tags a POS-stamped sale, never un-stamps); the overlap guard means a date maps
+-- to at most one event, so this is unambiguous. Idempotent; returns rows attached.
+-- Called from the dashboard (service_role) right after upsert_pos_event.
+create or replace function public.attribute_untagged_orders_to_event(p_event_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from date;
+  v_to   date;
+  v_count integer;
+begin
+  select coalesce(starts_on, ends_on), coalesce(ends_on, starts_on)
+    into v_from, v_to
+    from pos_events
+   where event_id = p_event_id;
+
+  if v_from is null or v_to is null then
+    return 0;  -- event has no dates; nothing to attribute
+  end if;
+
+  with updated as (
+    update pos_orders o
+       set event_id = p_event_id
+     where o.event_id is null
+       and (o.created_at at time zone 'Asia/Manila')::date between v_from and v_to
+    returning 1
+  )
+  select count(*) into v_count from updated;
+
+  return v_count;
+end;
+$$;
+
+alter table public.pos_events enable row level security;
+create policy pos_events_read on public.pos_events for select to anon using (true);
+grant execute on function public.upsert_pos_event(jsonb)        to anon;
+grant execute on function public.close_pos_event(uuid, numeric) to anon;
+-- Coop-only (service_role); the POS never calls this, so anon is deliberately not granted.
+grant execute on function public.attribute_untagged_orders_to_event(uuid) to service_role;

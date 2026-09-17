@@ -12,6 +12,300 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-17 — v1.2.0: prep prod promotion of the Sept-15→17 POS features — `chore(release)`
+
+**Version bumped to 1.2.0** (`package.json` + Expo `app.json`; was 1.1.2) to mark
+the prod cutover of the events/cash/pet-tag, stock-intake, forecast-config, order
+edit/void, and low-stock-alert work. Dashboard bumped to 1.2.0 in lockstep.
+
+Assembled the reviewed, additive SQL + edge-fn package to bring Coop **prod**
+(`qkxbwzdxhwcbwgriwipi`) up to Staging parity. Prod was frozen at the 2026-09-09
+baseline; a live object diff (prod's migration ledger is empty and Staging carries
+untracked objects) showed the real delta, which is bigger than the tracked
+migrations. **No product/stock/order data is copied. prod sales data is untouched.**
+
+- **New files.** `supabase/prod_promotion_2026-09-17.sql` (one controlled pass) and
+  `supabase/prod_promotion_2026-09-17_RUNBOOK.md` (apply order, edge-fn secrets,
+  data-safety audit, verification).
+- **Delta.** 4 tables (`pos_events`, `pos_settings`, `pos_stock_alert_log`,
+  `pos_dashboard_users`); 4 columns (`pos_orders.event_id/pet_type/edited_at`,
+  `pos_order_items.bundle_group`); 11 new functions; 3 replaced (drifted:
+  `apply_pos_order`, `set_product_stock`, `void_pos_order`); the alert trigger;
+  `pg_net`; the `stock-alert` edge fn; config seeds.
+- **`pos_fire_stock_alert` made environment-aware.** Reads its endpoint + (public)
+  anon key from per-database settings (`app.stock_alert_url/key`) instead of a
+  hardcoded Staging ref, so the identical body promotes clean and can never
+  cross-wire prod movements to the Staging function.
+- **Left untouched (verified identical on prod):** `pos_inventory` view,
+  `pos_products.emoji`, and 10 shared functions (byte-for-byte match).
+- **Seeds.** `stock_forecast_config`, `next_event_plan`, and `daily_revenue_target`
+  = ₱13,500 (confirmed for prod).
+- **APPLIED to prod 2026-09-17.** Ran via MCP against `qkxbwzdxhwcbwgriwipi`:
+  pg_net + 4 tables + 4 columns + 14 functions + trigger + seeds + grants + ledger.
+  Verified: 4/4 tables, 4/4 columns, 14/14 functions, trigger live, ledger max =
+  `20260916185642` (matches staging). Security advisors: no new findings (all
+  warnings are the established anon-RPC/service-role-RLS posture staging shares).
+- **Two runtime deviations from the written plan** (repo SQL updated to match):
+  1. The env-aware endpoint config moved from `ALTER DATABASE … SET` (GUC) to a
+     `pos_settings` row (`stock_alert_endpoint`) — the MCP role is not superuser on
+     Supabase, so the GUC set was permission-denied. The `pos_settings` approach is
+     actually better (always fresh, no connection-cycle lag). `pos_fire_stock_alert`
+     reads `url`/`anon_key` from that row.
+  2. Prod had no `supabase_migrations` schema at all (never used migrations), so the
+     ledger table was created before backfilling it.
+- **Remaining manual steps (not doable via MCP):** set the `stock-alert` edge-fn
+  secrets on prod (`RESEND_API_KEY`, `INVENTORY_URL`=prod dashboard, confirm
+  `EMAIL_FROM`); deploy dashboard `main` to prod Vercel (co-worker); cut the POS
+  prod build. Alerts stay dormant (no email) until `RESEND_API_KEY` is set — by
+  design the fn does not record the crossing while unconfigured, so the first real
+  low-stock event still emails once the key lands.
+
+CI's `quality` job (typecheck) had been failing since the `stock-alert` Supabase
+Edge Function landed: the app `tsconfig.json` includes `**/*.ts`, so `tsc` tried to
+typecheck the Deno function and errored on `Deno` globals. Added an `exclude` for
+`supabase/functions/**` (and `node_modules`) so the app typecheck ignores Deno code
+(it has its own runtime). `npm run typecheck` is green again; tests already passed.
+
+## 2026-09-17 — POS event controls reach parity with Coop — `feat(pos)`
+
+The event-setup sheet (opened from the header event chip) was a two-mode form:
+edit today's event's opening cash, or spin up a today-only pop-up. It's now a full
+create/edit form matching Coop's scheduling controls, still fully offline and
+synced through `upsert_pos_event`.
+
+- **Date range on create + edit.** Start/End date fields (validated `YYYY-MM-DD`)
+  replace the hard-coded today-only event, so the POS can schedule ahead and
+  multi-day bazaars, and edit a scheduled event's dates. A pure `overlappingEvent`
+  guard (mirrors Coop's rule) blocks a clashing range locally before Coop would
+  reject it, so a bad create can't get stuck unsynced.
+- **Edit event details.** Name, venue, city, organizer, and dates are now editable
+  on a detected event (were read-only) via `upsertLocalEvent`, not just opening cash.
+- **Closing cash.** New `closing_cash` on the local `pos_events` (+ pull/push), and
+  `upsert_pos_event` extended to carry it (partial upsert, never touches status, so
+  recording closing cash never closes a multi-day event). Counted at close, on-site.
+- A "Schedule another event" action lets the cashier create a future event even on
+  an active event day. `db/events.ts` gained pure `overlappingEvent` + `isValidDateKey`
+  (6 new tests, 303 total green). Schema mirrored in `supabase/pos_schema.sql`,
+  applied to Staging; partial-upsert verified (closing cash set, other fields intact).
+- **Always-reachable entry point.** The header event chip (`EventBadge`) used to
+  render nothing on a normal day, so creating/scheduling had no door. It now shows a
+  quiet "Set up event" pill when there's no event today (the active-day pink chip is
+  unchanged), both opening the setup sheet. Without this, the create/schedule flow
+  was unreachable except on an event day.
+
+## 2026-09-16 — Stock Forecast schema + immediate low-stock alerts (Staging) — `feat(pos)`
+
+The `pos_*` backend for the Coop Stock Forecast feature (UI + email job live in
+`../zoomy-observability-dashboard` and `../zoomy-observability`). All additive,
+Staging-only, mirrored in `supabase/pos_schema.sql`. Not yet on prod.
+
+- **Settings + surge:** `stock_forecast_config` and `next_event_plan` in
+  `pos_settings`, with `set_pos_stock_config` / `set_pos_next_event_plan` RPCs.
+- **Add stock + history:** `add_pos_stock` (batch, all-or-nothing) and
+  `void_last_stock_add` (offsetting reversal) RPCs; `pos_dashboard_users`
+  (captured Coop sign-ins, for alert recipients).
+- **Immediate low-stock alerts (event-driven):** `pos_stock_alert_log` (dedupe,
+  unique one-open-per-product) + a fail-soft `AFTER INSERT` trigger on
+  `pos_stock_movements` that calls the `stock-alert` Edge Function
+  (`supabase/functions/stock-alert/`) via `pg_net`. The function recomputes the
+  band, dedupes/escalates/resolves, and emails via Resend the instant a sale
+  crosses a product into low/out. Trigger is async + fail-soft, so it can never
+  block or slow a POS sale; the Resend key is a function secret, not in the DB.
+- **Verified on Staging:** real POS sales fired low, then out (escalation), and
+  auto-resolved on restock, emailing two recipients within seconds.
+
+## 2026-09-15 — Event days, opening cash, and pet tagging (Staging) — `feat(events)`
+
+Three features that all hang off one new idea: a bazaar **Event**. Planning +
+mockups were reviewed as an artifact first; this is the build.
+
+- **Open decisions settled (2026-09-15).** Closing-drawer count stays a
+  fast-follow; pre-event sales keep a null `event_id` ("Unassigned"); opening
+  cash never gates selling. Overlapping event dates are **blocked at creation**:
+  `upsert_pos_event` rejects a range that intersects another event, and the POS
+  pre-checks (an on-site event can't be created when today is already an event
+  day, pointing the cashier to set that event's float instead).
+- **Event auto-detection (no cashier step).** Coop schedules an event with a
+  date range; the POS caches events locally (`pos_events`, pulled on every
+  catalog sync) and resolves "today's event" by matching the **device date**
+  against the cached ranges, fully offline. A sale made on an event day is
+  stamped with that `event_id`; a normal day leaves it null. On overlapping
+  ranges the most recently created wins, so a sale is never dropped. Pure logic
+  in `db/events.ts` (`pickEventForDate`), unit-tested.
+- **Inline event marker (no tile squeeze).** On an event day a small `🗓️`
+  chip rides on the header's existing sync line (`EventBadge`, next to
+  `SyncStatusBar`), so it costs zero extra header height and never pushes the
+  product grid down. A small dot means the opening cash float isn't set yet.
+  Tapping it opens the event setup sheet. Informational + a shortcut, never a
+  gate on selling. No marker on a normal day.
+- **Opening cash.** `pos_events.opening_cash` + `cash_note`, editable on-site
+  from the setup sheet (`app/modals/event-setup.tsx`) or on Coop ahead of time;
+  last write wins by `updated_at`. The sheet also creates an unplanned on-site
+  event (name/venue/city/organizer) for pop-ups not scheduled on Coop.
+- **Pet tag on the cart.** Dog / Cat / Both chips (`PetTypeChips`) sit on the
+  cart next to the payment method (both the side panel and the sheet peek), so a
+  sale can be tagged whether or not the confirm-payment guard is on; skippable,
+  so no tap = untagged. Four reporting states. Stored as `pos_orders.pet_type`
+  and shown on the Coop Offline Sales home as a "Pet mix" split. *(First shipped
+  inside the confirm-payment sheet; moved to the cart the same day so it also
+  works when "confirm before recording" is disabled.)*
+- **Schema (additive, Staging).** New `pos_events` table + `pos_orders.event_id`
+  / `pet_type` columns + `upsert_pos_event` / `close_pos_event` RPCs;
+  `apply_pos_order` extended to carry `event_id` + `pet_type` (no signature
+  change). Same `pos_*` RLS/RPC fence as everything else. Mirrored in
+  `supabase/pos_schema.sql`.
+- **Sync.** Events reuse the existing catalog-pull + outbox-drain paths (local
+  creates/edits push via `upsert_pos_event`, idempotent on `event_id`), so no
+  new sync machinery. `event_id` + `pet_type` thread through the sale payload
+  (local insert, `sales-sync`, outbox retry) and are read back on remote-order
+  pull. Typecheck clean; full suite green (292 tests, +6 new).
+
+---
+
+## 2026-09-14 — Bundles show pre-populated on edit; custom bundles saveable (Staging only) — `fix(transactions)`
+
+- **The edit sheet shows the sale's real content on first load** — each bundle
+  group reconstructs as its own bundle with its picks already filled (two bundles
+  show as two, never merged, never an empty chooser). A group with no header is
+  auto-identified by matching its pick quantity to a bundle's `pick_count`, with
+  any unattributed premium defaulted onto the ₱0 bundles.
+- **Custom (unlinked) bundles are valid + saveable**: a group that matches no
+  bundle keeps its picks + editable price and doesn't force a selection; the RPC
+  stores it as a custom-bundle premium line (constraint relaxed to allow a
+  both-ids-null line tied to a bundle_group). The bundle chooser stays optional.
+- **Sales always record a bundle header** now (`buildBundleOrderItems`): linked
+  when the Coop bundle id resolves, else a custom premium line — so price +
+  grouping are never lost to an orphan group. **Staging only.**
+
+## 2026-09-14 — Legacy bundle sales edit as bundles (Staging only) — `fix(transactions)`
+
+- **Pre-grouping bundle sales open as a bundle, not loose ₱0 items.** When a synced
+  order carries a bundle premium (total exceeds the line sum) with ₱0 picks,
+  `reconstructEntries` folds those picks into a bundle carrying the premium as its
+  price (shows ₱570, not ₱0), auto-linked to the bundle whose `pick_count` matches.
+  Saving self-heals the order into the grouped shape. Pick options stay restricted
+  to the bundle's eligible categories; a bundle chooser lets you link/relink an
+  unlinked bundle, and Save is blocked until it's linked. **Staging only.**
+
+## 2026-09-14 — Bundle-aware transaction editing (Staging only) — `feat(transactions)`
+
+- **Bundles are editable again, by their rules.** The edit sheet now shows an
+  order as entries: individual items and bundle groups. A "Buy Any N" bundle
+  shows N pick slots (restricted to the bundle's eligible categories) with a
+  live `picked X / N` counter and an editable bundle price; a fixed bundle shows
+  its components with an editable price. You can freely **add items or add a
+  bundle** to any order (individual-only or bundle), and Save is blocked until
+  every bundle satisfies its rule (e.g. exactly 4 picks in a 4-pick bundle).
+- **Records the bundle link on sales so the rule survives to edit-time.** A sold
+  bundle now tags its header + its ₱0 pick lines with a shared `bundle_group`
+  (`buildInsertItems` + the sync push), so Coop can tell which picks form which
+  bundle. `apply_pos_order` persists it. Older/offline-retried sales without the
+  tag still open, as loose items.
+- **Online-only, as before.** Opening the editor pulls the order's authoritative
+  lines from Coop (the flat local copy has no grouping) and resolves bundle rules
+  from local `saved_bundles` (by the shared `bundle_uuid`). Saving calls the
+  reworked `edit_pos_order`, which takes structured entries, **enforces each
+  bundle's pick_count + eligibility server-side**, re-derives stock FEFO, and
+  recomputes the total (`Σ item totals + Σ bundle prices`).
+- **Schema** (`supabase/pos_schema.sql`, Staging): added `pos_order_items.bundle_group`;
+  `edit_pos_order` now takes `p_entries` (was `p_items`) — see the note in the
+  function for the drop-before-promote caveat; `apply_pos_order` persists
+  `bundle_group`.
+- Verified live on Staging: a plain order edited into `1 item + a 3-pick bundle`
+  lands total ₱800 with correct per-product stock and a header + 3 grouped ₱0
+  pick lines; under-count and unknown-bundle edits reject with no mutation; the
+  reverse path (bundle → items) restores stock exactly. **Staging only — not
+  promoted to prod.**
+
+## 2026-09-14 — Edit modal shows per-line subtotals (Staging only) — `fix(transactions)`
+
+- **Each edit-sale line now shows its `qty × unit price` subtotal.** Previously a
+  line only showed the editable unit price, so a ×2 line at ₱210 looked like it
+  ignored the quantity (the order Total was already correct, but the row didn't
+  reflect it). The ₱ field stays the unit price; the new right-aligned amount
+  makes the line's contribution obvious.
+- Bundle sales remain non-editable on the POS (unchanged) — the matching Coop fix
+  now hides Edit for bundles there too, so the two ends behave consistently.
+- **Staging only — not promoted to prod.**
+
+## 2026-09-14 — Unvoid a voided transaction (Staging only) — `feat(transactions)`
+
+- **A voided sale can now be restored.** The Transactions detail sheet shows an
+  **Unvoid** action on voided, Coop-synced sales (behind the same admin PIN as
+  Void). Unvoiding flips it back to completed and **re-applies its inventory
+  footprint FEFO** on Coop, so its revenue and stock return exactly as they were
+  before the void.
+- **Online-only, and the inverse of Void.** Unlike a void (which queues offline
+  and drains later), unvoid must land on Coop first — the PIN modal calls the new
+  `unvoid_pos_order` RPC and only flips the local row to completed on success;
+  if Coop is unreachable or rejects (order isn't voided), it stays voided and
+  surfaces the error. The Unvoid button is hidden when Supabase is unconfigured or
+  the sale hasn't reached Coop (`client_uuid`).
+- **Schema** (`supabase/pos_schema.sql`, applied to Staging): added
+  `unvoid_pos_order(text)` (+ anon grant), mirroring `edit_pos_order`'s
+  state-based reverse-then-reapply so it's convergent and oversell-safe.
+  **Redefined `void_pos_order`'s audit** to reverse the *entire* current net
+  footprint (not just non-`void` movements) so repeated void↔unvoid cycles keep
+  the per-product movement ledger netting to zero when voided. (Re-void is still
+  a no-op via the status guard, so this never compounds.)
+- Verified live on Staging: void → unvoid → void → unvoid on a real 2-unit sale
+  lands stock at 36/38 each step with the order ledger at −2 (completed) / 0
+  (voided) throughout; unvoid on a completed order is a safe no-op reject.
+  **Staging only — not promoted to prod.**
+
+## 2026-09-14 — Edit a completed transaction in place (Staging only) — `feat(transactions)`
+
+- **You can now edit a synced sale from the Transactions screen** (long-press →
+  Edit): change the payment method, IG handle, the products/quantities, and each
+  line's unit price. Saving recomputes the total and reconciles Coop's inventory
+  in one pass, so a changed method rolls into that method's totals and an
+  added/removed item flows through revenue and stock.
+- **How it stays correct:** the edit goes through a new `edit_pos_order` RPC that
+  **reverses the order's entire inventory footprint, then re-applies FEFO** from
+  the new lines (state-based, so re-running converges rather than double-counting).
+  The total is recomputed server-side as `max(subtotal − discount, 0)`; every edit
+  stamps `edited_at` and leaves `edit-reverse` / `edit-sale` audit movements.
+- **Deliberate limits (agreed up front):**
+  - **Online-only.** Edits require a live Coop connection; there's no offline
+    queue for them (unlike sales). The Edit action is hidden when Supabase is
+    unconfigured or the catalog hasn't loaded.
+  - **Voided orders are terminal** and cannot be edited (`edit_pos_order` rejects
+    them and the local guard hides Edit for them).
+  - **Catalog products only.** Lines are picked from the product catalog with an
+    auto-filled-but-editable unit price; **bundle orders aren't editable here**
+    (the Edit action is hidden for `is_bundle` / component-only orders).
+  - Only **locally-owned** rows are editable from this device (remote-sourced
+    rows are read-only here).
+- **Schema** (`supabase/pos_schema.sql`, applied to Staging): added
+  `pos_orders.edited_at`; added `edit_pos_order(text, jsonb, jsonb)` (+ anon
+  grant); **redefined `void_pos_order`** to restock the *full* net footprint
+  (not just `reason='sale'`) so voiding an edited order restores the true
+  baseline, with an unconditional audit insert covering oversell groups.
+- Verified live on Staging: sale → edit (method/handle/items/price) → void
+  restores baseline stock with a net-zero movement ledger; the voided-order guard
+  and idempotent re-run both confirmed. **Staging only — not promoted to prod.**
+
+## 2026-09-11 — Bundle sales push a bundle line so revenue is attributed (Staging only) — `feat(sync)`
+
+- **Fixes bundle revenue vanishing from Coop's per-product reports.** Previously a
+  "Buy Any N" sale was pushed to Coop as N component product lines at ₱0, with the
+  bundle price only on the order header, so Coop's Top products counted the picked
+  units but saw ₱0 revenue for them (RCA in `../COOP_INTEGRATION_PLAN.md`).
+- **The inline online push now also emits a `bundle_id` line** carrying the bundle
+  price (`buildBundleOrderItems` in `utils/sales-sync.ts`, wired from the cart in
+  `app/index.tsx`; the Coop `bundle_id` is resolved from `saved_bundles.bundle_uuid`
+  by preset). The ₱0 component picks still ride along, so `apply_pos_order` keeps
+  decrementing their stock FEFO. Verified live on Staging: the bundle line inserts,
+  each component decrements exactly once (no double-count), and Σ line_total equals
+  the order total.
+- **Online path only for now.** The offline outbox rebuilds the Coop payload from
+  local SQLite, which doesn't persist a bundle's id/price, so an offline-then-
+  retried bundle sale keeps the old header-only behavior. Accepted because bazaar
+  venues usually have internet; the durable-offline version (a local schema
+  migration + recording/outbox changes) is a documented follow-up. No local schema
+  or receipt/display change in this pass.
+- Verified: typecheck clean, full suite 276 tests pass (+3 for `buildBundleOrderItems`).
+
 ## 2026-09-11 — Products page: drop the "All" tab, default to Freeze Dried — `feat(products)`
 
 - Removed the "All" pseudo-tab from the Products management page's category

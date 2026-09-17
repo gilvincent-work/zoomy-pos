@@ -57,6 +57,31 @@ export async function initSchema(): Promise<void> {
       price REAL NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    -- Local mirror of Coop's pos_events (Events / opening cash feature). Coop
+    -- schedules a bazaar's date range; the POS caches it here so "is today an
+    -- event day?" is answered offline by matching the device date against
+    -- starts_on..ends_on. event_id is Coop's uuid (shared identity), so an
+    -- offline create and its later sync are the same idempotent upsert.
+    CREATE TABLE IF NOT EXISTS pos_events (
+      event_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      venue TEXT,
+      city TEXT,
+      organizer TEXT,
+      starts_on TEXT,
+      ends_on TEXT,
+      opening_cash REAL,
+      cash_note TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      -- Null once the event's opening cash / details are confirmed on Coop; set
+      -- to null on a local edit so the outbox re-pushes it (mirrors the sale
+      -- sync-tracking columns above). Rows arriving from a pull are already
+      -- synced, so the pull stamps this with updated_at.
+      synced_at TEXT
+    );
   `);
 
   // Add payment_method column to existing databases
@@ -206,6 +231,24 @@ export async function initSchema(): Promise<void> {
 
   await db.runAsync(
     `ALTER TABLE transactions ADD COLUMN remarks_synced_at TEXT`
+  ).catch(() => {});
+
+  // Events / pet-tag feature. event_id ties a sale to the bazaar it was made at
+  // (null = a normal, non-event day); pet_type is the Dog/Cat/Both tap at
+  // checkout (null = untagged). Both ride along in the Coop push (apply_pos_order)
+  // and are read back for reporting; nullable and backward-compatible.
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN event_id TEXT`
+  ).catch(() => {});
+
+  await db.runAsync(
+    `ALTER TABLE transactions ADD COLUMN pet_type TEXT`
+  ).catch(() => {});
+
+  // Closing cash counted at the till at end of day, mirrors Coop's pos_events
+  // column. Edited on the POS (event-setup) and synced up via upsert_pos_event.
+  await db.runAsync(
+    `ALTER TABLE pos_events ADD COLUMN closing_cash REAL`
   ).catch(() => {});
 
   // One-time backfill so the first drain doesn't flag the entire history as

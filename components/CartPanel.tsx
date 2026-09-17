@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
-import type { PaymentMethod } from '../db/transactions';
+import type { PaymentMethod, PetType } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
+import { PetTypeChips } from './PetTypeChips';
 
 type Props = {
   /** Selected quick payment method. */
@@ -14,6 +15,10 @@ type Props = {
   onMethodChange: (method: PaymentMethod) => void;
   /** Methods to offer, from Settings -> Payment Options. Defaults to all. */
   enabledMethods?: PaymentMethod[];
+  /** Dog/Cat/Both tag for this sale (null = untagged). On the cart so it works
+   *  whether or not the confirm-payment guard is enabled. */
+  petType: PetType | null;
+  onPetTypeChange: (value: PetType | null) => void;
   /** Commit the sale with the selected method (opens the confirm guard). */
   onCharge: () => void;
   /** Compact spacing for the narrow landscape side pane. */
@@ -27,7 +32,7 @@ type Props = {
  * steppers) and bundles, the running total, and a one-tap cash button. Reads and
  * writes the same CartContext the product grid uses, so it stays in sync automatically.
  */
-export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, compact, canIncrement }: Props) {
+export function CartPanel({ method, onMethodChange, enabledMethods, petType, onPetTypeChange, onCharge, compact, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
@@ -140,6 +145,7 @@ export function CartPanel({ method, onMethodChange, enabledMethods, onCharge, co
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
+        <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={isEmpty} />
         <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
         <TouchableOpacity
           testID="cart-charge"

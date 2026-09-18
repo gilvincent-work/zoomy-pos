@@ -12,6 +12,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-18 — v1.2.3: pet-type editing to prod — `chore(release)`
+
+**Version bumped to 1.2.3** (`package.json` + Expo `app.json`; was 1.2.2). Ships the
+pet-type edit below; the shared `edit_pos_order` pet_type patch is applied to the Coop
+prod DB. Paired with dashboard 1.2.5.
+
 ## 2026-09-18 — Edit an order's pet type — `feat(pos)`
 
 The transactions edit form (online-only) gains the Dog/Cat/Both pet chips, seeded

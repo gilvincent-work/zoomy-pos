@@ -12,6 +12,18 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-18 — Daily stock digest as an edge function (pg_cron) — `feat(alerts)`
+
+New `stock-digest` Edge Function: the morning low-stock recap (full low/out state +
+next-event surge), a faithful Deno port of the batch backend's forecast + email
+builders so the numbers match the dashboard. Send-only (does not touch
+pos_stock_alert_log; the event-driven stock-alert function owns that). Reads
+recipients from pos_dashboard_users (+ EMAIL_TO fallback), tags staging (prod clean),
+and supports `?dry=1` for safe verification. Scheduled via Supabase pg_cron
+('pos-stock-digest-daily', 00:00 UTC = 08:00 Manila) on both projects, replacing the
+unreliable GitHub Actions cron. Deployed to staging + prod; dry-runs verified the
+counts match the previous GitHub job.
+
 ## 2026-09-17 — v1.2.2: lockstep release — `chore(release)`
 
 **Version bumped to 1.2.2** (`package.json` + Expo `app.json`; was 1.2.0) in lockstep

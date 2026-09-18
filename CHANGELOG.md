@@ -12,6 +12,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-18 — Edit an order's pet type — `feat(pos)`
+
+The transactions edit form (online-only) gains the Dog/Cat/Both pet chips, seeded
+from the sale and reused from the cart (tap the active chip to clear to untagged).
+Saving threads `pet_type` through `editRemoteOrder` into the shared `edit_pos_order`
+RPC (now patches `pet_type`) and mirrors it into the local SQLite row. Paired with
+the Coop-side edit in `../zoomy-observability-dashboard`. Verified end-to-end on
+Staging (set + clear, order total preserved).
+
 ## 2026-09-18 — Daily stock digest as an edge function (pg_cron) — `feat(alerts)`
 
 New `stock-digest` Edge Function: the morning low-stock recap (full low/out state +

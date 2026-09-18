@@ -144,7 +144,7 @@ export async function importTransaction(data: {
  */
 export async function replaceLocalTransactionContents(
   id: number,
-  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number },
+  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number; petType: PetType | null },
   items: { productId: number; productName: string; price: number; quantity: number }[],
 ): Promise<void> {
   const db = await getDatabase();
@@ -156,8 +156,8 @@ export async function replaceLocalTransactionContents(
     );
   }
   await db.runAsync(
-    'UPDATE transactions SET payment_method = ?, customer_handle = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ? WHERE id = ?',
-    [fields.paymentMethod, fields.customerHandle, fields.total, fields.total, new Date().toISOString(), id]
+    'UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ? WHERE id = ?',
+    [fields.paymentMethod, fields.customerHandle, fields.petType, fields.total, fields.total, new Date().toISOString(), id]
   );
 }
 

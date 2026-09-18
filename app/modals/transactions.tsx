@@ -7,9 +7,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, replaceLocalTransactionContents, Transaction, PaymentMethod } from '../../db/transactions';
+import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, replaceLocalTransactionContents, Transaction, PaymentMethod, PetType } from '../../db/transactions';
 import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder, fetchRemoteOrderEntries } from '../../utils/orders-remote';
 import type { EditEntry } from '../../utils/order-entries';
+import { PetTypeChips } from '../../components/PetTypeChips';
 import { getSavedBundles, type SavedBundle } from '../../db/saved-bundles';
 import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import { refreshPendingCount } from '../../utils/outbox';
@@ -209,6 +210,7 @@ export default function TransactionsModal() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [editMethod, setEditMethod] = useState<PaymentMethod>('cash');
   const [editHandle, setEditHandle] = useState('');
+  const [editPetType, setEditPetType] = useState<PetType | null>(null);
   const [editEntries, setEditEntries] = useState<DraftEntry[]>([]);
   const [bundleDefs, setBundleDefs] = useState<SavedBundle[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
@@ -449,6 +451,7 @@ export default function TransactionsModal() {
     setEditOpening(true);
     setEditMethod((EDIT_METHODS.includes(selected.payment_method) ? selected.payment_method : 'cash'));
     setEditHandle(selected.customer_handle ?? '');
+    setEditPetType(selected.pet_type ?? null);
     const defs = await getSavedBundles().catch(() => [] as SavedBundle[]);
     setBundleDefs(defs);
     const matchDefs = defs
@@ -552,7 +555,7 @@ export default function TransactionsModal() {
         ? { kind: 'item', product_id: e.product_id, qty: Number(e.qty) || 0, unit_price: Number(e.price) || 0 }
         : { kind: 'bundle', bundle_id: e.bundle_id, price: Number(e.price) || 0, picks: e.picks.map((p) => ({ product_id: p.product_id, qty: Number(p.qty) || 0 })) },
     );
-    const res = await editRemoteOrder(editingTx.client_uuid, { payment_method: editMethod, customer_handle: editHandle.trim() }, payload);
+    const res = await editRemoteOrder(editingTx.client_uuid, { payment_method: editMethod, customer_handle: editHandle.trim(), pet_type: editPetType }, payload);
     setEditSaving(false);
     if (!res.ok) { setEditError(res.error ?? 'Edit failed.'); return; }
 
@@ -573,7 +576,7 @@ export default function TransactionsModal() {
       }
       await replaceLocalTransactionContents(
         editingTx.id,
-        { paymentMethod: editMethod, customerHandle: editHandle.trim() || null, total: editTotal() },
+        { paymentMethod: editMethod, customerHandle: editHandle.trim() || null, petType: editPetType, total: editTotal() },
         localItems,
       );
     }
@@ -868,6 +871,9 @@ export default function TransactionsModal() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+
+              <Text style={styles.editSectionLabel}>Pet type</Text>
+              <PetTypeChips value={editPetType} onChange={setEditPetType} />
 
               <Text style={styles.editSectionLabel}>Items &amp; bundles</Text>
               {editEntries.map((e, i) => e.kind === 'item' ? (

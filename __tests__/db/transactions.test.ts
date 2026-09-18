@@ -265,7 +265,7 @@ describe('replaceLocalTransactionContents', () => {
   it('clears old items, inserts the new lines, and updates fields as confirmed-synced', async () => {
     await replaceLocalTransactionContents(
       42,
-      { paymentMethod: 'qrph', customerHandle: '@edited', total: 800 },
+      { paymentMethod: 'qrph', customerHandle: '@edited', petType: 'dog', total: 800 },
       [
         { productId: 5, productName: 'Beef', price: 200, quantity: 1 },
         { productId: 6, productName: 'Chicken', price: 200, quantity: 3 },
@@ -291,8 +291,8 @@ describe('replaceLocalTransactionContents', () => {
     // 4) update fields + mark synced (synced_at is a timestamp string)
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       4,
-      expect.stringContaining('UPDATE transactions SET payment_method = ?, customer_handle = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ?'),
-      ['qrph', '@edited', 800, 800, expect.any(String), 42]
+      expect.stringContaining('UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ?'),
+      ['qrph', '@edited', 'dog', 800, 800, expect.any(String), 42]
     );
   });
 });

@@ -817,6 +817,7 @@ begin
     payment_method  = coalesce(nullif(p_patch->>'payment_method', ''), payment_method),
     customer_handle = case when p_patch ? 'customer_handle' then nullif(p_patch->>'customer_handle', '') else customer_handle end,
     remarks         = case when p_patch ? 'remarks' then nullif(p_patch->>'remarks', '') else remarks end,
+    pet_type        = case when p_patch ? 'pet_type' then nullif(p_patch->>'pet_type', '') else pet_type end,
     subtotal        = v_subtotal,
     total           = v_total,
     oversold        = v_oversold,

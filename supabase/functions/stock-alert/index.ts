@@ -31,14 +31,18 @@ const ok = (body: Record<string, unknown>) => new Response(JSON.stringify(body),
 
 Deno.serve(async (req) => {
   try {
+    const dry = new URL(req.url).searchParams.get('dry') === '1';
     const {product_id} = await req.json().catch(() => ({}));
     if (!product_id) return ok({ok: false, error: 'no product_id'});
 
-    // Live on-hand + name.
-    const [invRows, prodRows, cfgRows] = await Promise.all([
+    // Live on-hand + name + sale movements (for the event-aware velocity, which
+    // drives BOTH the low band and the suggested reorder).
+    const since = new Date(Date.now() - FORECAST_WINDOW_DAYS * 86400000).toISOString();
+    const [invRows, prodRows, cfgRows, moves] = await Promise.all([
       rest(`pos_inventory?product_id=eq.${product_id}&select=stock`).then((r) => r.json()),
       rest(`pos_products?product_id=eq.${product_id}&select=name`).then((r) => r.json()),
       rest(`pos_settings?key=eq.stock_forecast_config&select=value`).then((r) => r.json()),
+      rest(`pos_stock_movements?product_id=eq.${product_id}&reason=eq.sale&created_at=gte.${since}&select=delta,created_at`).then((r) => r.json()),
     ]);
     if (!prodRows?.length) return ok({ok: false, error: 'unknown product'});
     const stock = Number(invRows?.[0]?.stock ?? 0);
@@ -46,8 +50,30 @@ Deno.serve(async (req) => {
     const cfg = cfgRows?.[0]?.value ?? {};
     const override = cfg.threshold_overrides?.[product_id];
     const threshold = Number.isFinite(Number(override)) ? Number(override) : Number(cfg.threshold ?? 10);
+    const earlyWarning = Number(cfg.early_warning_events ?? 3);
+    const targetCover = Number(cfg.target_cover_events ?? 6);
 
-    const level = stock <= 0 ? 'out' : stock <= threshold ? 'low' : null;
+    // Event-aware velocity: units per distinct selling day (mirrors the dashboard).
+    const days = new Set<string>();
+    let units = 0;
+    for (const m of moves ?? []) {
+      units += Math.abs(Number(m.delta ?? 0));
+      days.add(manilaDay(m.created_at));
+    }
+    const perDay = days.size ? units / days.size : 0;
+    const coverEventDays = perDay > 0 ? stock / perDay : null;
+    const reorderQty = perDay > 0 ? Math.max(0, Math.ceil(targetCover * perDay - stock)) : null;
+
+    // Low band matches the dashboard/digest exactly: below the flat threshold OR
+    // too few selling-days of cover left (fast movers with a healthy-looking count).
+    const level = stock <= 0
+      ? 'out'
+      : stock <= threshold || (coverEventDays != null && coverEventDays <= earlyWarning)
+        ? 'low'
+        : null;
+
+    // Safe verification hook: compute + report, no writes, no send.
+    if (dry) return ok({ok: true, dry: true, product_id, stock, threshold, coverEventDays, earlyWarning, level, reorderQty});
 
     // Current open alert for this product.
     const openRows = await rest(`pos_stock_alert_log?product_id=eq.${product_id}&resolved_at=is.null&select=id,level_at_fire&order=id.desc&limit=1`).then((r) => r.json());
@@ -91,19 +117,6 @@ Deno.serve(async (req) => {
       return ok({ok: true, action: 'already-alerted', product_id});
     }
     if (!shouldSend) return ok({ok: false, error: 'dedupe insert failed', product_id});
-
-    // Suggested reorder from event-aware velocity (this product only).
-    const since = new Date(Date.now() - FORECAST_WINDOW_DAYS * 86400000).toISOString();
-    const moves = await rest(`pos_stock_movements?product_id=eq.${product_id}&reason=eq.sale&created_at=gte.${since}&select=delta,created_at`).then((r) => r.json());
-    const days = new Set<string>();
-    let units = 0;
-    for (const m of moves ?? []) {
-      units += Math.abs(Number(m.delta ?? 0));
-      days.add(manilaDay(m.created_at));
-    }
-    const perDay = days.size ? units / days.size : 0;
-    const targetCover = Number(cfg.target_cover_events ?? 6);
-    const reorderQty = perDay > 0 ? Math.max(0, Math.ceil(targetCover * perDay - stock)) : null;
 
     const {subject, html} = buildEmail({name, stock, level, reorderQty, envTag: ENV_TAG});
     const send = await fetch('https://api.resend.com/emails', {

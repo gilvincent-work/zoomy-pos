@@ -12,6 +12,28 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-19 — Low-stock alert fixes: coverage band + digest render — `fix(alerts)`
+
+RCA of missed prod immediate alerts found two bugs (deployed to staging + prod):
+
+- **A. Immediate alert now matches the dashboard's "Low".** The `stock-alert` edge
+  function only treated `stock <= threshold` as low, so coverage-low fast movers
+  (e.g. Duck Strips, 26 on hand, ~1.5 selling-days cover) computed `noop` and never
+  emailed. It now applies the same event-aware rule as the dashboard/digest
+  (`stock <= threshold OR coverEventDays <= earlyWarningEvents`), reusing the sale
+  movements it already fetches. Added a `?dry=1` mode (compute, no write/send) for
+  safe verification. Verified on prod: Duck Strips now computes `level:"low"`.
+- **C. Digest `&middot;` render bug.** The `stock-digest` headline and pills used the
+  literal `&middot;` entity, which the HTML-escaper double-escaped to a visible
+  "&middot;". Switched to a literal `·`. Verified by full local render (no `&amp;`).
+
+Note (not code): the stray `=` on the prod sender was a malformed prod `EMAIL_FROM`
+secret, fixed by re-setting the secret (see D in the session).
+
+Known limitation: immediate alerts are still sale-triggered, so a product that goes
+low with no further sales is caught by the daily digest rather than instantly (a
+periodic sweep was scoped as optional "B" and deferred).
+
 ## 2026-09-18 — v1.2.3: pet-type editing to prod — `chore(release)`
 
 **Version bumped to 1.2.3** (`package.json` + Expo `app.json`; was 1.2.2). Ships the

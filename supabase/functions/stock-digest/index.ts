@@ -201,7 +201,7 @@ function pill(label: string, color: string, bg: string) {
 // deno-lint-ignore no-explicit-any
 function productRow(r: any, isLast: boolean) {
   const isOut = r.status === 'out';
-  const label = (isOut ? 'Out' : 'Low') + (r.reorderQty ? ' &middot; reorder ' + r.reorderQty : '');
+  const label = (isOut ? 'Out' : 'Low') + (r.reorderQty ? ' · reorder ' + r.reorderQty : '');
   const badge = pill(label, isOut ? OUT : LOW, isOut ? OUT_BG : LOW_BG);
   const border = isLast ? '' : `border-bottom:1px solid ${LINE};`;
   return `<tr><td style='padding:14px 0;${border}'><table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='font-family:${FONT};font-size:14px;font-weight:600;color:${INK};'>${esc(r.name)}<div style='font-family:${MONO};font-size:11px;font-weight:400;color:${MUTED};margin-top:2px;'>${r.stock} on hand</div></td><td align='right' style='vertical-align:top;'>${badge}</td></tr></table></td></tr>`;
@@ -218,13 +218,15 @@ function cta(link: string) {
 function digestEmail(forecast: any, plan: Plan, link: string, envTag: string | null) {
   const {summary} = forecast;
   const lowOut = forecast.rows.filter((r: {status: string}) => r.status !== 'healthy');
-  const headline = `Stock digest &middot; ${summary.out} out &middot; ${summary.low} low`;
+  // Literal middot (not the &middot; entity) because headline is routed through
+  // esc(), which would turn '&' into '&amp;' and render "&middot;" verbatim.
+  const headline = `Stock digest · ${summary.out} out · ${summary.low} low`;
   const subjTag = envTag ? '[' + envTag + '] ' : '';
-  const subject = subjTag + `\u{1F4E6} Stock digest · ${summary.out} out · ${summary.low} low`;
+  const subject = subjTag + `\u{1F4E6} ${headline}`;
   const body = lowOut.length
     ? surgeCallout(summary.surgeShort, plan.multiplier) + list(lowOut)
     : `<tr><td style='padding:20px 28px 4px;font-family:${FONT};font-size:14px;color:${MUTED};'>Everything is comfortably stocked. Nothing low or out.</td></tr>`;
-  const html = doc(headline.replace(/&middot;/g, '·'), header('&#128230;', headline, 'Where inventory stands this morning. Reorder quantity holds the target cover window at recent selling-day sell through.', envTag) + body + cta(link));
+  const html = doc(headline, header('&#128230;', headline, 'Where inventory stands this morning. Reorder quantity holds the target cover window at recent selling-day sell through.', envTag) + body + cta(link));
   return {subject, html};
 }
 

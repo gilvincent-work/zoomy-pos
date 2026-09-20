@@ -44,10 +44,22 @@ Deno.serve(async (req) => {
       rest(`pos_settings?key=eq.stock_forecast_config&select=value`).then((r) => r.json()),
       rest(`pos_stock_movements?product_id=eq.${product_id}&reason=eq.sale&created_at=gte.${since}&select=delta,created_at`).then((r) => r.json()),
     ]);
-    if (!prodRows?.length) return ok({ok: false, error: 'unknown product'});
-    const stock = Number(invRows?.[0]?.stock ?? 0);
+    // Defensive: a transient PostgREST hiccup returns a NON-array error object, not
+    // a row set. Crucially, distinguish that from a valid-but-empty array:
+    //   - inventory []  = genuinely no stock (out) -> a real alert
+    //   - inventory {..error..} = we don't know the stock -> MUST NOT default to 0,
+    //     or we'd fabricate a false "out of stock" alert. Skip and let the next
+    //     movement re-run it. Same for the product/config reads.
+    if (!Array.isArray(invRows) || !Array.isArray(prodRows) || !Array.isArray(cfgRows)) {
+      return ok({ok: false, action: 'skipped-transient-read', product_id});
+    }
+    if (!prodRows.length) return ok({ok: false, error: 'unknown product'});
+    // Movements are safe to degrade to []: worst case velocity is 0 (no coverage
+    // signal), and threshold-based low still works. Never fabricates an alert.
+    const movesArr = Array.isArray(moves) ? moves : [];
+    const stock = Number(invRows[0]?.stock ?? 0);
     const name = prodRows[0].name as string;
-    const cfg = cfgRows?.[0]?.value ?? {};
+    const cfg = cfgRows[0]?.value ?? {};
     const override = cfg.threshold_overrides?.[product_id];
     const threshold = Number.isFinite(Number(override)) ? Number(override) : Number(cfg.threshold ?? 10);
     const earlyWarning = Number(cfg.early_warning_events ?? 3);
@@ -56,7 +68,7 @@ Deno.serve(async (req) => {
     // Event-aware velocity: units per distinct selling day (mirrors the dashboard).
     const days = new Set<string>();
     let units = 0;
-    for (const m of moves ?? []) {
+    for (const m of movesArr) {
       units += Math.abs(Number(m.delta ?? 0));
       days.add(manilaDay(m.created_at));
     }
@@ -76,13 +88,20 @@ Deno.serve(async (req) => {
     if (dry) return ok({ok: true, dry: true, product_id, stock, threshold, coverEventDays, earlyWarning, level, reorderQty});
 
     // Current open alert for this product.
-    const openRows = await rest(`pos_stock_alert_log?product_id=eq.${product_id}&resolved_at=is.null&select=id,level_at_fire&order=id.desc&limit=1`).then((r) => r.json());
-    const open = openRows?.[0];
+    const openRows = await rest(`pos_stock_alert_log?product_id=eq.${product_id}&resolved_at=is.null&select=id,level_at_fire,stock_at_fire&order=id.desc&limit=1`).then((r) => r.json());
+    const open = Array.isArray(openRows) ? openRows[0] : undefined;
 
-    // Recovered: resolve any open alert, no email.
+    // Not low/out right now. Only RESOLVE an open alert on a genuine restock (stock
+    // went back UP), never on velocity wobble: coverage (stock / sales-per-day) is
+    // non-monotonic, so cover can drift back over the early-warning line while stock
+    // keeps falling. Resolving on that would re-fire on the next dip -> email spam.
+    // Holding the alert open until real replenishment gives one email per low episode.
     if (!level) {
-      if (open) await rest(`pos_stock_alert_log?id=eq.${open.id}`, {method: 'PATCH', body: JSON.stringify({resolved_at: new Date().toISOString()})});
-      return ok({ok: true, action: open ? 'resolved' : 'noop', product_id});
+      if (open && stock > Number(open.stock_at_fire)) {
+        await rest(`pos_stock_alert_log?id=eq.${open.id}`, {method: 'PATCH', body: JSON.stringify({resolved_at: new Date().toISOString()})});
+        return ok({ok: true, action: 'resolved', product_id});
+      }
+      return ok({ok: true, action: open ? 'held' : 'noop', product_id});
     }
 
     // If we can't actually send, DON'T claim the crossing (no dedup insert), so it

@@ -12,6 +12,25 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-20 — Low-stock alerts: stop re-fire spam on coverage wobble — `fix(alerts)`
+
+Follow-up to the coverage-aware band (Sep 19). Because coverage (stock ÷ sales-per-day)
+is non-monotonic, an open low alert kept auto-resolving whenever velocity nudged cover
+back over the early-warning line, then re-firing on the next sale — duplicate "just
+dropped to low" emails for the same product (seen on Duck Strips). Fixes in `stock-alert`:
+
+- **Resolve only on a genuine restock.** An open alert now clears only when live stock
+  is strictly greater than the stock it fired at (real replenishment), never on velocity
+  wobble. Result: one email per low episode; `out` still escalates exactly once; a fresh
+  low after restock is a new episode. New `held` action for the wobble case.
+- **Never fabricate an alert from a failed read.** A transient PostgREST hiccup returns a
+  non-array error object; the code now skips (`skipped-transient-read`) instead of
+  defaulting stock to 0 — which had briefly fabricated a false "out of stock". Empty
+  arrays (genuinely no stock) still alert correctly. Movements degrade safely to [].
+
+Verified on staging: held (wobble → no resolve), resolved (restock), already-alerted
+(repeat low, no duplicate), escalation (low→out sends once). Deployed staging + prod.
+
 ## 2026-09-19 — Low-stock alert fixes: coverage band + digest render — `fix(alerts)`
 
 RCA of missed prod immediate alerts found two bugs (deployed to staging + prod):

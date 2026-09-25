@@ -12,6 +12,39 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-25 — Transactions: fix blank line items on synced sales — `fix(transactions)`
+
+The Transactions screen showed newer sales with a correct header (time, method,
+total, proof badge) but a **blank item line**, while the same sales showed full
+items in the Coop dashboard. Cause: `fetchRemoteOrders` (`utils/orders-remote.ts`)
+read `pos_order_items` and `pos_products` each in a single unpaginated query.
+PostgREST caps any response at ~1000 rows; `pos_order_items` crossed 1000 (1080
+rows on prod), so the fetch silently returned only the first 1000 rows and every
+order whose items fell past the cut rendered with an empty `items` array. The
+boundary was exact and reproducible (last good sale = 5:11 PM local; everything
+after blank). The old code also destructured `{data}` without checking the query
+`error`, so a partial/failed sub-query masqueraded as a complete, empty result.
+
+Fix, code-only (no schema/infra change), additive:
+
+- **Paginate every unbounded read.** New `fetchAllPaged<T>()` helper loops
+  `.range(from, from+999)` until a short page, so all rows come back regardless of
+  table size. Applied to both `pos_order_items` and `pos_products` (the latter
+  will hit the same cap as the catalog grows).
+- **Fail closed instead of showing truncated data.** Both paged reads are now
+  error-checked; either failing returns `{ok:false}`, so the screen falls back to
+  the local list (per the documented failed-fetch contract) rather than rendering
+  blank items. Strictly safer than before: the caller already bails at
+  `if (!remote.ok) return;` before the deletion-prune, so an items/products fetch
+  hiccup can never be mistaken for "Coop has zero orders" and prune local rows.
+- **Stable paging.** `pos_order_items` is ordered by its append-monotonic `id` so
+  concurrent inserts mid-pull can't shift a row across a page boundary.
+
+Verified: `tsc --noEmit` clean; full suite 303/303; adversarial regression review
+confirmed no data-loss path and no consumer other than `app/modals/transactions.tsx`.
+Known non-blocking note: `pos_products` paging orders by the free-text `product_id`
+(unique but not append-monotonic) — moot until that table exceeds 1000 rows.
+
 ## 2026-09-20 — Low-stock alerts: stop re-fire spam on coverage wobble — `fix(alerts)`
 
 Follow-up to the coverage-aware band (Sep 19). Because coverage (stock ÷ sales-per-day)

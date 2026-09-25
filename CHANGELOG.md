@@ -12,6 +12,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-25 — v1.2.4: blank-line-items fix to prod — `chore(release)`
+
+**Version bumped to 1.2.4** (`package.json` + Expo `app.json`; was 1.2.3). Ships the
+paginated remote-order/item read below. Code-only, no schema change; promoted
+`develop → staging → main`.
+
 ## 2026-09-25 — Transactions: fix blank line items on synced sales — `fix(transactions)`
 
 The Transactions screen showed newer sales with a correct header (time, method,

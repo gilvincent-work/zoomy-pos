@@ -19,6 +19,33 @@ import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactio
 
 const MAX_ORDERS = 500; // bound the pull; the list paginates visually anyway
 
+// PostgREST caps any single response at ~1000 rows. pos_order_items and
+// pos_products both crossed that during a busy bazaar, so a one-shot fetch
+// silently returned only the first 1000 rows — orders past the cut rendered with
+// an empty item list (blank rows). Page every unbounded read so we get all rows
+// regardless of table size. Order each read by a unique key for deterministic
+// paging; pos_order_items uses its append-monotonic `id` so concurrent inserts
+// mid-pull land past the cursor and can't shift a row across a page boundary.
+const PAGE_SIZE = 1000;
+
+/**
+ * Read every row of a query in PAGE_SIZE pages until a short page ends it.
+ * Returns {ok:false} on any page error so the caller falls back to the local
+ * list rather than showing a silently-truncated result.
+ */
+async function fetchAllPaged<T>(
+  makeQuery: (from: number, to: number) => PromiseLike<{data: T[] | null; error: unknown}>,
+): Promise<{ok: true; rows: T[]} | {ok: false}> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const {data, error} = await makeQuery(from, from + PAGE_SIZE - 1);
+    if (error || !data) return {ok: false};
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return {ok: true, rows};
+}
+
 export type RemoteOrdersResult = {ok: true; orders: Transaction[]} | {ok: false};
 
 type OrderRow = {
@@ -57,16 +84,24 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     const ids = orders.map((o) => o.id as string);
     if (ids.length === 0) return {ok: true, orders: []};
 
-    const [{data: items}, {data: products}] = await Promise.all([
-      sb.from('pos_order_items').select('order_id, product_id, qty, unit_price').in('order_id', ids),
-      sb.from('pos_products').select('product_id, name'),
+    // Both reads are paged (they outgrew the 1000-row cap) and their errors are
+    // checked: a partial items/products fetch would blank out real sales, so fall
+    // back to the local list instead of showing truncated data.
+    const [itemsRes, productsRes] = await Promise.all([
+      fetchAllPaged<ItemRow>((from, to) =>
+        sb.from('pos_order_items').select('order_id, product_id, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
+      fetchAllPaged<{product_id: string; name: string}>((from, to) =>
+        sb.from('pos_products').select('product_id, name').order('product_id', {ascending: true}).range(from, to)),
     ]);
+    if (!itemsRes.ok || !productsRes.ok) return {ok: false};
+    const items = itemsRes.rows;
+    const products = productsRes.rows;
 
     const nameBySku = new Map<string, string>();
-    for (const p of products ?? []) nameBySku.set(p.product_id as string, p.name as string);
+    for (const p of products) nameBySku.set(p.product_id as string, p.name as string);
 
     const itemsByOrder = new Map<string, TransactionItem[]>();
-    for (const it of (items ?? []) as ItemRow[]) {
+    for (const it of items as ItemRow[]) {
       const sku = it.product_id ?? '';
       const rawName = (sku && nameBySku.get(sku)) || sku || 'Item';
       const line: TransactionItem = {

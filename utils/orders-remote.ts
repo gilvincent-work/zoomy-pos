@@ -222,6 +222,63 @@ type PrizeRow = {
 };
 
 /**
+ * Read recent non-voided free tastes from Coop (pos_free_tastes), so the Free Taste
+ * "Recent" tab reflects every device's samplings, not just this one's. Carries the
+ * row's own client_uuid for deduping against local rows, the Coop product_id (SKU)
+ * and its embedded name, qty, oversold flag, and timestamps. Fully defensive:
+ * returns [] when Supabase is unconfigured/unreachable or the read fails, so it can
+ * never block the Recent tab (it just falls back to the local list).
+ */
+export async function fetchRemoteFreeTastes(
+  limit = 50,
+): Promise<{
+  client_uuid: string;
+  product_id: string | null;
+  product_name: string;
+  qty: number;
+  oversold: boolean;
+  opened_at: string | null;
+  synced_at: string | null;
+}[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  try {
+    const {data, error} = await sb
+      .from('pos_free_tastes')
+      .select('client_uuid, product_id, qty, oversold, opened_at, synced_at, pos_products(name)')
+      .is('voided_at', null)
+      .order('opened_at', {ascending: false})
+      .limit(limit);
+    if (error || !data) return [];
+    return (data as unknown as FreeTasteRow[]).map((r) => {
+      // Supabase types an embedded relation as an array; the FK is single so take [0].
+      const prod = Array.isArray(r.pos_products) ? r.pos_products[0] : r.pos_products;
+      return {
+        client_uuid: r.client_uuid ?? '',
+        product_id: r.product_id ?? null,
+        product_name: prod?.name ?? 'Item',
+        qty: Number(r.qty ?? 0),
+        oversold: Boolean(r.oversold),
+        opened_at: r.opened_at ?? null,
+        synced_at: r.synced_at ?? null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+type FreeTasteRow = {
+  client_uuid: string | null;
+  product_id: string | null;
+  qty: number | null;
+  oversold: boolean | null;
+  opened_at: string | null;
+  synced_at: string | null;
+  pos_products: {name: string | null} | {name: string | null}[] | null;
+};
+
+/**
  * Void a sale on Coop by its shared client_uuid, so the void shows on every
  * device. Best-effort: returns false when Supabase is unconfigured/unreachable
  * or the order isn't on Coop yet (e.g. an unsynced offline sale) — the caller

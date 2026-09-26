@@ -19,6 +19,7 @@ import {
   getFreeTasteByClientUuid, type FreeTaste,
 } from '../../db/free-tastes';
 import { pushFreeTaste, voidFreeTaste } from '../../utils/free-tastes-sync';
+import { fetchRemoteFreeTastes } from '../../utils/orders-remote';
 import {
   filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
 } from '../../utils/catalog-filter';
@@ -74,13 +75,48 @@ export default function FreeTasteModal() {
     }, [])
   );
 
-  const loadRecents = useCallback(() => {
-    getRecentFreeTastes().then(setRecents).catch(() => {});
-  }, []);
+  // Show ALL free tastes, not just this device's: merge local rows with Coop's,
+  // deduped by client_uuid, PREFERRING the local row (it carries product_local_id
+  // needed for an accurate restock on undo). A remote-only row resolves its local
+  // id by matching the Coop SKU (product_id) against the loaded catalog; if there's
+  // no match it stays null. Remote read is best-effort: a failure just shows local.
+  const loadRecents = useCallback(async () => {
+    const local = await getRecentFreeTastes().catch(() => [] as FreeTaste[]);
+    const remote = await fetchRemoteFreeTastes();
+    const skuToLocalId = new Map<string, number>();
+    for (const p of products) if (p.sku) skuToLocalId.set(p.sku, p.id);
+    const byUuid = new Map<string, FreeTaste>();
+    // Seed with remote rows first; local rows below overwrite on the same uuid.
+    for (const r of remote) {
+      if (!r.client_uuid) continue;
+      byUuid.set(r.client_uuid, {
+        client_uuid: r.client_uuid,
+        batch_id: null,
+        product_local_id: r.product_id ? (skuToLocalId.get(r.product_id) ?? null) : null,
+        product_sku: r.product_id,
+        product_name: r.product_name,
+        qty: r.qty,
+        note: null,
+        created_by: null,
+        device_id: null,
+        opened_at: r.opened_at,
+        // It lives on Coop, so it is synced (render as "Synced" even if the column
+        // is null on a Coop-originated row).
+        synced_at: r.synced_at ?? new Date().toISOString(),
+      });
+    }
+    for (const l of local) byUuid.set(l.client_uuid, l);
+    const merged = [...byUuid.values()].sort((a, b) =>
+      (b.opened_at ?? '').localeCompare(a.opened_at ?? '')
+    );
+    setRecents(merged);
+  }, [products]);
 
   function showRecent() {
     setMode('recent');
-    loadRecents();
+    // Fully fail-soft: loadRecents already swallows its own read errors, but guard
+    // the call too so nothing can bubble an unhandled rejection.
+    loadRecents().catch(() => {});
   }
 
   const filtered = useMemo(() => {
@@ -179,46 +215,85 @@ export default function FreeTasteModal() {
     }
   }
 
-  // Undo a logged free taste (misclick recovery). Re-reads the row's CURRENT
-  // synced_at from SQLite before deciding, so the outbox drain flipping it to
-  // synced between list load and tap can't make us skip the Coop reversal.
-  // Pending: delete the local row before it pushes. Synced: void it on Coop first
-  // (restores the lots), and only delete + restock if that lands (offline: keep
-  // the row and prompt to reconnect). The synchronous ref guard + delete keep it
-  // idempotent (a double-tap can't double-restore).
+  // Undo a logged free taste (misclick recovery), for local OR remote-only rows.
+  // Re-reads the row's CURRENT local synced_at first, so the outbox drain flipping
+  // it to synced between list load and tap can't make us skip the Coop reversal.
+  //  - Pending LOCAL row (exists, synced_at null): delete before it pushes + restock
+  //    locally. No Coop call.
+  //  - Synced local OR remote-only (no local row): void it on Coop first (restores
+  //    the lots). On success: delete any local row, restock by the known
+  //    product_local_id (from the local row, or resolved on the remote row), drop it
+  //    from the list. On "not found" (already gone/voided): just drop it. On any
+  //    other failure (offline/network): keep it and prompt to reconnect.
+  // The synchronous ref guard + delete keep it idempotent (a double-tap can't
+  // double-restore).
   async function undo(row: FreeTaste) {
     if (undoingRef.current.has(row.client_uuid)) return;
     undoingRef.current.add(row.client_uuid);
     setUndoing(new Set(undoingRef.current));
     try {
       const fresh = await getFreeTasteByClientUuid(row.client_uuid);
-      if (!fresh) {
-        // Already gone (undone elsewhere): just drop it from the list.
-        setRecents((prev) => prev.filter((r) => r.client_uuid !== row.client_uuid));
+      if (fresh && !fresh.synced_at) {
+        // Pending local row: never reached Coop, so just delete + restock locally.
+        await deleteFreeTaste(fresh.client_uuid);
+        if (fresh.product_local_id != null) {
+          await incrementStock([{ productId: fresh.product_local_id, quantity: fresh.qty }]);
+        }
+        await refreshPendingCount();
+        setRecents((prev) => prev.filter((r) => r.client_uuid !== fresh.client_uuid));
+        showToast({
+          variant: 'success',
+          title: 'Free taste undone',
+          message: `${fresh.qty} pack${fresh.qty !== 1 ? 's' : ''} of ${fresh.product_name} restored to stock.`,
+        });
         return;
       }
-      if (fresh.synced_at) {
-        const res = await voidFreeTaste(fresh.client_uuid);
-        if (!res.ok) {
-          showToast({
-            variant: 'error',
-            title: 'Still synced to Coop',
-            message: 'Reconnect to undo a synced free taste.',
-          });
+
+      // Synced local row, or a remote-only row (no local copy): reverse on Coop.
+      const res = await voidFreeTaste(row.client_uuid);
+      if (!res.ok) {
+        // Already gone/voided on Coop: nothing to reverse, just drop it (and any
+        // stale local row). Its stock was already restored when it was voided.
+        if (/not.?found/i.test(res.error ?? '')) {
+          if (fresh) await deleteFreeTaste(fresh.client_uuid).catch(() => {});
+          setRecents((prev) => prev.filter((r) => r.client_uuid !== row.client_uuid));
           return;
         }
+        showToast({
+          variant: 'error',
+          title: 'Still synced to Coop',
+          message: 'Reconnect to undo a synced free taste.',
+        });
+        return;
       }
-      await deleteFreeTaste(fresh.client_uuid);
-      if (fresh.product_local_id != null) {
-        await incrementStock([{ productId: fresh.product_local_id, quantity: fresh.qty }]);
+
+      // Void landed. Delete any local copy first.
+      if (fresh) await deleteFreeTaste(fresh.client_uuid);
+      const localId = fresh?.product_local_id ?? row.product_local_id;
+      const qty = fresh?.qty ?? row.qty;
+      const name = fresh?.product_name ?? row.product_name;
+      // Restock ONLY on a genuine reversal. When the RPC reports idempotent:true the
+      // row was already voided (another device undid it first) and Coop already
+      // restored the lots at that first void, so restocking again would over-restore
+      // this device's local cache.
+      if (!res.idempotent && localId != null) {
+        await incrementStock([{ productId: localId, quantity: qty }]);
       }
       await refreshPendingCount();
-      setRecents((prev) => prev.filter((r) => r.client_uuid !== fresh.client_uuid));
-      showToast({
-        variant: 'success',
-        title: 'Free taste undone',
-        message: `${fresh.qty} pack${fresh.qty !== 1 ? 's' : ''} of ${fresh.product_name} restored to stock.`,
-      });
+      setRecents((prev) => prev.filter((r) => r.client_uuid !== row.client_uuid));
+      showToast(
+        res.idempotent
+          ? {
+              variant: 'success',
+              title: 'Free taste undone',
+              message: `${name} was already undone on another device.`,
+            }
+          : {
+              variant: 'success',
+              title: 'Free taste undone',
+              message: `${qty} pack${qty !== 1 ? 's' : ''} of ${name} restored to stock.`,
+            }
+      );
     } catch {
       showToast({ variant: 'error', title: 'Could not undo', message: 'Please try again.' });
     } finally {

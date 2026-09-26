@@ -12,6 +12,17 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — v1.3.0: ship to prod (locations, free taste, free item) — `chore(release)`
+
+**Version 1.2.4 → 1.3.0** (`package.json` + `app.json`). Promotes the multi-location
+inventory (Office/Event) + transfers, free taste (opened-stock sampling), spin-a-wheel
+free item (prize) with backfill, the "Free item" badges + detail, and the bundle-badge
+fixes to prod (`qkxbwzdxhwcbwgriwipi`). The three additive migrations
+(`phase{1,2,3}_*.sql`) were applied and verified on prod: on-hand fingerprint
+unchanged, all existing stock backfilled to **Event** (Office starts empty, so sellers
+see full stock), one signature per intake RPC, self-aborting smoke test passed with zero
+residue. The `stock-alert` edge function was redeployed to read `pos_inventory_event`.
+
 ## 2026-09-27 — Backfill "Free items won" onto a past sale from the edit sheet — `feat(pos)`
 
 The edit-transaction sheet now has a "Free items won" section for backfilling

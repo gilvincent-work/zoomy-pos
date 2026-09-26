@@ -31,6 +31,7 @@ type CartState = {
 
 type CartAction =
   | { type: 'ADD_ITEM'; product: { id: number; name: string; price: number; variantId?: number; variantName?: string } }
+  | { type: 'ADD_PRIZE'; product: { id: number; name: string; price: number; variantId?: number; variantName?: string } }
   | { type: 'REMOVE_ITEM'; productId: number }
   | { type: 'REMOVE_LINE'; productId: number; variantId?: number }
   | { type: 'DECREMENT_ITEM'; productId: number; variantId?: number }
@@ -43,9 +44,12 @@ type CartAction =
 function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
     case 'ADD_ITEM': {
+      // Never merge a paid add into a prize line (that would silently make the
+      // paid unit free). A prize line is only ever grown via ADD_PRIZE.
       const matchIndex = state.items.findIndex((i) =>
         i.productId === action.product.id &&
-        i.variantId === action.product.variantId
+        i.variantId === action.product.variantId &&
+        !i.isPrize
       );
       if (matchIndex >= 0) {
         return {
@@ -66,6 +70,50 @@ function cartReducer(state: CartState, action: CartAction): CartState {
             quantity: 1,
             variantId: action.product.variantId,
             variantName: action.product.variantName,
+          },
+        ],
+      };
+    }
+    case 'ADD_PRIZE': {
+      // A won prize (spin-a-wheel free item), added like picking a bundle. It
+      // only ever grows an existing PRIZE line for the same product/variant (a
+      // second win of the same item bumps its quantity), and rides the exact same
+      // total-exclusion and checkout split as the per-line gift toggle. It must
+      // NEVER touch a paid line: converting a paid line to a free prize would
+      // silently zero real revenue, so if the only matching line is a paid one we
+      // leave the cart unchanged (the picker guards against this too). With no
+      // matching prize line, add a fresh qty-1 prize line.
+      const prizeIndex = state.items.findIndex((i) =>
+        i.productId === action.product.id &&
+        i.variantId === action.product.variantId &&
+        i.isPrize
+      );
+      if (prizeIndex >= 0) {
+        return {
+          ...state,
+          items: state.items.map((i, idx) =>
+            idx === prizeIndex ? { ...i, quantity: i.quantity + 1 } : i
+          ),
+        };
+      }
+      const paidExists = state.items.some((i) =>
+        i.productId === action.product.id &&
+        i.variantId === action.product.variantId &&
+        !i.isPrize
+      );
+      if (paidExists) return state;
+      return {
+        ...state,
+        items: [
+          ...state.items,
+          {
+            productId: action.product.id,
+            productName: action.product.name,
+            price: action.product.price,
+            quantity: 1,
+            variantId: action.product.variantId,
+            variantName: action.product.variantName,
+            isPrize: true,
           },
         ],
       };
@@ -131,6 +179,7 @@ type CartContextValue = {
   bundles: CartBundle[];
   total: number;
   addItem: (product: { id: number; name: string; price: number; variantId?: number; variantName?: string }) => void;
+  addPrize: (product: { id: number; name: string; price: number; variantId?: number; variantName?: string }) => void;
   removeItem: (productId: number) => void;
   removeLine: (productId: number, variantId?: number) => void;
   decrementItem: (productId: number, variantId?: number) => void;
@@ -159,6 +208,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         bundles: state.bundles,
         total,
         addItem: (product) => dispatch({ type: 'ADD_ITEM', product }),
+        addPrize: (product) => dispatch({ type: 'ADD_PRIZE', product }),
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         removeLine: (productId, variantId) => dispatch({ type: 'REMOVE_LINE', productId, variantId }),
         decrementItem: (productId, variantId) => dispatch({ type: 'DECREMENT_ITEM', productId, variantId }),

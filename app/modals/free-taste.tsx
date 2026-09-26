@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, SafeAreaView, StyleSheet,
 } from 'react-native';
@@ -8,46 +8,90 @@ import * as Crypto from 'expo-crypto';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
-import { getActiveProducts, decrementStock, type Product } from '../../db/products';
-import { insertFreeTaste, markFreeTasteSynced, type FreeTaste } from '../../db/free-tastes';
-import { pushFreeTaste } from '../../utils/free-tastes-sync';
+import { CategoryTabs } from '../../components/CategoryTabs';
+import { SubcategoryFilter } from '../../components/SubcategoryFilter';
+import {
+  getActiveProducts, getCategoriesWithSubcategories, decrementStock, incrementStock,
+  type Product, type CategoryGroup,
+} from '../../db/products';
+import {
+  insertFreeTaste, markFreeTasteSynced, deleteFreeTaste, getRecentFreeTastes,
+  getFreeTasteByClientUuid, type FreeTaste,
+} from '../../db/free-tastes';
+import { pushFreeTaste, voidFreeTaste } from '../../utils/free-tastes-sync';
+import {
+  filterProducts, subcategoriesFor, defaultSelectionFor, initialSelection,
+} from '../../utils/catalog-filter';
+import { formatRelativeTime } from '../../utils/format-relative-time';
 import { refreshPendingCount } from '../../utils/outbox';
 
+type Selection = { category: string | null; subcategory: string | null };
+
 /**
- * Free taste (opened-stock sampling). A cart-like multi-line form: add a pack
- * count per product, an optional shared note, then Submit records them all as one
- * batch. Every line is written to local SQLite first (durable, offline-first) and
+ * Free taste (opened-stock sampling). A cart-like multi-line form: filter the
+ * catalog by Product Line (and subcategory) plus a search, add a pack count per
+ * product, an optional shared note, then Submit records them all as one batch.
+ * Every line is written to local SQLite first (durable, offline-first) and
  * deducts the local stock cache; the Coop push (record_free_taste) fires inline
  * best-effort and the outbox retries any that don't land. Standalone: no customer,
- * no sale. See db/free-tastes.ts and utils/free-tastes-sync.ts.
+ * no sale. The Recent tab lists local rows with an Undo (misclick recovery): a
+ * pending row is deleted before it pushes; a synced row is restored via
+ * void_free_taste. See db/free-tastes.ts and utils/free-tastes-sync.ts.
  */
 export default function FreeTasteModal() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { showToast } = useToast();
 
+  const [mode, setMode] = useState<'record' | 'recent'>('record');
   const [products, setProducts] = useState<Product[]>([]);
+  const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [sel, setSel] = useState<Selection>({ category: null, subcategory: null });
   const [search, setSearch] = useState('');
   const [note, setNote] = useState('');
   // productId -> packs opened in this batch.
   const [qty, setQty] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  // Recent-tab state. undoingRef is the real in-flight guard: it's read and
+  // mutated synchronously so a rapid double-tap is a true no-op (React state
+  // lags within a frame, which would let a second tap double-restore stock).
+  // The mirrored `undoing` state exists only to re-render the button label.
+  const [recents, setRecents] = useState<FreeTaste[]>([]);
+  const undoingRef = useRef<Set<string>>(new Set());
+  const [undoing, setUndoing] = useState<Set<string>>(new Set());
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      getActiveProducts().then((rows) => {
-        if (!cancelled) setProducts(rows);
+      Promise.all([getActiveProducts(), getCategoriesWithSubcategories()]).then(([rows, grps]) => {
+        if (cancelled) return;
+        setProducts(rows);
+        setGroups(grps);
+        setSel((prev) => (prev.category ? prev : initialSelection(grps)));
       });
       return () => { cancelled = true; };
     }, [])
   );
 
+  const loadRecents = useCallback(() => {
+    getRecentFreeTastes().then(setRecents).catch(() => {});
+  }, []);
+
+  function showRecent() {
+    setMode('recent');
+    loadRecents();
+  }
+
   const filtered = useMemo(() => {
+    const base = filterProducts(products, sel.category, sel.subcategory);
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) => p.name.toLowerCase().includes(q));
-  }, [products, search]);
+    if (!q) return base;
+    return base.filter((p) => p.name.toLowerCase().includes(q));
+  }, [products, sel, search]);
+
+  const subs = subcategoriesFor(groups, sel.category);
+  const categoryNames = groups.map((g) => g.category);
 
   const totalPacks = useMemo(
     () => Object.values(qty).reduce((sum, n) => sum + n, 0),
@@ -135,39 +179,167 @@ export default function FreeTasteModal() {
     }
   }
 
+  // Undo a logged free taste (misclick recovery). Re-reads the row's CURRENT
+  // synced_at from SQLite before deciding, so the outbox drain flipping it to
+  // synced between list load and tap can't make us skip the Coop reversal.
+  // Pending: delete the local row before it pushes. Synced: void it on Coop first
+  // (restores the lots), and only delete + restock if that lands (offline: keep
+  // the row and prompt to reconnect). The synchronous ref guard + delete keep it
+  // idempotent (a double-tap can't double-restore).
+  async function undo(row: FreeTaste) {
+    if (undoingRef.current.has(row.client_uuid)) return;
+    undoingRef.current.add(row.client_uuid);
+    setUndoing(new Set(undoingRef.current));
+    try {
+      const fresh = await getFreeTasteByClientUuid(row.client_uuid);
+      if (!fresh) {
+        // Already gone (undone elsewhere): just drop it from the list.
+        setRecents((prev) => prev.filter((r) => r.client_uuid !== row.client_uuid));
+        return;
+      }
+      if (fresh.synced_at) {
+        const res = await voidFreeTaste(fresh.client_uuid);
+        if (!res.ok) {
+          showToast({
+            variant: 'error',
+            title: 'Still synced to Coop',
+            message: 'Reconnect to undo a synced free taste.',
+          });
+          return;
+        }
+      }
+      await deleteFreeTaste(fresh.client_uuid);
+      if (fresh.product_local_id != null) {
+        await incrementStock([{ productId: fresh.product_local_id, quantity: fresh.qty }]);
+      }
+      await refreshPendingCount();
+      setRecents((prev) => prev.filter((r) => r.client_uuid !== fresh.client_uuid));
+      showToast({
+        variant: 'success',
+        title: 'Free taste undone',
+        message: `${fresh.qty} pack${fresh.qty !== 1 ? 's' : ''} of ${fresh.product_name} restored to stock.`,
+      });
+    } catch {
+      showToast({ variant: 'error', title: 'Could not undo', message: 'Please try again.' });
+    } finally {
+      undoingRef.current.delete(row.client_uuid);
+      setUndoing(new Set(undoingRef.current));
+    }
+  }
+
+  const tabs = (
+    <View style={styles.tabsRow}>
+      <TouchableOpacity
+        testID="free-taste-tab-record"
+        style={[styles.tab, mode === 'record' && styles.tabActive]}
+        onPress={() => setMode('record')}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.tabLabel, mode === 'record' && styles.tabLabelActive]}>Record</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID="free-taste-tab-recent"
+        style={[styles.tab, mode === 'recent' && styles.tabActive]}
+        onPress={showRecent}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.tabLabel, mode === 'recent' && styles.tabLabelActive]}>Recent</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (mode === 'recent') {
+    return (
+      <SafeAreaView style={styles.container}>
+        {tabs}
+        <FlatList
+          data={recents}
+          keyExtractor={(r) => r.client_uuid}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            <Text style={styles.hint}>
+              Undo a logged free taste to restore its packs. A synced one is reversed on Coop, which needs a connection.
+            </Text>
+          }
+          renderItem={({ item }) => {
+            const synced = !!item.synced_at;
+            const busy = undoing.has(item.client_uuid);
+            return (
+              <View style={styles.recentRow}>
+                <View style={styles.rowInfo}>
+                  <Text style={styles.rowName} numberOfLines={2}>{item.product_name}</Text>
+                  <Text style={styles.rowMeta}>
+                    {item.qty} pack{item.qty !== 1 ? 's' : ''} · {formatRelativeTime(item.opened_at)}
+                  </Text>
+                </View>
+                <View style={[styles.statusPill, synced ? styles.statusSynced : styles.statusPending]}>
+                  <Text style={[styles.statusText, synced ? styles.statusTextSynced : styles.statusTextPending]}>
+                    {synced ? 'Synced' : 'Pending'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  testID={`free-taste-undo-${item.client_uuid}`}
+                  style={[styles.undoBtn, busy && styles.undoBtnDisabled]}
+                  onPress={() => undo(item)}
+                  disabled={busy}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.undoText}>{busy ? 'Undoing…' : 'Undo'}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }}
+          ListEmptyComponent={<Text style={styles.empty}>No free tastes logged yet.</Text>}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
+      {tabs}
+      <View style={styles.headerBlock}>
+        <Text style={styles.hint}>
+          Open sellable stock for pets to sample. This deducts the event stock, no sale is made.
+        </Text>
+        <Text style={styles.fieldLabel}>Note <Text style={styles.optional}>optional, shared by all lines</Text></Text>
+        <TextInput
+          testID="free-taste-note"
+          style={styles.textInput}
+          placeholder="Opened for the Saturday crowd…"
+          placeholderTextColor={colors.textMuted}
+          value={note}
+          onChangeText={setNote}
+        />
+        <TextInput
+          testID="free-taste-search"
+          style={[styles.textInput, styles.search]}
+          placeholder="Search treats…"
+          placeholderTextColor={colors.textMuted}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <CategoryTabs
+          categories={categoryNames}
+          active={sel.category ?? ''}
+          onSelect={(category) => setSel(defaultSelectionFor(groups, category))}
+        />
+        {subs.length > 0 && (
+          <SubcategoryFilter
+            subcategories={subs}
+            active={sel.subcategory}
+            onSelect={(subcategory) => setSel((prev) => ({ ...prev, subcategory }))}
+          />
+        )}
+      </View>
+
       <FlatList
         data={filtered}
         keyExtractor={(p) => String(p.id)}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View style={styles.headerBlock}>
-            <Text style={styles.hint}>
-              Open sellable stock for pets to sample. This deducts the event stock, no sale is made.
-            </Text>
-            <Text style={styles.fieldLabel}>Note <Text style={styles.optional}>optional, shared by all lines</Text></Text>
-            <TextInput
-              testID="free-taste-note"
-              style={styles.textInput}
-              placeholder="Opened for the Saturday crowd…"
-              placeholderTextColor={colors.textMuted}
-              value={note}
-              onChangeText={setNote}
-            />
-            <TextInput
-              testID="free-taste-search"
-              style={[styles.textInput, styles.search]}
-              placeholder="Search treats…"
-              placeholderTextColor={colors.textMuted}
-              value={search}
-              onChangeText={setSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        }
         renderItem={({ item }) => {
           const count = qty[item.id] ?? 0;
           const active = count > 0;
@@ -228,8 +400,27 @@ export default function FreeTasteModal() {
 
 const makeStyles = (c: Palette) => StyleSheet.create({
   container: { flex: 1, backgroundColor: c.bg },
+  tabsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: c.borderDark,
+    backgroundColor: c.surface,
+    alignItems: 'center',
+  },
+  tabActive: { backgroundColor: c.pink, borderColor: c.pink },
+  tabLabel: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
+  tabLabelActive: { color: '#fff' },
   listContent: { padding: 16, paddingBottom: 16, gap: 8 },
-  headerBlock: { gap: 8, marginBottom: 4 },
+  headerBlock: { gap: 8, marginBottom: 4, paddingHorizontal: 16, paddingTop: 4 },
   hint: { color: c.textMuted, fontSize: F.sm, lineHeight: 19, marginBottom: 4 },
   fieldLabel: { color: c.textSecondary, fontSize: F.sm, fontWeight: '700' },
   optional: { color: c.textMuted, fontSize: F.xs, fontWeight: '400' },
@@ -267,6 +458,34 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   stepDisabled: { color: c.textMuted },
   stepPlusText: { color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 22 },
   stepQty: { minWidth: 30, textAlign: 'center', color: c.textPrimary, fontSize: F.md, fontWeight: '800' },
+  // Recent tab
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: c.surface,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: c.borderDark,
+  },
+  statusPill: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 999, borderWidth: 1 },
+  statusSynced: { backgroundColor: c.greenSubtle, borderColor: c.green },
+  statusPending: { backgroundColor: c.elevated, borderColor: c.border },
+  statusText: { fontSize: F.xs, fontWeight: '800' },
+  statusTextSynced: { color: c.green },
+  statusTextPending: { color: c.textMuted },
+  undoBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: R.sm,
+    borderWidth: 1,
+    borderColor: c.pink,
+    backgroundColor: c.pinkSubtle,
+  },
+  undoBtnDisabled: { opacity: 0.5 },
+  undoText: { color: c.pink, fontSize: F.sm, fontWeight: '800' },
   empty: { color: c.textMuted, textAlign: 'center', marginTop: 32, fontSize: F.md },
   footer: {
     borderTopWidth: 1,

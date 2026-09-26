@@ -9,6 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProductTile } from '../components/ProductTile';
 import { BundleTile } from '../components/BundleTile';
+import { PrizeTile } from '../components/PrizeTile';
 import { VariantPickerModal } from '../components/VariantPickerModal';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
@@ -48,6 +49,8 @@ type Selection = { category: string | null; subcategory: string | null };
 
 /** Synthetic category pill that surfaces saved "buy any N" deals as tiles. */
 const BUNDLES_CATEGORY = 'Bundles';
+/** Synthetic category pill whose single tile opens the spin-a-wheel prize picker. */
+const PRIZE_CATEGORY = 'Prize';
 
 // Tile grid geometry. Tiles keep their column width; their height is what adapts
 // so a row fits the screen (short wide tiles on a phone in landscape) instead of
@@ -145,6 +148,7 @@ export default function POSScreen() {
     setSel((prev) => {
       const stillValid =
         (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
+        prev.category === PRIZE_CATEGORY ||
         (prev.category && grps.some((g) => g.category === prev.category));
       if (stillValid) return prev;
       return deals.length > 0 ? { category: BUNDLES_CATEGORY, subcategory: null } : initialSelection(grps);
@@ -183,14 +187,16 @@ export default function POSScreen() {
   useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); loadActiveEvent(); }), [loadCatalog, loadActiveEvent]);
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
+  const showingPrize = sel.category === PRIZE_CATEGORY;
   const categoryNames = [
     ...(pickBundles.length > 0 ? [BUNDLES_CATEGORY] : []),
+    PRIZE_CATEGORY,
     ...groups.map((g) => g.category),
   ];
-  const visibleProducts = showingBundles
+  const visibleProducts = showingBundles || showingPrize
     ? []
     : filterProducts(products, sel.category, sel.subcategory);
-  const subs = showingBundles ? [] : subcategoriesFor(groups, sel.category);
+  const subs = showingBundles || showingPrize ? [] : subcategoriesFor(groups, sel.category);
 
   const getBadge = (productId: number) =>
     items.filter((i) => i.productId === productId).reduce((sum, i) => sum + i.quantity, 0);
@@ -214,6 +220,17 @@ export default function POSScreen() {
   }
 
   async function handleProductPress(product: Product) {
+    // A product is paid OR a prize in one cart, never both (the cart keys one line
+    // per product/variant, and editing variants clears the product's lines). If it
+    // is already a won prize, block the paid add rather than corrupt the cart.
+    if (items.some((i) => i.isPrize && i.productId === product.id)) {
+      showToast({
+        variant: 'error',
+        title: 'In the cart as a prize',
+        message: `${product.name} is in the cart as a free prize. Remove it to sell it in this order.`,
+      });
+      return;
+    }
     if (product.has_variants) {
       const variants = await getVariantsByProductId(product.id);
       setVariantList(variants);
@@ -409,8 +426,8 @@ export default function POSScreen() {
           active={sel.category ?? ''}
           onSelect={(category) =>
             setSel(
-              category === BUNDLES_CATEGORY
-                ? { category: BUNDLES_CATEGORY, subcategory: null }
+              category === BUNDLES_CATEGORY || category === PRIZE_CATEGORY
+                ? { category, subcategory: null }
                 : defaultSelectionFor(groups, category)
             )
           }
@@ -428,7 +445,23 @@ export default function POSScreen() {
         onLayout={(e) => setGridHeight(e.nativeEvent.layout.height)}
       >
       <PullToRefresh onRefresh={handlePullRefresh}>
-      {(scroll) => showingBundles ? (
+      {(scroll) => showingPrize ? (
+        <FlatList
+          {...scroll}
+          key={`prize-${numColumns}`}
+          data={[{ id: 'prize' }]}
+          keyExtractor={(i) => i.id}
+          numColumns={numColumns}
+          style={styles.grid_list}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={styles.gridRow}
+          renderItem={() => (
+            <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
+              <PrizeTile onPress={() => router.push('/modals/prize-select')} />
+            </View>
+          )}
+        />
+      ) : showingBundles ? (
         <FlatList
           {...scroll}
           key={`bundles-${numColumns}`}

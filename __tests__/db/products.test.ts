@@ -5,6 +5,7 @@ import {
   createProduct,
   updateProduct,
   decrementStock,
+  incrementStock,
 } from '../../db/products';
 import { mockDb } from '../../__mocks__/expo-sqlite';
 
@@ -108,6 +109,26 @@ describe('decrementStock', () => {
 
   it('does nothing for an empty sale', async () => {
     await decrementStock([]);
+    expect(mockDb.runAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('incrementStock', () => {
+  it('adds the restored quantity back to each product', async () => {
+    await incrementStock([{ productId: 1, quantity: 2 }, { productId: 2, quantity: 1 }]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock + ? WHERE id = ?', [2, 1]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock + ? WHERE id = ?', [1, 2]);
+    expect(mockDb.runAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('sums quantities for the same product before incrementing', async () => {
+    await incrementStock([{ productId: 1, quantity: 2 }, { productId: 1, quantity: 3 }]);
+    expect(mockDb.runAsync).toHaveBeenCalledWith('UPDATE products SET stock = stock + ? WHERE id = ?', [5, 1]);
+    expect(mockDb.runAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for an empty restore', async () => {
+    await incrementStock([]);
     expect(mockDb.runAsync).not.toHaveBeenCalled();
   });
 });

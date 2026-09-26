@@ -63,6 +63,31 @@ export async function pushFreeTaste(
   }
 }
 
+/**
+ * Undo a free taste already confirmed on Coop, via void_free_taste (restores the
+ * exact lots it hit, writes reverse ledger rows, marks it voided). Keyed on the
+ * row's client_uuid, which the RPC treats idempotently (a second call on an
+ * already-voided row is a safe no-op). Returns ok:false — so the caller keeps the
+ * local row and can prompt "reconnect to undo" — when Supabase is unconfigured,
+ * unreachable, or the RPC rejects. Mirrors the push helpers above.
+ */
+export async function voidFreeTaste(
+  clientUuid: string
+): Promise<{ ok: boolean; error?: string }> {
+  const sb = getSupabase();
+  if (!sb) return { ok: false, error: 'Supabase not configured' };
+  try {
+    const { data, error } = await sb.rpc('void_free_taste', { p_client_uuid: clientUuid });
+    if (error) return { ok: false, error: error.message };
+    const res = data as { ok?: boolean; error?: string } | null;
+    if (res?.ok === false) return { ok: false, error: res.error ?? 'void rejected' };
+    await markSynced();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'network error' };
+  }
+}
+
 /** Drain pending free tastes to Coop, marking each synced on success. Returns
  *  pushed/failed. A best-effort audit row (pos_sync_log) is logged once per drain
  *  that pushed anything, mirroring the catalog pull. */

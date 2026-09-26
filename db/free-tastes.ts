@@ -81,6 +81,29 @@ export async function countPendingFreeTastes(): Promise<number> {
   return row?.n ?? 0;
 }
 
+/** Read one free-taste row by client_uuid, or null. Undo re-reads this right
+ *  before acting so it never trusts a stale synced_at snapshot (the outbox drain
+ *  can flip a row to synced between the list load and the tap). */
+export async function getFreeTasteByClientUuid(clientUuid: string): Promise<FreeTaste | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<FreeTaste>(
+    'SELECT * FROM free_tastes WHERE client_uuid = ?',
+    [clientUuid]
+  );
+  return row ?? null;
+}
+
+/**
+ * Delete one local free-taste row. Used to undo a misclicked sampling: a pending
+ * row is deleted so the outbox never pushes it, and a synced row is deleted after
+ * void_free_taste restores it on Coop. Naturally idempotent (deleting an
+ * already-gone row is a no-op), so undoing twice can't double-anything.
+ */
+export async function deleteFreeTaste(clientUuid: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM free_tastes WHERE client_uuid = ?', [clientUuid]);
+}
+
 /** Most recent free tastes for display, newest first. */
 export async function getRecentFreeTastes(limit = 20): Promise<FreeTaste[]> {
   const db = await getDatabase();

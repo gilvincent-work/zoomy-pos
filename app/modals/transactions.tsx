@@ -19,7 +19,8 @@ import { importTransactionsZip } from '../../utils/import-csv';
 import { getAllProducts, getActiveProducts, decrementStock, incrementStock, Product } from '../../db/products';
 import {
   insertOrderPrize, markOrderPrizeSynced, getOrderPrizesByOrder,
-  getOrderPrizeByClientUuid, deleteOrderPrize, type OrderPrize,
+  getOrderPrizeByClientUuid, deleteOrderPrize, getOrderClientUuidsWithPrizes,
+  type OrderPrize,
 } from '../../db/order-prizes';
 import { pushOrderPrize, voidOrderPrize } from '../../utils/order-prizes-sync';
 import { pullCatalog } from '../../utils/catalog-sync';
@@ -204,6 +205,12 @@ export default function TransactionsModal() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { showToast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  // client_uuids of sales with a non-voided "free item won" prize (local OR remote),
+  // so each row can show a "Free item" badge at a glance. remotePrizeUuidsRef keeps
+  // the last cross-device set so a local prize add/remove can refresh the badges
+  // without dropping prizes logged on other devices.
+  const [prizeUuids, setPrizeUuids] = useState<Set<string>>(new Set());
+  const remotePrizeUuidsRef = useRef<string[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
@@ -270,8 +277,14 @@ export default function TransactionsModal() {
     // Keep the "N pending" marker honest while viewing history (a background
     // drain may have synced rows since it was last computed).
     refreshPendingCount().catch(() => {});
+    // Prize badges: local prizes paint instantly (offline-friendly); the remote
+    // read below fills in prizes logged on other devices / backfilled on Coop.
+    const localPrizeUuids = await getOrderClientUuidsWithPrizes().catch(() => [] as string[]);
+    setPrizeUuids(new Set(localPrizeUuids));
     const remote = await fetchRemoteOrders();
     if (!remote.ok) return;
+    remotePrizeUuidsRef.current = remote.prizeClientUuids;
+    setPrizeUuids(new Set<string>([...localPrizeUuids, ...remote.prizeClientUuids]));
 
     // Show the cross-device merged list FIRST. This must never be blocked by the
     // deletion-prune below: if that prune ever throws (e.g. a local delete
@@ -519,12 +532,19 @@ export default function TransactionsModal() {
   // so the list, the in-stock picker, and the qty cap all reflect the latest
   // deductions after an add or a remove.
   const reloadPrizes = useCallback(async (orderClientUuid: string) => {
-    const [rows, prods] = await Promise.all([
+    const [rows, prods, allPrizeUuids] = await Promise.all([
       getOrderPrizesByOrder(orderClientUuid),
       getActiveProducts(),
+      getOrderClientUuidsWithPrizes().catch(() => [] as string[]),
     ]);
     setOrderPrizes(rows);
     setPrizeCatalog(prods);
+    // Keep the row badges current after an add/remove. The edited order is governed
+    // by the local table here (add inserts / remove deletes a local row), so drop it
+    // from the cached remote set and let the local list decide its badge; every other
+    // order keeps its last-known cross-device badge.
+    const remoteMinusThis = remotePrizeUuidsRef.current.filter((u) => u !== orderClientUuid);
+    setPrizeUuids(new Set<string>([...allPrizeUuids, ...remoteMinusThis]));
   }, []);
 
   // Products with an Event on-hand count and a Coop SKU, for the prize picker
@@ -848,7 +868,11 @@ export default function TransactionsModal() {
             keyExtractor={(t) => String(t.id)}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TransactionRow transaction={item} onPress={setSelected} />
+              <TransactionRow
+                transaction={item}
+                onPress={setSelected}
+                hasPrize={!!item.client_uuid && prizeUuids.has(item.client_uuid)}
+              />
             )}
             ListEmptyComponent={
               <Text style={styles.empty}>No transactions for this period.</Text>

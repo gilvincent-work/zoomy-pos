@@ -12,6 +12,15 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-26 — Header collapses to a menu + top drawer on narrow screens — `feat(pos)`
+
+The header's action-icon row (theme, free taste, bundle, products, transactions,
+settings) had grown to six and, on narrow phones (iPhone SE / 16), overlapped the
+Zoomy brand, the sync marker, and the event chip. Below 520px wide the row now
+collapses into a single menu button that opens an upper drawer listing the same
+actions (icon + label). Wider screens (tablets, landscape) keep the inline icon
+row unchanged. New `components/HeaderMenuDrawer.tsx`; typecheck clean, 315 tests pass.
+
 ## 2026-09-26 — Free taste filters, bundle-style prize tile, free-taste undo — `feat(pos)`
 
 Three follow-on POS UX improvements to the giveaway flows. All additive; a sale

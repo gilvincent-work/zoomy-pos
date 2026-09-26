@@ -12,6 +12,91 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-26 — Free taste + spin-a-wheel prize, POS app layer (offline-first) — `feat(pos)`
+
+Wires the two Phase 2 giveaway RPCs into the app, both offline-first on the same
+outbox model as sales (durable local row, `synced_at` null until Coop confirms,
+idempotent on `client_uuid`). Regular sales/voids/edits are untouched: a cart
+with no prize lines and no free tastes produces a byte-identical sale.
+
+- **Free taste (opened-stock sampling).** New local table `free_tastes`
+  (`db/schema.ts`, `db/free-tastes.ts`) + `utils/free-tastes-sync.ts` calling
+  `record_free_taste`. Entry point is a dedicated header button (nutrition icon)
+  opening `app/modals/free-taste.tsx`, a cart-like multi-line form: pick packs per
+  product, one shared note, Submit writes all lines as one `batch_id`, decrements
+  the local stock cache, fires the push inline (outbox retries), and surfaces the
+  RPC's `oversold` flag. **No single-product long-press quick path**: the grid
+  tile's `onLongPress` is already bound to "remove from cart" (`app/index.tsx`), so
+  hijacking it would collide; the dedicated section is the single entry point.
+- **Spin-a-wheel prize (free item on a sale).** New local table `order_prizes`
+  (`db/order-prizes.ts`) + `utils/order-prizes-sync.ts` calling `add_order_prize`.
+  A per-line gift toggle in the cart (`components/CartPanel.tsx`, `CartContext`)
+  marks a line as a prize: it shows ₱0, is excluded from the total, and is recorded
+  separately (never sent to `apply_pos_order`). At checkout the paid lines take the
+  unchanged path; each prize is written against the sale's `client_uuid`. A prize
+  requires a billable sale (guarded with a friendly message on a prize-only cart).
+- **Drain ordering.** `utils/outbox.ts` drains sales first, then free tastes, then
+  prizes last, because `add_order_prize` resolves the order by `order_client_uuid`,
+  so a prize can only land after its sale reaches Coop (an "order not found" leaves
+  it pending for the next drain). All three feed the "N pending" marker.
+- **Regression-reviewed.** Full suite green (303 tests) + typecheck clean. Two
+  review findings fixed: the outbox single-flight test now mocks the new drains
+  (it was silently broken), and `pushFreeTaste`/`pushOrderPrize` re-resolve the
+  Coop SKU at push time (like the sale push) so a giveaway logged against a
+  not-yet-synced local product self-heals instead of sticking pending forever.
+
+## 2026-09-26 — Free taste (opened-stock sampling), DB layer (Phase 2, Staging) — `feat(inventory)`
+
+Standalone sampling: you open sellable stock to let pets taste it. Deducts the
+**Event** pool like a sale, logged distinctly so it never blends into sales or
+shrinkage. Additive, **Staging only**; SQL in `supabase/phase2_free_taste_2026-09-26.sql`.
+Distinct from the spin-a-wheel free ITEM (a prize on an order, still to build).
+
+- **`pos_free_tastes`** entity: `client_uuid` (offline idempotency), `batch_id`
+  (groups a multi-line entry), product, lot, `qty` (packs), `oversold`, note,
+  who/device, `opened_at`, `voided_at`. Plus a `free_taste_id` column on
+  `pos_stock_movements` linking the ledger rows (mirrors `order_id` for sales).
+- **`record_free_taste(p jsonb)`** — deducts Event FEFO, writes
+  `reason='free_taste'` ledger rows, idempotent on `client_uuid`, allow + flag
+  oversell (mirrors `apply_pos_order`). **`void_free_taste(client_uuid)`** restores
+  the exact lots and writes `free_taste-reverse` rows.
+- **Decisions:** qty = sellable packs opened; capture product + qty + note +
+  who/device (no event or pet link); undo supported.
+- **Verified:** smoke-tested record + FEFO deduct + ledger link, idempotency,
+  void/restore, and oversell flagging (self-aborting, zero residue); on-hand
+  fingerprint unchanged from baseline.
+- POS offline surfaces (long-press quick sheet + dedicated batch section + outbox)
+  are the remaining Phase 2 work.
+
+## 2026-09-26 — Multi-location inventory (Office + Event) + transfers (Phase 1, Staging) — `feat(inventory)`
+
+Foundation for tracking where POS stock physically sits. Additive, applied to
+**Staging only** (`syxwixxzmytvhwhkwdvw`); reviewed SQL in
+`supabase/phase1_locations_2026-09-26.sql`. Not promoted to prod.
+
+- **New location dimension.** `pos_locations` (Office, Event; BoxMe deferred until
+  its API lands, so it is a future INSERT, not a schema change). `location` column
+  added to `pos_inventory_lots` and `pos_stock_movements` (every existing row
+  backfilled to `event`), plus `transfer_id` on movements.
+- **Office is back-stock; Event is what the POS sells, and it draws from Office.**
+  New `transfer_stock(product, qty, from, to)` RPC moves units FEFO, atomically,
+  and refuses to over-transfer. New views `pos_inventory_by_location` and
+  `pos_inventory_event` (both `security_invoker`).
+- **Every stock RPC is location-aware, defaulting to `event`** so behavior is
+  unchanged while Office is empty: sales / void / edit / unvoid deduct and restore
+  only Event lots; `receive_lot` and `add_pos_stock` gained an optional location;
+  `set_product_stock` and `void_last_stock_add` are scoped to Event.
+- **POS `catalog-sync` reads sellable stock from `pos_inventory_event`** (identical
+  to the old global `pos_inventory` sum today; diverges once Office holds stock).
+- **Decision:** existing on-hand stays in **Event** so the POS keeps selling with
+  zero setup; new stock is received into Office and transferred out as needed.
+- **Regression review (agent):** post-migration on-hand, row counts, and the
+  `pos_inventory` fingerprint were byte-identical to the pre-migration baseline.
+  The review caught a function-overload trap (adding an optional param left the
+  original `receive_lot`/`add_pos_stock` signatures in place, which would break
+  PostgREST name resolution); fixed by dropping the old signatures. Also scoped
+  `void_last_stock_add` to Event before the Office-intake flow ships.
+
 ## 2026-09-25 — v1.2.4: blank-line-items fix to prod — `chore(release)`
 
 **Version bumped to 1.2.4** (`package.json` + Expo `app.json`; was 1.2.3). Ships the

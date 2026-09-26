@@ -10,6 +10,10 @@ import { pushSale, type SaleForPush } from './sales-sync';
 import { voidRemoteOrder, setRemoteOrderRemarks } from './orders-remote';
 import { drainEvents } from './events-sync';
 import { getUnsyncedEvents } from '../db/events';
+import { drainFreeTastes } from './free-tastes-sync';
+import { getPendingFreeTastes, countPendingFreeTastes } from '../db/free-tastes';
+import { drainOrderPrizes } from './order-prizes-sync';
+import { getPendingOrderPrizes, countPendingOrderPrizes } from '../db/order-prizes';
 import { beginSync, endSync, setPendingCount } from './sync-status';
 
 /**
@@ -54,9 +58,15 @@ export function saleForPushFromTransaction(t: Transaction): SaleForPush {
 }
 
 /** Push the current pending count into the sync-status store so the marker
- *  ("N pending") stays honest after any sale/void/remarks change. */
+ *  ("N pending") stays honest after any sale/void/remarks change. Counts sales,
+ *  free tastes, and prizes together — all three drain through this outbox. */
 export async function refreshPendingCount(): Promise<void> {
-  setPendingCount(await getPendingSyncCount());
+  const [sales, freeTastes, prizes] = await Promise.all([
+    getPendingSyncCount(),
+    countPendingFreeTastes(),
+    countPendingOrderPrizes(),
+  ]);
+  setPendingCount(sales + freeTastes + prizes);
 }
 
 // Single-flight: launch, the `online` event, the background interval and the
@@ -82,7 +92,19 @@ export async function drainOutbox(): Promise<DrainResult> {
     // Locally-created/edited events (opening cash, on-site events) also owe Coop
     // a push. They drain alongside sales, keyed idempotently on event_id.
     const pendingEvents = await getUnsyncedEvents();
-    if (pending.length === 0 && pendingEvents.length === 0) return { pushed, failed };
+    // Free tastes (standalone samplings) and prizes (spin-a-wheel free items)
+    // also queue here. Prizes are drained LAST because add_order_prize resolves
+    // the order by its client_uuid, so the sale must reach Coop first.
+    const pendingFreeTastes = await getPendingFreeTastes();
+    const pendingPrizes = await getPendingOrderPrizes();
+    if (
+      pending.length === 0 &&
+      pendingEvents.length === 0 &&
+      pendingFreeTastes.length === 0 &&
+      pendingPrizes.length === 0
+    ) {
+      return { pushed, failed };
+    }
 
     beginSync();
 
@@ -124,6 +146,25 @@ export async function drainOutbox(): Promise<DrainResult> {
         else failed += 1;
       }
     }
+
+    // Free tastes are standalone (no order dependency), so they drain after the
+    // sales loop independently.
+    if (pendingFreeTastes.length > 0) {
+      const freeTastes = await drainFreeTastes();
+      pushed += freeTastes.pushed;
+      failed += freeTastes.failed;
+    }
+
+    // Prizes LAST: add_order_prize resolves the order by order_client_uuid, so a
+    // prize can only be recorded once its sale is on Coop. A prize whose sale
+    // hasn't landed yet fails with "order not found" and stays pending for the
+    // next drain (which pushes the sale first, above).
+    if (pendingPrizes.length > 0) {
+      const prizes = await drainOrderPrizes();
+      pushed += prizes.pushed;
+      failed += prizes.failed;
+    }
+
     return { pushed, failed };
   } finally {
     draining = false;

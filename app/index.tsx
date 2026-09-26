@@ -31,6 +31,8 @@ import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/p
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
 import { buildInsertItems } from '../utils/cart-transaction';
 import { pushSale } from '../utils/sales-sync';
+import { insertOrderPrize, markOrderPrizeSynced } from '../db/order-prizes';
+import { pushOrderPrize } from '../utils/order-prizes-sync';
 import { lineEmojis } from '../utils/bundles';
 import { emojiGraphemes } from '../constants/emoji';
 import {
@@ -253,7 +255,19 @@ export default function POSScreen() {
   // Tapping Pay opens the confirm guard instead of booking immediately, unless
   // that guard is turned off in Settings -> Payment Options.
   function handleRequestPay() {
-    if (items.length === 0 && bundles.length === 0) return;
+    // A prize line attaches to a sale, so a cart of only prize lines has nothing
+    // to pay for and nothing for the prize to hang off. Ask for a paid item.
+    const hasBillable = items.some((i) => !i.isPrize) || bundles.length > 0;
+    if (!hasBillable) {
+      if (items.length > 0) {
+        showToast({
+          variant: 'error',
+          title: 'Add an item to pay',
+          message: 'A prize attaches to a sale. Add at least one paid item.',
+        });
+      }
+      return;
+    }
     if (confirmOnPay) {
       setConfirmPay(true);
     } else {
@@ -264,19 +278,32 @@ export default function POSScreen() {
   // Confirmed: record the sale with the selected quick method, then push to Coop.
   async function handleConfirmPay() {
     setConfirmPay(false);
-    if (items.length === 0 && bundles.length === 0) return;
+    // Split prize (spin-a-wheel free item) lines out of the paid sale. Paid lines
+    // go through the unchanged sale path; prize lines are recorded separately as
+    // prizes and never sent as sale items (so a normal sale is unaffected).
+    const paidItems = items.filter((i) => !i.isPrize);
+    const prizeItems = items.filter((i) => i.isPrize);
+    if (paidItems.length === 0 && bundles.length === 0) return;
     if (payingRef.current) return; // a save is already in flight; ignore the re-tap
     payingRef.current = true;
     const saleTotal = total;
-    const saleItems = buildInsertItems(items, bundles);
+    const saleItems = buildInsertItems(paidItems, bundles);
     const method = payMethod;
     const label = quickMethodMeta(method).label;
     // Snapshot the event + pet tag for this sale (state is cleared after).
     const eventId = activeEvent?.event_id ?? null;
     const salePetType = petType;
     // One shared id for both the local row and the Coop push, so the Transactions
-    // merge can dedupe this sale against the copy it pulls back from Coop.
+    // merge can dedupe this sale against the copy it pulls back from Coop. Each
+    // prize gets its own client_uuid and hangs off this sale's client_uuid.
     const clientUuid = Crypto.randomUUID();
+    const prizeRows = prizeItems.map((it) => ({
+      clientUuid: Crypto.randomUUID(),
+      productLocalId: it.productId,
+      productSku: products.find((p) => p.id === it.productId)?.sku ?? null,
+      productName: it.productName + (it.variantName ? ` · ${it.variantName}` : ''),
+      qty: it.quantity,
+    }));
     try {
       await insertTransaction({
         total: saleTotal,
@@ -290,12 +317,29 @@ export default function POSScreen() {
         petType: salePetType,
         items: saleItems,
       });
+      // Record each prize locally against this sale's client_uuid (durable,
+      // synced_at null so the outbox pushes it after the sale lands on Coop).
+      for (const pr of prizeRows) {
+        await insertOrderPrize({
+          clientUuid: pr.clientUuid,
+          orderClientUuid: clientUuid,
+          productLocalId: pr.productLocalId,
+          productSku: pr.productSku,
+          productName: pr.productName,
+          qty: pr.qty,
+          createdBy: 'pos',
+          deviceId: 'pos',
+        });
+      }
       // Reflect this sale on the local stock cache right away, so the tile
       // warning is correct on the very next tap — it doesn't wait for the next
       // catalog pull (Coop's own stock already deducted server-side when the
       // sale reaches it; this just keeps this device from reading stale
-      // between syncs).
-      await decrementStock(saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })));
+      // between syncs). Prizes deduct stock too (they're a real giveaway).
+      await decrementStock([
+        ...saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        ...prizeRows.map((pr) => ({ productId: pr.productLocalId, quantity: pr.qty })),
+      ]);
       await loadCatalog();
       clearCart();
       setCustomerHandle('');
@@ -303,7 +347,7 @@ export default function POSScreen() {
       showToast({
         variant: 'success',
         title: 'Sale recorded',
-        message: `${label} ₱${saleTotal.toFixed(2)} · new sale ready`,
+        message: `${label} ₱${saleTotal.toFixed(2)}${prizeRows.length > 0 ? ` · ${prizeRows.length} prize${prizeRows.length !== 1 ? 's' : ''}` : ''} · new sale ready`,
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
@@ -312,12 +356,33 @@ export default function POSScreen() {
           showToast({
             variant: 'error',
             title: 'Not synced to Coop',
-            message: 'Saved on this device — it’ll sync automatically when back online.',
+            message: 'Saved on this device. It’ll sync automatically when back online.',
           });
         } else {
           // Confirmed on Coop: safe from here on for the Transactions screen to
           // prune this row locally if Coop's copy is later deleted.
           markTransactionSynced(clientUuid).catch(() => {});
+          // The order now exists on Coop, so its prizes can be attached
+          // (add_order_prize resolves the order by order_client_uuid). Fire each
+          // best-effort; any that fail stay pending for the outbox to retry.
+          for (const pr of prizeRows) {
+            pushOrderPrize({
+              client_uuid: pr.clientUuid,
+              order_client_uuid: clientUuid,
+              product_local_id: pr.productLocalId,
+              product_sku: pr.productSku,
+              product_name: pr.productName,
+              qty: pr.qty,
+              note: null,
+              created_by: 'pos',
+              device_id: 'pos',
+              won_at: null,
+              synced_at: null,
+            }).then((r) => {
+              if (r.ok) markOrderPrizeSynced(pr.clientUuid).catch(() => {});
+              refreshPendingCount().catch(() => {});
+            });
+          }
         }
         // Reflect this sale's sync state in the "N pending" marker either way
         // (0 on success, 1+ while it waits for the background drain to retry).
@@ -448,6 +513,9 @@ export default function POSScreen() {
           */}
           <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/modals/free-taste')} style={styles.headerBtn} accessibilityLabel="Free taste">
+            <Ionicons name="nutrition-outline" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
             <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />

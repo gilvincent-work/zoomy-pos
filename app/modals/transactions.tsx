@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   SafeAreaView, Modal, Image, ScrollView, Dimensions, Alert, TextInput,
@@ -8,7 +8,7 @@ import { TransactionRow } from '../../components/TransactionRow';
 import { CalendarRangeModal } from '../../components/CalendarRangeModal';
 import { PullToRefresh } from '../../components/PullToRefresh';
 import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, deleteTransactionsByClientUuids, replaceLocalTransactionContents, Transaction, PaymentMethod, PetType } from '../../db/transactions';
-import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder, fetchRemoteOrderEntries } from '../../utils/orders-remote';
+import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder, fetchRemoteOrderEntries, fetchRemoteOrderPrizes } from '../../utils/orders-remote';
 import type { EditEntry } from '../../utils/order-entries';
 import { PetTypeChips } from '../../components/PetTypeChips';
 import { getSavedBundles, type SavedBundle } from '../../db/saved-bundles';
@@ -212,6 +212,10 @@ export default function TransactionsModal() {
   const [prizeUuids, setPrizeUuids] = useState<Set<string>>(new Set());
   const remotePrizeUuidsRef = useRef<string[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
+  // The "free item(s) won" listed in the read-only detail view for `selected`.
+  // Loaded from local prize rows unioned with Coop's (deduped by the prize's own
+  // client_uuid), mirroring the tile badge's sources.
+  const [detailPrizes, setDetailPrizes] = useState<{ product_name: string; qty: number }[]>([]);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [calendarVisible, setCalendarVisible] = useState(false);
@@ -316,6 +320,27 @@ export default function TransactionsModal() {
       getAllProducts().then(setCatalog).catch(() => {});
     }, [loadTransactions])
   );
+
+  // Load the free item(s) won for the open detail view. Local rows (offline-safe)
+  // unioned with Coop's, deduped by the prize's client_uuid so a synced prize isn't
+  // listed twice. Fully best-effort: any read failure just leaves the section empty.
+  // The remote read is skipped for a local-only unsynced order (no client_uuid).
+  useEffect(() => {
+    if (!selected) { setDetailPrizes([]); return; }
+    const clientUuid = selected.client_uuid;
+    let cancelled = false;
+    (async () => {
+      const byUuid = new Map<string, { product_name: string; qty: number }>();
+      if (clientUuid) {
+        const localRows = await getOrderPrizesByOrder(clientUuid).catch(() => [] as OrderPrize[]);
+        for (const r of localRows) byUuid.set(r.client_uuid, { product_name: r.product_name, qty: r.qty });
+        const remoteRows = await fetchRemoteOrderPrizes(clientUuid);
+        for (const r of remoteRows) if (r.client_uuid) byUuid.set(r.client_uuid, { product_name: r.product_name, qty: r.qty });
+      }
+      if (!cancelled) setDetailPrizes([...byUuid.values()]);
+    })();
+    return () => { cancelled = true; };
+  }, [selected]);
 
   const filtered = useMemo(() => {
     let result = transactions;
@@ -925,6 +950,19 @@ export default function TransactionsModal() {
                   </View>
                 ))}
 
+                {detailPrizes.length > 0 && (
+                  <>
+                    <View style={styles.divider} />
+                    <Text style={styles.prizeSectionLabel}>FREE ITEMS WON</Text>
+                    {detailPrizes.map((p, i) => (
+                      <View key={`${p.product_name}-${i}`} style={styles.prizeDetailRow}>
+                        <Ionicons name="gift-outline" size={F.sm} color={colors.pink} />
+                        <Text style={styles.prizeDetailText}>{p.qty}x {p.product_name}</Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+
                 <View style={styles.divider} />
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Total</Text>
@@ -1477,6 +1515,9 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   },
   itemName: { color: c.textPrimary, fontSize: F.md },
   itemPrice: { color: c.textPrimary, fontSize: F.md, fontWeight: '600' },
+  prizeSectionLabel: { color: c.pink, fontSize: F.xs, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
+  prizeDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  prizeDetailText: { color: c.textPrimary, fontSize: F.md },
 
   divider: { height: 1, backgroundColor: c.borderDark, marginVertical: 12 },
   remoteNote: { color: c.textMuted, fontSize: F.sm, fontStyle: 'italic' },

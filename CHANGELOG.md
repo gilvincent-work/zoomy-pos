@@ -30,6 +30,14 @@ double-tap can't double-restore. Added `getOrderPrizesByOrder`,
 `voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
 typecheck clean, 319 tests pass.
 
+## 2026-09-27 — Fix: bundle badge missing on synced orders (esp. bundle + free item) — `fix(pos)`
+
+`fetchRemoteOrders` hardcoded `is_bundle: false`, so any order shown from the remote
+source lost its Bundle badge. It was most visible on a bundle that also won a free
+item (only the "Free item" badge showed). The remote fetch now selects the item
+bundle columns and derives `is_bundle` per order (any line with a bundle_id or
+bundle_group), so a bundle + prize order shows BOTH badges. Typecheck clean, 319 tests.
+
 ## 2026-09-27 — Show the won free item(s) in the transaction detail — `feat(pos)`
 
 The read-only transaction detail now lists which free item(s) were won ("1x Chicken",

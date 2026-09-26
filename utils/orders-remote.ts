@@ -66,6 +66,8 @@ type OrderRow = {
 type ItemRow = {
   order_id: string;
   product_id: string | null;
+  bundle_id: string | null;
+  bundle_group: string | null;
   qty: number | null;
   unit_price: number | null;
 };
@@ -91,7 +93,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     // back to the local list instead of showing truncated data.
     const [itemsRes, productsRes] = await Promise.all([
       fetchAllPaged<ItemRow>((from, to) =>
-        sb.from('pos_order_items').select('order_id, product_id, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
+        sb.from('pos_order_items').select('order_id, product_id, bundle_id, bundle_group, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
       fetchAllPaged<{product_id: string; name: string}>((from, to) =>
         sb.from('pos_products').select('product_id, name').order('product_id', {ascending: true}).range(from, to)),
     ]);
@@ -102,8 +104,13 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     const nameBySku = new Map<string, string>();
     for (const p of products) nameBySku.set(p.product_id as string, p.name as string);
 
+    // An order is a bundle if any of its lines carry a bundle id or bundle group
+    // (the picks of a "Buy Any N" ride as grouped product lines). Used for the
+    // Bundle badge; the free-item prize is a separate concern (its own badge).
+    const bundleOrderIds = new Set<string>();
     const itemsByOrder = new Map<string, TransactionItem[]>();
     for (const it of items as ItemRow[]) {
+      if (it.bundle_id || it.bundle_group) bundleOrderIds.add(it.order_id);
       const sku = it.product_id ?? '';
       const rawName = (sku && nameBySku.get(sku)) || sku || 'Item';
       const line: TransactionItem = {
@@ -155,7 +162,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         ref_number: null,
         proof_photo_uri: null,
         customer_handle: null,
-        is_bundle: false,
+        is_bundle: bundleOrderIds.has(o.id),
         status: o.status === 'voided' ? 'voided' : 'completed',
         created_at: o.created_at,
         remarks: o.remarks ?? null,

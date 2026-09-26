@@ -18,6 +18,7 @@ import { CartSheet } from '../components/CartSheet';
 import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { SyncStatusBar } from '../components/SyncStatusBar';
 import { EventBadge } from '../components/EventBadge';
+import { HeaderMenuDrawer, type HeaderMenuItem } from '../components/HeaderMenuDrawer';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -67,6 +68,11 @@ export default function POSScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  // Below this width the header's action-icon row can't sit beside the brand + sync
+  // + event chip without overlapping, so it collapses into a single menu button that
+  // opens the upper drawer. Wider screens keep the inline icon row.
+  const compactHeader = width < 520;
+  const [menuOpen, setMenuOpen] = useState(false);
   // Layout follows device rotation: landscape pins a side cart, portrait uses a sheet.
   const useSideCart = isLandscape;
 
@@ -528,6 +534,16 @@ export default function POSScreen() {
     </View>
   );
 
+  // Header actions, shared by the inline icon row (wide) and the drawer (compact).
+  const menuItems: HeaderMenuItem[] = [
+    { icon: mode === 'dark' ? 'sunny-outline' : 'moon-outline', label: mode === 'dark' ? 'Light mode' : 'Dark mode', onPress: toggle },
+    { icon: 'nutrition-outline', label: 'Free taste', onPress: () => router.push('/modals/free-taste') },
+    { icon: 'gift-outline', label: 'Bundle', onPress: () => router.push('/modals/bundle') },
+    { icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
+    { icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
+    { icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
+  ];
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -539,35 +555,45 @@ export default function POSScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
-          {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
-          <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
-            <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          */}
-          <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-            <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/free-taste')} style={styles.headerBtn} accessibilityLabel="Free taste">
-            <Ionicons name="nutrition-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
-            <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
-            <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
-            <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
-            style={styles.headerBtn}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
+          {compactHeader ? (
+            <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerBtn} accessibilityLabel="Menu">
+              <Ionicons name="menu-outline" size={22} color={colors.textPrimary} />
+            </TouchableOpacity>
+          ) : (
+            <>
+              {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
+              <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
+                <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              */}
+              <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+                <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/free-taste')} style={styles.headerBtn} accessibilityLabel="Free taste">
+                <Ionicons name="nutrition-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
+                <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
+                <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
+                <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
+                style={styles.headerBtn}
+                accessibilityLabel="Settings"
+              >
+                <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
+
+      <HeaderMenuDrawer visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
 
       {useSideCart ? (
         <View style={styles.landscape}>

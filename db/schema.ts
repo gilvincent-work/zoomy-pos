@@ -82,6 +82,49 @@ export async function initSchema(): Promise<void> {
       -- synced, so the pull stamps this with updated_at.
       synced_at TEXT
     );
+
+    -- Free taste (opened-stock sampling): a cashier opens sellable stock to let
+    -- pets sample it. Standalone (no sale/customer); deducts the Event location
+    -- server-side (record_free_taste). Mirrors the sale outbox model: the row is
+    -- durable the moment it's written, and synced_at stays null until Coop
+    -- confirms it (the RPC is keyed on client_uuid, so a retry can't double-count).
+    -- product_sku is what the RPC needs as product_id; product_local_id lets the
+    -- local stock cache decrement instantly. batch_id groups the lines submitted
+    -- together in one Free Taste form.
+    CREATE TABLE IF NOT EXISTS free_tastes (
+      client_uuid TEXT PRIMARY KEY,
+      batch_id TEXT,
+      product_local_id INTEGER,
+      product_sku TEXT,
+      product_name TEXT NOT NULL,
+      qty INTEGER NOT NULL,
+      note TEXT,
+      created_by TEXT,
+      device_id TEXT,
+      opened_at TEXT,
+      synced_at TEXT
+    );
+
+    -- Free item (spin-a-wheel prize): a real product given away free, attached to
+    -- a sale. Recorded separately from the sale's paid lines (deducts the Event as
+    -- reason='free_item' via add_order_prize), never sent through apply_pos_order,
+    -- so a normal sale is unaffected. order_client_uuid ties the prize to its
+    -- sale's client_uuid; add_order_prize resolves the order by it, so a prize can
+    -- only land on Coop once its sale has (the outbox drains sales first, then
+    -- prizes). synced_at stays null until Coop confirms it.
+    CREATE TABLE IF NOT EXISTS order_prizes (
+      client_uuid TEXT PRIMARY KEY,
+      order_client_uuid TEXT NOT NULL,
+      product_local_id INTEGER,
+      product_sku TEXT,
+      product_name TEXT NOT NULL,
+      qty INTEGER NOT NULL,
+      note TEXT,
+      created_by TEXT,
+      device_id TEXT,
+      won_at TEXT,
+      synced_at TEXT
+    );
   `);
 
   // Add payment_method column to existing databases

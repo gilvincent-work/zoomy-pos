@@ -10,6 +10,10 @@ export type CartItem = {
   quantity: number;
   variantId?: number;
   variantName?: string;
+  /** Marked as a spin-a-wheel prize (free item). A prize line keeps its price
+   *  (so un-marking restores it) but is excluded from the sale total and is
+   *  recorded separately as a prize, never as a paid sale line. */
+  isPrize?: boolean;
 };
 
 export type CartBundle = {
@@ -30,6 +34,7 @@ type CartAction =
   | { type: 'REMOVE_ITEM'; productId: number }
   | { type: 'REMOVE_LINE'; productId: number; variantId?: number }
   | { type: 'DECREMENT_ITEM'; productId: number; variantId?: number }
+  | { type: 'TOGGLE_PRIZE'; productId: number; variantId?: number }
   | { type: 'CLEAR_CART' }
   | { type: 'CLEAR_BUNDLES' }
   | { type: 'ADD_BUNDLE'; bundle: CartBundle }
@@ -99,6 +104,15 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         ),
       };
     }
+    case 'TOGGLE_PRIZE':
+      return {
+        ...state,
+        items: state.items.map((i) =>
+          i.productId === action.productId && i.variantId === action.variantId
+            ? { ...i, isPrize: !i.isPrize }
+            : i
+        ),
+      };
     case 'CLEAR_CART':
       return { items: [], bundles: [] };
     case 'CLEAR_BUNDLES':
@@ -120,6 +134,7 @@ type CartContextValue = {
   removeItem: (productId: number) => void;
   removeLine: (productId: number, variantId?: number) => void;
   decrementItem: (productId: number, variantId?: number) => void;
+  togglePrize: (productId: number, variantId?: number) => void;
   clearCart: () => void;
   clearBundles: () => void;
   addBundle: (bundle: Omit<CartBundle, 'cartId'>) => void;
@@ -131,9 +146,11 @@ const CartContext = createContext<CartContextValue | null>(null);
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, { items: [], bundles: [] });
 
+  // Prize lines are free giveaways: they never contribute to the sale total
+  // (they're recorded separately as prizes).
   const total =
     state.bundles.reduce((sum, b) => sum + b.price, 0) +
-    state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    state.items.reduce((sum, i) => sum + (i.isPrize ? 0 : i.price * i.quantity), 0);
 
   return (
     <CartContext.Provider
@@ -145,6 +162,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         removeItem: (productId) => dispatch({ type: 'REMOVE_ITEM', productId }),
         removeLine: (productId, variantId) => dispatch({ type: 'REMOVE_LINE', productId, variantId }),
         decrementItem: (productId, variantId) => dispatch({ type: 'DECREMENT_ITEM', productId, variantId }),
+        togglePrize: (productId, variantId) => dispatch({ type: 'TOGGLE_PRIZE', productId, variantId }),
         clearCart: () => dispatch({ type: 'CLEAR_CART' }),
         clearBundles: () => dispatch({ type: 'CLEAR_BUNDLES' }),
         addBundle: (bundle) =>

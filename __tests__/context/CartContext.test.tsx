@@ -74,6 +74,47 @@ describe('useCart', () => {
     expect(result.current.total).toBe(285);
   });
 
+  it('addPrize adds a free prize line excluded from the total', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addItem(product2));   // 45 paid
+    act(() => result.current.addPrize(product));    // prize, 0
+    expect(result.current.items).toHaveLength(2);
+    const prizeLine = result.current.items.find((i) => i.productId === product.id);
+    expect(prizeLine).toMatchObject({ isPrize: true, quantity: 1 });
+    expect(result.current.total).toBe(45);
+  });
+
+  it('addPrize does NOT convert an existing paid line (revenue is preserved)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addItem(product));    // paid qty 1, total 120
+    act(() => result.current.addPrize(product));    // same product already paid -> no-op
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].isPrize).toBeFalsy();
+    expect(result.current.items[0].quantity).toBe(1);
+    expect(result.current.total).toBe(120);
+  });
+
+  it('addItem does not merge into a prize line (adds a separate paid line)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addPrize(product));    // prize, 0
+    act(() => result.current.addItem(product));     // paid -> separate line, not merged
+    expect(result.current.items).toHaveLength(2);
+    const prize = result.current.items.find((i) => i.isPrize);
+    const paid = result.current.items.find((i) => !i.isPrize);
+    expect(prize).toMatchObject({ quantity: 1 });
+    expect(paid).toMatchObject({ quantity: 1 });
+    expect(result.current.total).toBe(120);
+  });
+
+  it('addPrize twice keeps the line a prize and bumps quantity', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.addPrize(product));
+    act(() => result.current.addPrize(product));
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0]).toMatchObject({ isPrize: true, quantity: 2 });
+    expect(result.current.total).toBe(0);
+  });
+
   it('throws when used outside CartProvider', () => {
     expect(() => renderHook(() => useCart())).toThrow('useCart must be used within CartProvider');
   });

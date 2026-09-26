@@ -9,6 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProductTile } from '../components/ProductTile';
 import { BundleTile } from '../components/BundleTile';
+import { PrizeTile } from '../components/PrizeTile';
 import { VariantPickerModal } from '../components/VariantPickerModal';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { SubcategoryFilter } from '../components/SubcategoryFilter';
@@ -17,6 +18,8 @@ import { CartSheet } from '../components/CartSheet';
 import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { SyncStatusBar } from '../components/SyncStatusBar';
 import { EventBadge } from '../components/EventBadge';
+import { HeaderMenuDrawer, type HeaderMenuItem } from '../components/HeaderMenuDrawer';
+import { FreeTasteQuickSheet } from '../components/FreeTasteQuickSheet';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -31,6 +34,8 @@ import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/p
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
 import { buildInsertItems } from '../utils/cart-transaction';
 import { pushSale } from '../utils/sales-sync';
+import { insertOrderPrize, markOrderPrizeSynced } from '../db/order-prizes';
+import { pushOrderPrize } from '../utils/order-prizes-sync';
 import { lineEmojis } from '../utils/bundles';
 import { emojiGraphemes } from '../constants/emoji';
 import {
@@ -46,6 +51,8 @@ type Selection = { category: string | null; subcategory: string | null };
 
 /** Synthetic category pill that surfaces saved "buy any N" deals as tiles. */
 const BUNDLES_CATEGORY = 'Bundles';
+/** Synthetic category pill whose single tile opens the spin-a-wheel prize picker. */
+const PRIZE_CATEGORY = 'Prize';
 
 // Tile grid geometry. Tiles keep their column width; their height is what adapts
 // so a row fits the screen (short wide tiles on a phone in landscape) instead of
@@ -62,6 +69,13 @@ export default function POSScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  // Below this width the header's action-icon row can't sit beside the brand + sync
+  // + event chip without overlapping, so it collapses into a single menu button that
+  // opens the upper drawer. Wider screens keep the inline icon row.
+  const compactHeader = width < 520;
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Long-pressing a product tile opens a quick free-taste sheet for that product.
+  const [freeTasteProduct, setFreeTasteProduct] = useState<Product | null>(null);
   // Layout follows device rotation: landscape pins a side cart, portrait uses a sheet.
   const useSideCart = isLandscape;
 
@@ -143,6 +157,7 @@ export default function POSScreen() {
     setSel((prev) => {
       const stillValid =
         (prev.category === BUNDLES_CATEGORY && deals.length > 0) ||
+        prev.category === PRIZE_CATEGORY ||
         (prev.category && grps.some((g) => g.category === prev.category));
       if (stillValid) return prev;
       return deals.length > 0 ? { category: BUNDLES_CATEGORY, subcategory: null } : initialSelection(grps);
@@ -181,14 +196,16 @@ export default function POSScreen() {
   useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); loadActiveEvent(); }), [loadCatalog, loadActiveEvent]);
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
+  const showingPrize = sel.category === PRIZE_CATEGORY;
   const categoryNames = [
     ...(pickBundles.length > 0 ? [BUNDLES_CATEGORY] : []),
+    PRIZE_CATEGORY,
     ...groups.map((g) => g.category),
   ];
-  const visibleProducts = showingBundles
+  const visibleProducts = showingBundles || showingPrize
     ? []
     : filterProducts(products, sel.category, sel.subcategory);
-  const subs = showingBundles ? [] : subcategoriesFor(groups, sel.category);
+  const subs = showingBundles || showingPrize ? [] : subcategoriesFor(groups, sel.category);
 
   const getBadge = (productId: number) =>
     items.filter((i) => i.productId === productId).reduce((sum, i) => sum + i.quantity, 0);
@@ -212,6 +229,17 @@ export default function POSScreen() {
   }
 
   async function handleProductPress(product: Product) {
+    // A product is paid OR a prize in one cart, never both (the cart keys one line
+    // per product/variant, and editing variants clears the product's lines). If it
+    // is already a won prize, block the paid add rather than corrupt the cart.
+    if (items.some((i) => i.isPrize && i.productId === product.id)) {
+      showToast({
+        variant: 'error',
+        title: 'In the cart as a prize',
+        message: `${product.name} is in the cart as a free prize. Remove it to sell it in this order.`,
+      });
+      return;
+    }
     if (product.has_variants) {
       const variants = await getVariantsByProductId(product.id);
       setVariantList(variants);
@@ -253,7 +281,19 @@ export default function POSScreen() {
   // Tapping Pay opens the confirm guard instead of booking immediately, unless
   // that guard is turned off in Settings -> Payment Options.
   function handleRequestPay() {
-    if (items.length === 0 && bundles.length === 0) return;
+    // A prize line attaches to a sale, so a cart of only prize lines has nothing
+    // to pay for and nothing for the prize to hang off. Ask for a paid item.
+    const hasBillable = items.some((i) => !i.isPrize) || bundles.length > 0;
+    if (!hasBillable) {
+      if (items.length > 0) {
+        showToast({
+          variant: 'error',
+          title: 'Add an item to pay',
+          message: 'A prize attaches to a sale. Add at least one paid item.',
+        });
+      }
+      return;
+    }
     if (confirmOnPay) {
       setConfirmPay(true);
     } else {
@@ -264,19 +304,32 @@ export default function POSScreen() {
   // Confirmed: record the sale with the selected quick method, then push to Coop.
   async function handleConfirmPay() {
     setConfirmPay(false);
-    if (items.length === 0 && bundles.length === 0) return;
+    // Split prize (spin-a-wheel free item) lines out of the paid sale. Paid lines
+    // go through the unchanged sale path; prize lines are recorded separately as
+    // prizes and never sent as sale items (so a normal sale is unaffected).
+    const paidItems = items.filter((i) => !i.isPrize);
+    const prizeItems = items.filter((i) => i.isPrize);
+    if (paidItems.length === 0 && bundles.length === 0) return;
     if (payingRef.current) return; // a save is already in flight; ignore the re-tap
     payingRef.current = true;
     const saleTotal = total;
-    const saleItems = buildInsertItems(items, bundles);
+    const saleItems = buildInsertItems(paidItems, bundles);
     const method = payMethod;
     const label = quickMethodMeta(method).label;
     // Snapshot the event + pet tag for this sale (state is cleared after).
     const eventId = activeEvent?.event_id ?? null;
     const salePetType = petType;
     // One shared id for both the local row and the Coop push, so the Transactions
-    // merge can dedupe this sale against the copy it pulls back from Coop.
+    // merge can dedupe this sale against the copy it pulls back from Coop. Each
+    // prize gets its own client_uuid and hangs off this sale's client_uuid.
     const clientUuid = Crypto.randomUUID();
+    const prizeRows = prizeItems.map((it) => ({
+      clientUuid: Crypto.randomUUID(),
+      productLocalId: it.productId,
+      productSku: products.find((p) => p.id === it.productId)?.sku ?? null,
+      productName: it.productName + (it.variantName ? ` · ${it.variantName}` : ''),
+      qty: it.quantity,
+    }));
     try {
       await insertTransaction({
         total: saleTotal,
@@ -290,12 +343,29 @@ export default function POSScreen() {
         petType: salePetType,
         items: saleItems,
       });
+      // Record each prize locally against this sale's client_uuid (durable,
+      // synced_at null so the outbox pushes it after the sale lands on Coop).
+      for (const pr of prizeRows) {
+        await insertOrderPrize({
+          clientUuid: pr.clientUuid,
+          orderClientUuid: clientUuid,
+          productLocalId: pr.productLocalId,
+          productSku: pr.productSku,
+          productName: pr.productName,
+          qty: pr.qty,
+          createdBy: 'pos',
+          deviceId: 'pos',
+        });
+      }
       // Reflect this sale on the local stock cache right away, so the tile
       // warning is correct on the very next tap — it doesn't wait for the next
       // catalog pull (Coop's own stock already deducted server-side when the
       // sale reaches it; this just keeps this device from reading stale
-      // between syncs).
-      await decrementStock(saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })));
+      // between syncs). Prizes deduct stock too (they're a real giveaway).
+      await decrementStock([
+        ...saleItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        ...prizeRows.map((pr) => ({ productId: pr.productLocalId, quantity: pr.qty })),
+      ]);
       await loadCatalog();
       clearCart();
       setCustomerHandle('');
@@ -303,7 +373,7 @@ export default function POSScreen() {
       showToast({
         variant: 'success',
         title: 'Sale recorded',
-        message: `${label} ₱${saleTotal.toFixed(2)} · new sale ready`,
+        message: `${label} ₱${saleTotal.toFixed(2)}${prizeRows.length > 0 ? ` · ${prizeRows.length} prize${prizeRows.length !== 1 ? 's' : ''}` : ''} · new sale ready`,
       });
       // Write the sale up to Coop (online-only). Fire in the background so the
       // next sale isn't blocked; warn only if the sync fails (sale is saved locally).
@@ -312,12 +382,33 @@ export default function POSScreen() {
           showToast({
             variant: 'error',
             title: 'Not synced to Coop',
-            message: 'Saved on this device — it’ll sync automatically when back online.',
+            message: 'Saved on this device. It’ll sync automatically when back online.',
           });
         } else {
           // Confirmed on Coop: safe from here on for the Transactions screen to
           // prune this row locally if Coop's copy is later deleted.
           markTransactionSynced(clientUuid).catch(() => {});
+          // The order now exists on Coop, so its prizes can be attached
+          // (add_order_prize resolves the order by order_client_uuid). Fire each
+          // best-effort; any that fail stay pending for the outbox to retry.
+          for (const pr of prizeRows) {
+            pushOrderPrize({
+              client_uuid: pr.clientUuid,
+              order_client_uuid: clientUuid,
+              product_local_id: pr.productLocalId,
+              product_sku: pr.productSku,
+              product_name: pr.productName,
+              qty: pr.qty,
+              note: null,
+              created_by: 'pos',
+              device_id: 'pos',
+              won_at: null,
+              synced_at: null,
+            }).then((r) => {
+              if (r.ok) markOrderPrizeSynced(pr.clientUuid).catch(() => {});
+              refreshPendingCount().catch(() => {});
+            });
+          }
         }
         // Reflect this sale's sync state in the "N pending" marker either way
         // (0 on success, 1+ while it waits for the background drain to retry).
@@ -344,8 +435,8 @@ export default function POSScreen() {
           active={sel.category ?? ''}
           onSelect={(category) =>
             setSel(
-              category === BUNDLES_CATEGORY
-                ? { category: BUNDLES_CATEGORY, subcategory: null }
+              category === BUNDLES_CATEGORY || category === PRIZE_CATEGORY
+                ? { category, subcategory: null }
                 : defaultSelectionFor(groups, category)
             )
           }
@@ -363,7 +454,23 @@ export default function POSScreen() {
         onLayout={(e) => setGridHeight(e.nativeEvent.layout.height)}
       >
       <PullToRefresh onRefresh={handlePullRefresh}>
-      {(scroll) => showingBundles ? (
+      {(scroll) => showingPrize ? (
+        <FlatList
+          {...scroll}
+          key={`prize-${numColumns}`}
+          data={[{ id: 'prize' }]}
+          keyExtractor={(i) => i.id}
+          numColumns={numColumns}
+          style={styles.grid_list}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={styles.gridRow}
+          renderItem={() => (
+            <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
+              <PrizeTile onPress={() => router.push('/modals/prize-select')} />
+            </View>
+          )}
+        />
+      ) : showingBundles ? (
         <FlatList
           {...scroll}
           key={`bundles-${numColumns}`}
@@ -410,7 +517,7 @@ export default function POSScreen() {
                 badgeCount={getBadge(item.id)}
                 stock={item.sku ? item.stock : undefined}
                 onPress={() => handleProductPress(item)}
-                onLongPress={() => removeItem(item.id)}
+                onLongPress={() => setFreeTasteProduct(item)}
                 onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
                 onRemove={() => removeItem(item.id)}
               />
@@ -430,6 +537,16 @@ export default function POSScreen() {
     </View>
   );
 
+  // Header actions, shared by the inline icon row (wide) and the drawer (compact).
+  const menuItems: HeaderMenuItem[] = [
+    { icon: mode === 'dark' ? 'sunny-outline' : 'moon-outline', label: mode === 'dark' ? 'Light mode' : 'Dark mode', onPress: toggle },
+    { icon: 'nutrition-outline', label: 'Free taste', onPress: () => router.push('/modals/free-taste') },
+    { icon: 'gift-outline', label: 'Bundle', onPress: () => router.push('/modals/bundle') },
+    { icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
+    { icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
+    { icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
+  ];
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -441,32 +558,46 @@ export default function POSScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
-          {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
-          <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
-            <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          */}
-          <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-            <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
-            <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
-            <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
-            <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
-            style={styles.headerBtn}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
+          {compactHeader ? (
+            <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerBtn} accessibilityLabel="Menu">
+              <Ionicons name="menu-outline" size={22} color={colors.textPrimary} />
+            </TouchableOpacity>
+          ) : (
+            <>
+              {/* Scan-to-cart is a deferred feature. Hidden until it ships. Keep, do not delete.
+              <TouchableOpacity onPress={() => router.push('/modals/scan')} style={styles.headerBtn} accessibilityLabel="Scan product">
+                <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              */}
+              <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+                <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/free-taste')} style={styles.headerBtn} accessibilityLabel="Free taste">
+                <Ionicons name="nutrition-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
+                <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
+                <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
+                <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
+                style={styles.headerBtn}
+                accessibilityLabel="Settings"
+              >
+                <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
+
+      <HeaderMenuDrawer visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
+      <FreeTasteQuickSheet product={freeTasteProduct} onClose={() => setFreeTasteProduct(null)} />
 
       {useSideCart ? (
         <View style={styles.landscape}>

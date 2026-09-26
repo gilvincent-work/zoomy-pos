@@ -12,6 +12,214 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — v1.3.0: ship to prod (locations, free taste, free item) — `chore(release)`
+
+**Version 1.2.4 → 1.3.0** (`package.json` + `app.json`). Promotes the multi-location
+inventory (Office/Event) + transfers, free taste (opened-stock sampling), spin-a-wheel
+free item (prize) with backfill, the "Free item" badges + detail, and the bundle-badge
+fixes to prod (`qkxbwzdxhwcbwgriwipi`). The three additive migrations
+(`phase{1,2,3}_*.sql`) were applied and verified on prod: on-hand fingerprint
+unchanged, all existing stock backfilled to **Event** (Office starts empty, so sellers
+see full stock), one signature per intake RPC, self-aborting smoke test passed with zero
+residue. The `stock-alert` edge function was redeployed to read `pos_inventory_event`.
+
+## 2026-09-27 — Backfill "Free items won" onto a past sale from the edit sheet — `feat(pos)`
+
+The edit-transaction sheet now has a "Free items won" section for backfilling
+spin-a-wheel prizes onto a completed sale. It lists the order's prizes (each with a
+Pending/Synced pill) and lets the cashier pick an Event-stocked product, set a qty,
+add an optional note, and record. Prizes apply immediately through their own
+offline-first path (durable local `order_prizes` row, `add_order_prize` push with
+the outbox as retry), fully independent of the edit_pos_order Save. The picker only
+offers products with Event on-hand (`sku && stock > 0`) and the qty stepper is
+capped at that on-hand, so a backfill can never oversell. Remove mirrors the
+free-taste undo: a pending prize is deleted (and stock restored) before it pushes; a
+synced one is reversed on Coop via `void_order_prize` first, then deleted and
+restocked (offline keeps the row and prompts to reconnect), with a ref guard so a
+double-tap can't double-restore. Added `getOrderPrizesByOrder`,
+`getOrderPrizeByClientUuid`, `deleteOrderPrize` (db/order-prizes.ts) and
+`voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
+typecheck clean, 319 tests pass.
+
+## 2026-09-27 — Fix: editing a bundle order no longer drops its Bundle badge — `fix(pos)`
+
+Saving an edit ran `replaceLocalTransactionContents`, which hardcoded `is_bundle = 0`,
+so a bundle order lost its Bundle badge after any edit (surfaced when adding a free
+item to a bundle-only sale: only "Free item" remained). It now sets `is_bundle` from
+the edited entries (still a bundle if any entry is a bundle), so a bundle + free item
+order keeps BOTH badges. Pairs with the remote-`is_bundle` fix. Added a test; 320 pass.
+
+## 2026-09-27 — Fix: bundle badge missing on synced orders (esp. bundle + free item) — `fix(pos)`
+
+`fetchRemoteOrders` hardcoded `is_bundle: false`, so any order shown from the remote
+source lost its Bundle badge. It was most visible on a bundle that also won a free
+item (only the "Free item" badge showed). The remote fetch now selects the item
+bundle columns and derives `is_bundle` per order (any line with a bundle_id or
+bundle_group), so a bundle + prize order shows BOTH badges. Typecheck clean, 319 tests.
+
+## 2026-09-27 — Show the won free item(s) in the transaction detail — `feat(pos)`
+
+The read-only transaction detail now lists which free item(s) were won ("1x Chicken",
+gift icon, brand pink) in a "Free items won" section between the items and the Total.
+Sourced like the tile badge: local `order_prizes` unioned with a defensive remote
+`fetchRemoteOrderPrizes` (non-voided `pos_order_prizes`, product name embedded),
+deduped by prize client_uuid, so a badged order always shows its item(s) here.
+Fail-soft and offline-safe. Typecheck clean, 319 tests pass.
+
+## 2026-09-27 — "Free item won" badge on transaction tiles — `feat(pos)`
+
+Transaction tiles now show a "Free item" badge (gift icon, brand pink) when the order
+has a won free item (spin-a-wheel prize), so staff can tell at a glance which sales
+carried a prize. Sourced from local `order_prizes` (device-logged) unioned with a
+non-voided `pos_order_prizes` flag added to the remote orders fetch (so Coop backfills
+on synced orders show too). Read-only and fully guarded: any prize-read failure just
+omits the badge, never blocking the orders load. Typecheck clean, 319 tests pass.
+
+## 2026-09-27 — Long-press a product tile to log a free taste — `feat(pos)`
+
+Delivers the single-product free-taste entry from the original spec. Long-pressing a
+product tile now opens a quick Free Taste sheet for that product (packs stepper +
+optional note); it records through the same offline-first path as the multi-line
+modal (local row first, deducts the stock cache, pushes record_free_taste
+best-effort with the outbox retry, warns on oversold). Long-press previously removed
+the item from the cart; that stays available via the tile's existing x and minus
+controls, so nothing is lost. New `components/FreeTasteQuickSheet.tsx`; typecheck
+clean, 315 tests pass.
+
+## 2026-09-26 — Header collapses to a menu + top drawer on narrow screens — `feat(pos)`
+
+The header's action-icon row (theme, free taste, bundle, products, transactions,
+settings) had grown to six and, on narrow phones (iPhone SE / 16), overlapped the
+Zoomy brand, the sync marker, and the event chip. Below 520px wide the row now
+collapses into a single menu button that opens an upper drawer listing the same
+actions (icon + label). Wider screens (tablets, landscape) keep the inline icon
+row unchanged. New `components/HeaderMenuDrawer.tsx`; typecheck clean, 315 tests pass.
+
+## 2026-09-26 — Free taste filters, bundle-style prize tile, free-taste undo — `feat(pos)`
+
+Three follow-on POS UX improvements to the giveaway flows. All additive; a sale
+with no prize lines and no free tastes is still byte-identical.
+
+- **Free Taste modal now filters by Product Line + subcategory.** `app/modals/free-taste.tsx`
+  reuses the main grid's `CategoryTabs`, `SubcategoryFilter`, and
+  `utils/catalog-filter` (`filterProducts`/`subcategoriesFor`/`defaultSelectionFor`/
+  `initialSelection`) above the existing search, so a large catalog narrows the
+  same way the grid does before adding pack counts. The qty steppers and one-batch
+  Submit are unchanged.
+- **Bundle-style prize tile (per-line gift toggle kept).** A new synthetic
+  `Prize` category pill in `app/index.tsx` (modeled on `BUNDLES_CATEGORY`) surfaces
+  a `PrizeTile` (`components/PrizeTile.tsx`) that opens `app/modals/prize-select.tsx`,
+  a category/subcategory-filtered picker. Selecting a treat calls a new
+  `addPrize` cart action (`context/CartContext.tsx` `ADD_PRIZE`): it only grows an
+  existing prize line for that product/variant (a second win bumps its qty) or
+  adds a fresh ₱0 prize line, and it NEVER converts a paid line (that would zero
+  real revenue) so it no-ops on a paid match; `ADD_ITEM` likewise won't merge into
+  a prize line. The picker guards up front: if the treat is already a paid cart
+  line it tells staff to use that line's gift toggle instead. It also mirrors the
+  free-taste oversold heads-up (non-blocking) when the picked prize is past stock.
+  Prize lines are excluded from the total and recorded via
+  `order_prizes`/`add_order_prize` exactly like the per-line gift toggle (which
+  still works unchanged). Checkout recording is untouched.
+- **Undo a logged free taste (misclick recovery).** A `Recent` tab in the
+  Free Taste modal lists local rows (product, qty, time, synced/pending) each with
+  Undo. Undo re-reads the row's current `synced_at` from SQLite first
+  (`getFreeTasteByClientUuid`) so a background drain flipping it to synced between
+  list load and tap can't skip the Coop reversal. Pending (`synced_at` null):
+  delete the local row before it pushes and add the qty back to the local stock
+  cache. Synced: call the new `void_free_taste` RPC (`voidFreeTaste` in
+  `utils/free-tastes-sync.ts`), then delete locally and restore stock.
+  Synced-but-offline: keep the row, prompt "Reconnect to undo a synced free
+  taste." Idempotent: the in-flight guard is a synchronous `useRef` set (so a
+  double-tap is a true no-op, no double-restore) plus the delete. New helpers:
+  `incrementStock` (`db/products.ts`, inverse of `decrementStock`),
+  `deleteFreeTaste` and `getFreeTasteByClientUuid` (`db/free-tastes.ts`); pending
+  count refreshed on delete.
+
+## 2026-09-26 — Free taste + spin-a-wheel prize, POS app layer (offline-first) — `feat(pos)`
+
+Wires the two Phase 2 giveaway RPCs into the app, both offline-first on the same
+outbox model as sales (durable local row, `synced_at` null until Coop confirms,
+idempotent on `client_uuid`). Regular sales/voids/edits are untouched: a cart
+with no prize lines and no free tastes produces a byte-identical sale.
+
+- **Free taste (opened-stock sampling).** New local table `free_tastes`
+  (`db/schema.ts`, `db/free-tastes.ts`) + `utils/free-tastes-sync.ts` calling
+  `record_free_taste`. Entry point is a dedicated header button (nutrition icon)
+  opening `app/modals/free-taste.tsx`, a cart-like multi-line form: pick packs per
+  product, one shared note, Submit writes all lines as one `batch_id`, decrements
+  the local stock cache, fires the push inline (outbox retries), and surfaces the
+  RPC's `oversold` flag. **No single-product long-press quick path**: the grid
+  tile's `onLongPress` is already bound to "remove from cart" (`app/index.tsx`), so
+  hijacking it would collide; the dedicated section is the single entry point.
+- **Spin-a-wheel prize (free item on a sale).** New local table `order_prizes`
+  (`db/order-prizes.ts`) + `utils/order-prizes-sync.ts` calling `add_order_prize`.
+  A per-line gift toggle in the cart (`components/CartPanel.tsx`, `CartContext`)
+  marks a line as a prize: it shows ₱0, is excluded from the total, and is recorded
+  separately (never sent to `apply_pos_order`). At checkout the paid lines take the
+  unchanged path; each prize is written against the sale's `client_uuid`. A prize
+  requires a billable sale (guarded with a friendly message on a prize-only cart).
+- **Drain ordering.** `utils/outbox.ts` drains sales first, then free tastes, then
+  prizes last, because `add_order_prize` resolves the order by `order_client_uuid`,
+  so a prize can only land after its sale reaches Coop (an "order not found" leaves
+  it pending for the next drain). All three feed the "N pending" marker.
+- **Regression-reviewed.** Full suite green (303 tests) + typecheck clean. Two
+  review findings fixed: the outbox single-flight test now mocks the new drains
+  (it was silently broken), and `pushFreeTaste`/`pushOrderPrize` re-resolve the
+  Coop SKU at push time (like the sale push) so a giveaway logged against a
+  not-yet-synced local product self-heals instead of sticking pending forever.
+
+## 2026-09-26 — Free taste (opened-stock sampling), DB layer (Phase 2, Staging) — `feat(inventory)`
+
+Standalone sampling: you open sellable stock to let pets taste it. Deducts the
+**Event** pool like a sale, logged distinctly so it never blends into sales or
+shrinkage. Additive, **Staging only**; SQL in `supabase/phase2_free_taste_2026-09-26.sql`.
+Distinct from the spin-a-wheel free ITEM (a prize on an order, still to build).
+
+- **`pos_free_tastes`** entity: `client_uuid` (offline idempotency), `batch_id`
+  (groups a multi-line entry), product, lot, `qty` (packs), `oversold`, note,
+  who/device, `opened_at`, `voided_at`. Plus a `free_taste_id` column on
+  `pos_stock_movements` linking the ledger rows (mirrors `order_id` for sales).
+- **`record_free_taste(p jsonb)`** — deducts Event FEFO, writes
+  `reason='free_taste'` ledger rows, idempotent on `client_uuid`, allow + flag
+  oversell (mirrors `apply_pos_order`). **`void_free_taste(client_uuid)`** restores
+  the exact lots and writes `free_taste-reverse` rows.
+- **Decisions:** qty = sellable packs opened; capture product + qty + note +
+  who/device (no event or pet link); undo supported.
+- **Verified:** smoke-tested record + FEFO deduct + ledger link, idempotency,
+  void/restore, and oversell flagging (self-aborting, zero residue); on-hand
+  fingerprint unchanged from baseline.
+- POS offline surfaces (long-press quick sheet + dedicated batch section + outbox)
+  are the remaining Phase 2 work.
+
+## 2026-09-26 — Multi-location inventory (Office + Event) + transfers (Phase 1, Staging) — `feat(inventory)`
+
+Foundation for tracking where POS stock physically sits. Additive, applied to
+**Staging only** (`syxwixxzmytvhwhkwdvw`); reviewed SQL in
+`supabase/phase1_locations_2026-09-26.sql`. Not promoted to prod.
+
+- **New location dimension.** `pos_locations` (Office, Event; BoxMe deferred until
+  its API lands, so it is a future INSERT, not a schema change). `location` column
+  added to `pos_inventory_lots` and `pos_stock_movements` (every existing row
+  backfilled to `event`), plus `transfer_id` on movements.
+- **Office is back-stock; Event is what the POS sells, and it draws from Office.**
+  New `transfer_stock(product, qty, from, to)` RPC moves units FEFO, atomically,
+  and refuses to over-transfer. New views `pos_inventory_by_location` and
+  `pos_inventory_event` (both `security_invoker`).
+- **Every stock RPC is location-aware, defaulting to `event`** so behavior is
+  unchanged while Office is empty: sales / void / edit / unvoid deduct and restore
+  only Event lots; `receive_lot` and `add_pos_stock` gained an optional location;
+  `set_product_stock` and `void_last_stock_add` are scoped to Event.
+- **POS `catalog-sync` reads sellable stock from `pos_inventory_event`** (identical
+  to the old global `pos_inventory` sum today; diverges once Office holds stock).
+- **Decision:** existing on-hand stays in **Event** so the POS keeps selling with
+  zero setup; new stock is received into Office and transferred out as needed.
+- **Regression review (agent):** post-migration on-hand, row counts, and the
+  `pos_inventory` fingerprint were byte-identical to the pre-migration baseline.
+  The review caught a function-overload trap (adding an optional param left the
+  original `receive_lot`/`add_pos_stock` signatures in place, which would break
+  PostgREST name resolution); fixed by dropping the old signatures. Also scoped
+  `void_last_stock_add` to Event before the Office-intake flow ships.
+
 ## 2026-09-25 — v1.2.4: blank-line-items fix to prod — `chore(release)`
 
 **Version bumped to 1.2.4** (`package.json` + Expo `app.json`; was 1.2.3). Ships the

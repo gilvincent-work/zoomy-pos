@@ -126,7 +126,10 @@ async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   if (!sb) return [];
   const [productsRes, inventoryRes] = await Promise.all([
     sb.from('pos_products').select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)'),
-    sb.from('pos_inventory').select('product_id, stock'),
+    // The POS sells from the Event location, so its on-hand tile count comes from
+    // the event-scoped view (not the global pos_inventory sum, which also counts
+    // Office back-stock). Identical numbers today; diverges once Office holds stock.
+    sb.from('pos_inventory_event').select('product_id, stock'),
   ]);
   if (productsRes.error) throw new Error(productsRes.error.message);
   if (inventoryRes.error) throw new Error(inventoryRes.error.message);

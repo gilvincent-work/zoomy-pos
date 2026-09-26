@@ -46,7 +46,9 @@ async function fetchAllPaged<T>(
   return {ok: true, rows};
 }
 
-export type RemoteOrdersResult = {ok: true; orders: Transaction[]} | {ok: false};
+export type RemoteOrdersResult =
+  | {ok: true; orders: Transaction[]; prizeClientUuids: string[]}
+  | {ok: false};
 
 type OrderRow = {
   client_uuid: string | null;
@@ -64,6 +66,8 @@ type OrderRow = {
 type ItemRow = {
   order_id: string;
   product_id: string | null;
+  bundle_id: string | null;
+  bundle_group: string | null;
   qty: number | null;
   unit_price: number | null;
 };
@@ -82,14 +86,14 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     if (ordersErr || !orders) return {ok: false};
 
     const ids = orders.map((o) => o.id as string);
-    if (ids.length === 0) return {ok: true, orders: []};
+    if (ids.length === 0) return {ok: true, orders: [], prizeClientUuids: []};
 
     // Both reads are paged (they outgrew the 1000-row cap) and their errors are
     // checked: a partial items/products fetch would blank out real sales, so fall
     // back to the local list instead of showing truncated data.
     const [itemsRes, productsRes] = await Promise.all([
       fetchAllPaged<ItemRow>((from, to) =>
-        sb.from('pos_order_items').select('order_id, product_id, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
+        sb.from('pos_order_items').select('order_id, product_id, bundle_id, bundle_group, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
       fetchAllPaged<{product_id: string; name: string}>((from, to) =>
         sb.from('pos_products').select('product_id, name').order('product_id', {ascending: true}).range(from, to)),
     ]);
@@ -100,8 +104,13 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     const nameBySku = new Map<string, string>();
     for (const p of products) nameBySku.set(p.product_id as string, p.name as string);
 
+    // An order is a bundle if any of its lines carry a bundle id or bundle group
+    // (the picks of a "Buy Any N" ride as grouped product lines). Used for the
+    // Bundle badge; the free-item prize is a separate concern (its own badge).
+    const bundleOrderIds = new Set<string>();
     const itemsByOrder = new Map<string, TransactionItem[]>();
     for (const it of items as ItemRow[]) {
+      if (it.bundle_id || it.bundle_group) bundleOrderIds.add(it.order_id);
       const sku = it.product_id ?? '';
       const rawName = (sku && nameBySku.get(sku)) || sku || 'Item';
       const line: TransactionItem = {
@@ -119,6 +128,29 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
       itemsByOrder.set(it.order_id, arr);
     }
 
+    // Which orders carry a non-voided "free item won" prize, mapped back to their
+    // client_uuid so the Transactions list can badge them across devices. Defensive:
+    // a failed/absent read just yields none and never blocks the orders load.
+    const uuidById = new Map<string, string>();
+    for (const o of orders as (OrderRow & {id: string})[]) {
+      if (o.client_uuid) uuidById.set(o.id, o.client_uuid);
+    }
+    let prizeClientUuids: string[] = [];
+    try {
+      const prizesRes = await fetchAllPaged<{order_id: string}>((from, to) =>
+        sb.from('pos_order_prizes').select('order_id').in('order_id', ids).is('voided_at', null).order('order_id', {ascending: true}).range(from, to));
+      if (prizesRes.ok) {
+        const uuids = new Set<string>();
+        for (const p of prizesRes.rows) {
+          const uuid = uuidById.get(p.order_id);
+          if (uuid) uuids.add(uuid);
+        }
+        prizeClientUuids = [...uuids];
+      }
+    } catch {
+      // Prize badge is non-critical; leave it empty on any read failure.
+    }
+
     const remoteOrders = (orders as (OrderRow & {id: string})[]).map((o): Transaction => {
       const total = Number(o.total ?? 0);
       return {
@@ -130,7 +162,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         ref_number: null,
         proof_photo_uri: null,
         customer_handle: null,
-        is_bundle: false,
+        is_bundle: bundleOrderIds.has(o.id),
         status: o.status === 'voided' ? 'voided' : 'completed',
         created_at: o.created_at,
         remarks: o.remarks ?? null,
@@ -144,11 +176,50 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         items: itemsByOrder.get(o.id) ?? [],
       };
     });
-    return {ok: true, orders: remoteOrders};
+    return {ok: true, orders: remoteOrders, prizeClientUuids};
   } catch {
     return {ok: false};
   }
 }
+
+/**
+ * Read the non-voided "free item won" prizes for one sale from Coop (pos_order_prizes),
+ * so the Transactions detail view can list which items were won on any device. Carries
+ * the prize's own client_uuid for deduping against the local rows, the product name
+ * (embedded from pos_products), and qty. Fully defensive: returns [] when Supabase is
+ * unconfigured/unreachable or the read fails, so it can never block the detail view.
+ */
+export async function fetchRemoteOrderPrizes(
+  clientUuid: string,
+): Promise<{client_uuid: string; product_name: string; qty: number}[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  try {
+    const {data, error} = await sb
+      .from('pos_order_prizes')
+      .select('client_uuid, qty, pos_products(name), pos_orders!inner(client_uuid)')
+      .eq('pos_orders.client_uuid', clientUuid)
+      .is('voided_at', null);
+    if (error || !data) return [];
+    return (data as unknown as PrizeRow[]).map((r) => {
+      // Supabase types an embedded relation as an array; the FK is single so take [0].
+      const prod = Array.isArray(r.pos_products) ? r.pos_products[0] : r.pos_products;
+      return {
+        client_uuid: r.client_uuid ?? '',
+        product_name: prod?.name ?? 'Item',
+        qty: Number(r.qty ?? 0),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+type PrizeRow = {
+  client_uuid: string | null;
+  qty: number | null;
+  pos_products: {name: string | null} | {name: string | null}[] | null;
+};
 
 /**
  * Void a sale on Coop by its shared client_uuid, so the void shows on every

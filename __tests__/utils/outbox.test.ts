@@ -21,6 +21,19 @@ jest.mock('../../utils/orders-remote', () => ({
 // tests exercise only the sale/void/remarks path.
 jest.mock('../../db/events', () => ({ getUnsyncedEvents: jest.fn().mockResolvedValue([]) }));
 jest.mock('../../utils/events-sync', () => ({ drainEvents: jest.fn().mockResolvedValue({ pushed: 0, failed: 0 }) }));
+// Free tastes and prizes also drain here; stub their reads + drains so these
+// tests exercise only the sale/void/remarks path (and keep the drain's await
+// chain to the sale push short so single-flight timing holds).
+jest.mock('../../db/free-tastes', () => ({
+  getPendingFreeTastes: jest.fn().mockResolvedValue([]),
+  countPendingFreeTastes: jest.fn().mockResolvedValue(0),
+}));
+jest.mock('../../utils/free-tastes-sync', () => ({ drainFreeTastes: jest.fn().mockResolvedValue({ pushed: 0, failed: 0 }) }));
+jest.mock('../../db/order-prizes', () => ({
+  getPendingOrderPrizes: jest.fn().mockResolvedValue([]),
+  countPendingOrderPrizes: jest.fn().mockResolvedValue(0),
+}));
+jest.mock('../../utils/order-prizes-sync', () => ({ drainOrderPrizes: jest.fn().mockResolvedValue({ pushed: 0, failed: 0 }) }));
 jest.mock('../../utils/sync-status', () => ({
   beginSync: jest.fn(),
   endSync: jest.fn(),
@@ -153,7 +166,7 @@ describe('drainOutbox', () => {
     mockPush.mockReturnValue(new Promise((r) => { resolvePush = r; }));
 
     const first = drainOutbox();
-    await Promise.resolve(); // let the first drain reach the awaited push
+    await new Promise((r) => setTimeout(r, 0)); // flush microtasks so the first drain reaches the awaited push
     const second = await drainOutbox();
     expect(second).toEqual({ pushed: 0, failed: 0 });
     expect(mockPush).toHaveBeenCalledTimes(1); // second didn't start its own push

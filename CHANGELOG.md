@@ -12,6 +12,46 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-26 — Free taste filters, bundle-style prize tile, free-taste undo — `feat(pos)`
+
+Three follow-on POS UX improvements to the giveaway flows. All additive; a sale
+with no prize lines and no free tastes is still byte-identical.
+
+- **Free Taste modal now filters by Product Line + subcategory.** `app/modals/free-taste.tsx`
+  reuses the main grid's `CategoryTabs`, `SubcategoryFilter`, and
+  `utils/catalog-filter` (`filterProducts`/`subcategoriesFor`/`defaultSelectionFor`/
+  `initialSelection`) above the existing search, so a large catalog narrows the
+  same way the grid does before adding pack counts. The qty steppers and one-batch
+  Submit are unchanged.
+- **Bundle-style prize tile (per-line gift toggle kept).** A new synthetic
+  `Prize` category pill in `app/index.tsx` (modeled on `BUNDLES_CATEGORY`) surfaces
+  a `PrizeTile` (`components/PrizeTile.tsx`) that opens `app/modals/prize-select.tsx`,
+  a category/subcategory-filtered picker. Selecting a treat calls a new
+  `addPrize` cart action (`context/CartContext.tsx` `ADD_PRIZE`): it only grows an
+  existing prize line for that product/variant (a second win bumps its qty) or
+  adds a fresh ₱0 prize line, and it NEVER converts a paid line (that would zero
+  real revenue) so it no-ops on a paid match; `ADD_ITEM` likewise won't merge into
+  a prize line. The picker guards up front: if the treat is already a paid cart
+  line it tells staff to use that line's gift toggle instead. It also mirrors the
+  free-taste oversold heads-up (non-blocking) when the picked prize is past stock.
+  Prize lines are excluded from the total and recorded via
+  `order_prizes`/`add_order_prize` exactly like the per-line gift toggle (which
+  still works unchanged). Checkout recording is untouched.
+- **Undo a logged free taste (misclick recovery).** A `Recent` tab in the
+  Free Taste modal lists local rows (product, qty, time, synced/pending) each with
+  Undo. Undo re-reads the row's current `synced_at` from SQLite first
+  (`getFreeTasteByClientUuid`) so a background drain flipping it to synced between
+  list load and tap can't skip the Coop reversal. Pending (`synced_at` null):
+  delete the local row before it pushes and add the qty back to the local stock
+  cache. Synced: call the new `void_free_taste` RPC (`voidFreeTaste` in
+  `utils/free-tastes-sync.ts`), then delete locally and restore stock.
+  Synced-but-offline: keep the row, prompt "Reconnect to undo a synced free
+  taste." Idempotent: the in-flight guard is a synchronous `useRef` set (so a
+  double-tap is a true no-op, no double-restore) plus the delete. New helpers:
+  `incrementStock` (`db/products.ts`, inverse of `decrementStock`),
+  `deleteFreeTaste` and `getFreeTasteByClientUuid` (`db/free-tastes.ts`); pending
+  count refreshed on delete.
+
 ## 2026-09-26 — Free taste + spin-a-wheel prize, POS app layer (offline-first) — `feat(pos)`
 
 Wires the two Phase 2 giveaway RPCs into the app, both offline-first on the same

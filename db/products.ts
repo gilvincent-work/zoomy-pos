@@ -283,6 +283,26 @@ export async function decrementStock(items: { productId: number; quantity: numbe
   }
 }
 
+/**
+ * Increment the local stock cache, the inverse of decrementStock. Used when a
+ * recorded free taste is undone on the POS: the packs it deducted from the local
+ * cache are added back immediately, so the tile count is correct on the next tap
+ * without waiting for the next catalog pull (which always overwrites this with
+ * Coop's authoritative count once it lands). Mirrors decrementStock's product-id
+ * shape and same-product summing.
+ */
+export async function incrementStock(items: { productId: number; quantity: number }[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDatabase();
+  const totals = new Map<number, number>();
+  for (const item of items) {
+    totals.set(item.productId, (totals.get(item.productId) ?? 0) + item.quantity);
+  }
+  for (const [productId, qty] of totals) {
+    await db.runAsync('UPDATE products SET stock = stock + ? WHERE id = ?', [qty, productId]);
+  }
+}
+
 export async function getVariantByProductIdAndName(
   productId: number,
   name: string

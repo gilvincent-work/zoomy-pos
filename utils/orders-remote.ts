@@ -46,7 +46,9 @@ async function fetchAllPaged<T>(
   return {ok: true, rows};
 }
 
-export type RemoteOrdersResult = {ok: true; orders: Transaction[]} | {ok: false};
+export type RemoteOrdersResult =
+  | {ok: true; orders: Transaction[]; prizeClientUuids: string[]}
+  | {ok: false};
 
 type OrderRow = {
   client_uuid: string | null;
@@ -82,7 +84,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
     if (ordersErr || !orders) return {ok: false};
 
     const ids = orders.map((o) => o.id as string);
-    if (ids.length === 0) return {ok: true, orders: []};
+    if (ids.length === 0) return {ok: true, orders: [], prizeClientUuids: []};
 
     // Both reads are paged (they outgrew the 1000-row cap) and their errors are
     // checked: a partial items/products fetch would blank out real sales, so fall
@@ -119,6 +121,29 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
       itemsByOrder.set(it.order_id, arr);
     }
 
+    // Which orders carry a non-voided "free item won" prize, mapped back to their
+    // client_uuid so the Transactions list can badge them across devices. Defensive:
+    // a failed/absent read just yields none and never blocks the orders load.
+    const uuidById = new Map<string, string>();
+    for (const o of orders as (OrderRow & {id: string})[]) {
+      if (o.client_uuid) uuidById.set(o.id, o.client_uuid);
+    }
+    let prizeClientUuids: string[] = [];
+    try {
+      const prizesRes = await fetchAllPaged<{order_id: string}>((from, to) =>
+        sb.from('pos_order_prizes').select('order_id').in('order_id', ids).is('voided_at', null).order('order_id', {ascending: true}).range(from, to));
+      if (prizesRes.ok) {
+        const uuids = new Set<string>();
+        for (const p of prizesRes.rows) {
+          const uuid = uuidById.get(p.order_id);
+          if (uuid) uuids.add(uuid);
+        }
+        prizeClientUuids = [...uuids];
+      }
+    } catch {
+      // Prize badge is non-critical; leave it empty on any read failure.
+    }
+
     const remoteOrders = (orders as (OrderRow & {id: string})[]).map((o): Transaction => {
       const total = Number(o.total ?? 0);
       return {
@@ -144,7 +169,7 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
         items: itemsByOrder.get(o.id) ?? [],
       };
     });
-    return {ok: true, orders: remoteOrders};
+    return {ok: true, orders: remoteOrders, prizeClientUuids};
   } catch {
     return {ok: false};
   }

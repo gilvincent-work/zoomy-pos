@@ -1,12 +1,13 @@
 import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { Transaction } from '../db/transactions';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 
-type Props = { transaction: Transaction; onPress: (t: Transaction) => void };
+type Props = { transaction: Transaction; onPress: (t: Transaction) => void; hasPrize?: boolean };
 
-export function TransactionRow({ transaction, onPress }: Props) {
+export function TransactionRow({ transaction, onPress, hasPrize }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const date = new Date(transaction.created_at);
@@ -46,6 +47,12 @@ export function TransactionRow({ transaction, onPress }: Props) {
               <Text style={styles.proofBadgeText}>{hasProof ? '✓ Proof' : 'No Proof'}</Text>
             </View>
           )}
+          {hasPrize && (
+            <View style={styles.prizeBadge}>
+              <Ionicons name="gift-outline" size={F.xs} color={colors.pink} />
+              <Text style={styles.prizeBadgeText}>Free item</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.items} numberOfLines={2}>
           {transaction.items.map((i) => `${i.product_name} ×${i.quantity}`).join('  ·  ')}
@@ -77,7 +84,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     marginBottom: 8,
   },
   voided: { opacity: 0.45 },
-  topRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  topRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
   time: { color: c.textSecondary, fontSize: F.sm },
   methodBadge: {
     backgroundColor: c.elevated,
@@ -103,4 +110,10 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   proofBadgeGreen: { backgroundColor: c.greenSubtle },
   proofBadgeRed: { backgroundColor: c.redSubtle },
   proofBadgeText: { color: c.textPrimary, fontSize: F.xs, fontWeight: '700' },
+  prizeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: c.pinkSubtle, borderWidth: 1, borderColor: c.pinkDim,
+  },
+  prizeBadgeText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
 });

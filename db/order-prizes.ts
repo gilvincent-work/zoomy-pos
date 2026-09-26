@@ -104,6 +104,17 @@ export async function getOrderPrizeByClientUuid(clientUuid: string): Promise<Ord
   return row ?? null;
 }
 
+/** Distinct order_client_uuids that have at least one prize logged (or backfilled)
+ *  on THIS device. Feeds the Transactions list's "Free item" badge so a won prize
+ *  shows at a glance; the remote source fills in prizes logged on other devices. */
+export async function getOrderClientUuidsWithPrizes(): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ order_client_uuid: string }>(
+    'SELECT DISTINCT order_client_uuid FROM order_prizes WHERE order_client_uuid IS NOT NULL'
+  );
+  return rows.map((r) => r.order_client_uuid);
+}
+
 /**
  * Delete one local prize row. Used to undo a backfilled prize: a pending row is
  * deleted so the outbox never pushes it, and a synced row is deleted after

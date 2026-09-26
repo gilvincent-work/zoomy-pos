@@ -73,16 +73,19 @@ export async function pushFreeTaste(
  */
 export async function voidFreeTaste(
   clientUuid: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; idempotent?: boolean; error?: string }> {
   const sb = getSupabase();
   if (!sb) return { ok: false, error: 'Supabase not configured' };
   try {
     const { data, error } = await sb.rpc('void_free_taste', { p_client_uuid: clientUuid });
     if (error) return { ok: false, error: error.message };
-    const res = data as { ok?: boolean; error?: string } | null;
+    const res = data as { ok?: boolean; idempotent?: boolean; error?: string } | null;
     if (res?.ok === false) return { ok: false, error: res.error ?? 'void rejected' };
     await markSynced();
-    return { ok: true };
+    // The RPC flags idempotent:true when the row was ALREADY voided (e.g. another
+    // device undid it first). Surface it so the caller does NOT restock again: Coop
+    // restored the lots at the first void, so a second increment over-restores.
+    return { ok: true, idempotent: Boolean(res?.idempotent) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'network error' };
   }

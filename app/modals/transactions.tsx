@@ -682,6 +682,7 @@ export default function TransactionsModal() {
         setOrderPrizes((prev) => prev.filter((r) => r.client_uuid !== prize.client_uuid));
         return;
       }
+      let voidedIdempotent = false;
       if (fresh.synced_at) {
         const res = await voidOrderPrize(fresh.client_uuid);
         if (!res.ok) {
@@ -692,9 +693,12 @@ export default function TransactionsModal() {
           });
           return;
         }
+        voidedIdempotent = !!res.idempotent;
       }
       await deleteOrderPrize(fresh.client_uuid);
-      if (fresh.product_local_id != null) {
+      // Skip the restock when the prize was already voided elsewhere (Coop already
+      // restored the lots at the first void); a second increment would over-restore.
+      if (fresh.product_local_id != null && !voidedIdempotent) {
         await incrementStock([{ productId: fresh.product_local_id, quantity: fresh.qty }]);
       }
       await refreshPendingCount();
@@ -702,7 +706,9 @@ export default function TransactionsModal() {
       showToast({
         variant: 'success',
         title: 'Prize removed',
-        message: `${fresh.qty}x ${fresh.product_name} restored to stock.`,
+        message: voidedIdempotent
+          ? `${fresh.qty}x ${fresh.product_name}: was already undone on another device.`
+          : `${fresh.qty}x ${fresh.product_name} restored to stock.`,
       });
     } catch {
       showToast({ variant: 'error', title: 'Could not remove', message: 'Please try again.' });

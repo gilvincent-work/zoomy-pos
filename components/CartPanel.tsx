@@ -35,7 +35,7 @@ type Props = {
 export function CartPanel({ method, onMethodChange, enabledMethods, petType, onPetTypeChange, onCharge, compact, canIncrement }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle } = useCart();
+  const { items, bundles, total, addItem, decrementItem, removeLine, removeBundle, togglePrize } = useCart();
   const isEmpty = items.length === 0 && bundles.length === 0;
   const meta = quickMethodMeta(method);
   // On a short viewport (landscape phone) the fixed total + Charge block crowds
@@ -60,17 +60,21 @@ export function CartPanel({ method, onMethodChange, enabledMethods, petType, onP
           <>
             {items.map((item) => {
               const key = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
-              const lineTotal = item.price * item.quantity;
+              const isPrize = !!item.isPrize;
+              const lineTotal = isPrize ? 0 : item.price * item.quantity;
               // Variants have no per-variant stock tracking, so they're always incrementable.
               const atStockLimit = !item.variantId && canIncrement && !canIncrement(item.productId);
               return (
                 <View key={key} style={styles.line}>
                   <View style={styles.lineInfo}>
                     <Text style={styles.lineName} numberOfLines={2}>
+                      {isPrize ? <Text style={styles.prizeTag}>Prize · </Text> : null}
                       {item.productName}
                       {item.variantName ? ` · ${item.variantName}` : ''}
                     </Text>
-                    <Text style={styles.lineUnit}>₱{item.price.toFixed(2)} each</Text>
+                    <Text style={styles.lineUnit}>
+                      {isPrize ? 'Free (spin prize)' : `₱${item.price.toFixed(2)} each`}
+                    </Text>
                   </View>
                   <View style={styles.stepper}>
                     <TouchableOpacity
@@ -100,7 +104,16 @@ export function CartPanel({ method, onMethodChange, enabledMethods, petType, onP
                       <Text style={styles.stepPlusText}>+</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.lineTotal}>₱{lineTotal.toFixed(2)}</Text>
+                  <Text style={[styles.lineTotal, isPrize && styles.lineTotalPrize]}>₱{lineTotal.toFixed(2)}</Text>
+                  <TouchableOpacity
+                    testID={`cart-prize-${key}`}
+                    style={[styles.prizeBtn, isPrize && styles.prizeBtnActive]}
+                    onPress={() => togglePrize(item.productId, item.variantId)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel={isPrize ? `Un-mark ${item.productName} as prize` : `Mark ${item.productName} as free prize`}
+                  >
+                    <Ionicons name={isPrize ? 'gift' : 'gift-outline'} size={16} color={isPrize ? '#fff' : colors.textMuted} />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     testID={`cart-remove-${key}`}
                     style={styles.removeBtn}
@@ -196,6 +209,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   lineName: { color: c.textPrimary, fontSize: F.sm, fontWeight: '600', lineHeight: 17 },
   lineUnit: { color: c.textMuted, fontSize: F.xs },
   bundleTag: { color: c.pink, fontWeight: '800' },
+  prizeTag: { color: c.green, fontWeight: '800' },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -235,6 +249,22 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     fontWeight: '800',
     minWidth: 56,
     textAlign: 'right',
+  },
+  lineTotalPrize: { color: c.green },
+  // Per-line prize toggle: a gift button that turns the line into a free
+  // giveaway (₱0, excluded from the total, recorded separately as a prize).
+  prizeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  prizeBtnActive: {
+    backgroundColor: c.green,
+    borderColor: c.green,
   },
   removeBtn: {
     width: 28,

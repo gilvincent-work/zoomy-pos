@@ -176,6 +176,45 @@ export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
 }
 
 /**
+ * Read the non-voided "free item won" prizes for one sale from Coop (pos_order_prizes),
+ * so the Transactions detail view can list which items were won on any device. Carries
+ * the prize's own client_uuid for deduping against the local rows, the product name
+ * (embedded from pos_products), and qty. Fully defensive: returns [] when Supabase is
+ * unconfigured/unreachable or the read fails, so it can never block the detail view.
+ */
+export async function fetchRemoteOrderPrizes(
+  clientUuid: string,
+): Promise<{client_uuid: string; product_name: string; qty: number}[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  try {
+    const {data, error} = await sb
+      .from('pos_order_prizes')
+      .select('client_uuid, qty, pos_products(name), pos_orders!inner(client_uuid)')
+      .eq('pos_orders.client_uuid', clientUuid)
+      .is('voided_at', null);
+    if (error || !data) return [];
+    return (data as unknown as PrizeRow[]).map((r) => {
+      // Supabase types an embedded relation as an array; the FK is single so take [0].
+      const prod = Array.isArray(r.pos_products) ? r.pos_products[0] : r.pos_products;
+      return {
+        client_uuid: r.client_uuid ?? '',
+        product_name: prod?.name ?? 'Item',
+        qty: Number(r.qty ?? 0),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+type PrizeRow = {
+  client_uuid: string | null;
+  qty: number | null;
+  pos_products: {name: string | null} | {name: string | null}[] | null;
+};
+
+/**
  * Void a sale on Coop by its shared client_uuid, so the void shows on every
  * device. Best-effort: returns false when Supabase is unconfigured/unreachable
  * or the order isn't on Coop yet (e.g. an unsynced offline sale) — the caller

@@ -61,6 +61,31 @@ export async function pushOrderPrize(
   }
 }
 
+/**
+ * Undo a prize already confirmed on Coop, via void_order_prize (restores the
+ * exact Event lots it hit, writes reverse ledger rows, marks it voided). Keyed on
+ * the row's client_uuid, which the RPC treats idempotently (a second call on an
+ * already-voided row is a safe no-op). Returns ok:false — so the caller keeps the
+ * local row and can prompt "reconnect to undo" — when Supabase is unconfigured,
+ * unreachable, or the RPC rejects. Mirrors voidFreeTaste in free-tastes-sync.ts.
+ */
+export async function voidOrderPrize(
+  clientUuid: string
+): Promise<{ ok: boolean; error?: string }> {
+  const sb = getSupabase();
+  if (!sb) return { ok: false, error: 'Supabase not configured' };
+  try {
+    const { data, error } = await sb.rpc('void_order_prize', { p_client_uuid: clientUuid });
+    if (error) return { ok: false, error: error.message };
+    const res = data as { ok?: boolean; error?: string } | null;
+    if (res?.ok === false) return { ok: false, error: res.error ?? 'void rejected' };
+    await markSynced();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'network error' };
+  }
+}
+
 /** Drain pending prizes to Coop, marking each synced on success. MUST run after
  *  the sales drain (a prize needs its order on Coop first). A prize whose sale
  *  isn't on Coop yet fails with "order not found" and stays pending for the next

@@ -16,9 +16,16 @@ import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../.
 import { refreshPendingCount } from '../../utils/outbox';
 import { exportTransactionsZip } from '../../utils/export-csv';
 import { importTransactionsZip } from '../../utils/import-csv';
-import { getAllProducts, Product } from '../../db/products';
+import { getAllProducts, getActiveProducts, decrementStock, incrementStock, Product } from '../../db/products';
+import {
+  insertOrderPrize, markOrderPrizeSynced, getOrderPrizesByOrder,
+  getOrderPrizeByClientUuid, deleteOrderPrize, type OrderPrize,
+} from '../../db/order-prizes';
+import { pushOrderPrize, voidOrderPrize } from '../../utils/order-prizes-sync';
 import { pullCatalog } from '../../utils/catalog-sync';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import * as Crypto from 'expo-crypto';
+import { useToast } from '../../components/Toast';
 import { quickMethodMeta } from '../../constants/payment';
 import {
   DateFilter, DateRange, getFilterRange, formatRangeLabel, formatRangeForFilename,
@@ -195,6 +202,7 @@ function Dropdown<T extends string>({
 export default function TransactionsModal() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { showToast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
@@ -218,6 +226,25 @@ export default function TransactionsModal() {
   const [editOpening, setEditOpening] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [bundleChooserFor, setBundleChooserFor] = useState<number | null>(null);
+  // "Free items won" (spin-a-wheel prizes) backfilled onto the editing sale. These
+  // apply immediately via their own offline-first path (add_order_prize / stock
+  // deduct), independent of the edit_pos_order Save. prizeCatalog carries the
+  // Event on-hand cache so the picker can hide out-of-stock products and cap qty.
+  const [orderPrizes, setOrderPrizes] = useState<OrderPrize[]>([]);
+  const [prizeCatalog, setPrizeCatalog] = useState<Product[]>([]);
+  const [prizeProduct, setPrizeProduct] = useState<Product | null>(null);
+  const [prizeQty, setPrizeQty] = useState(1);
+  const [prizeNote, setPrizeNote] = useState('');
+  const [prizeSearch, setPrizeSearch] = useState('');
+  const [prizePickerVisible, setPrizePickerVisible] = useState(false);
+  const [prizeAdding, setPrizeAdding] = useState(false);
+  // Synchronous in-flight guard so a rapid double-tap of Add can't insert two
+  // prizes and decrement stock twice (the prizeAdding useState lags within a frame).
+  const addingPrizeRef = useRef(false);
+  // Synchronous in-flight guard so a rapid double-tap of Remove can't double
+  // restore stock (React state lags within a frame); the mirrored set re-renders.
+  const undoingPrizeRef = useRef<Set<string>>(new Set());
+  const [undoingPrize, setUndoingPrize] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ variant: 'success' | 'error' | 'info'; title: string; message: string } | null>(null);
   const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -477,8 +504,167 @@ export default function TransactionsModal() {
         ? { kind: 'item', product_id: e.product_id, name: skuName.get(e.product_id) ?? e.product_id, qty: String(e.qty), price: String(e.unit_price) }
         : { kind: 'bundle', bundle_id: e.bundle_id, name: defByUuid.get(e.bundle_id)?.name ?? 'Bundle', price: String(e.price), picks: e.picks.map((p) => ({ product_id: p.product_id, qty: String(p.qty) })) },
     ));
+    // Seed the "Free items won" section: this order's prizes + the Event on-hand
+    // catalog for the picker. Best-effort — a read failure just leaves it empty.
+    setPrizeProduct(null);
+    setPrizeQty(1);
+    setPrizeNote('');
+    setPrizeSearch('');
+    await reloadPrizes(selected.client_uuid);
     setEditOpening(false);
     setEditingTx(selected);
+  }
+
+  // Refresh the editing order's prize list and the Event on-hand cache together,
+  // so the list, the in-stock picker, and the qty cap all reflect the latest
+  // deductions after an add or a remove.
+  const reloadPrizes = useCallback(async (orderClientUuid: string) => {
+    const [rows, prods] = await Promise.all([
+      getOrderPrizesByOrder(orderClientUuid),
+      getActiveProducts(),
+    ]);
+    setOrderPrizes(rows);
+    setPrizeCatalog(prods);
+  }, []);
+
+  // Products with an Event on-hand count and a Coop SKU, for the prize picker
+  // (never let a backfill pick an out-of-stock product), filtered by the search.
+  const prizeEligible = useMemo(
+    () => prizeCatalog.filter((p) => p.sku && p.stock > 0),
+    [prizeCatalog]
+  );
+  const prizePickerOptions = useMemo(() => {
+    const q = prizeSearch.trim().toLowerCase();
+    return q ? prizeEligible.filter((p) => p.name.toLowerCase().includes(q)) : prizeEligible;
+  }, [prizeEligible, prizeSearch]);
+  // Qty is capped at the selected product's on-hand so a backfill can't oversell.
+  const prizeMax = prizeProduct ? Math.max(1, prizeProduct.stock) : 1;
+
+  function selectPrizeProduct(p: Product) {
+    setPrizeProduct(p);
+    setPrizeQty(1);
+    setPrizePickerVisible(false);
+    setPrizeSearch('');
+  }
+
+  // Record a backfilled prize: durable local row first (offline-first), deduct the
+  // Event on-hand cache, then push to Coop best-effort (the outbox retries a miss).
+  // Independent of the edit Save. Idempotent on the row's own client_uuid.
+  async function addPrize() {
+    if (addingPrizeRef.current || !editingTx || !editingTx.client_uuid || !prizeProduct) return;
+    addingPrizeRef.current = true;
+    const product = prizeProduct;
+    const qty = Math.min(Math.max(1, prizeQty), Math.max(1, product.stock));
+    setPrizeAdding(true);
+    const row: OrderPrize = {
+      client_uuid: Crypto.randomUUID(),
+      order_client_uuid: editingTx.client_uuid,
+      product_local_id: product.id,
+      product_sku: product.sku,
+      product_name: product.name,
+      qty,
+      note: prizeNote.trim() || null,
+      created_by: 'pos',
+      device_id: 'pos',
+      won_at: new Date().toISOString(),
+      synced_at: null,
+    };
+    try {
+      await insertOrderPrize({
+        clientUuid: row.client_uuid,
+        orderClientUuid: row.order_client_uuid,
+        productLocalId: row.product_local_id,
+        productSku: row.product_sku,
+        productName: row.product_name,
+        qty: row.qty,
+        note: row.note,
+        createdBy: row.created_by,
+        deviceId: row.device_id,
+        wonAt: row.won_at,
+      });
+      await decrementStock([{ productId: product.id, quantity: qty }]);
+      await refreshPendingCount();
+      setPrizeProduct(null);
+      setPrizeQty(1);
+      setPrizeNote('');
+      await reloadPrizes(editingTx.client_uuid);
+      showToast({
+        variant: 'success',
+        title: 'Prize added',
+        message: `${qty}x ${product.name} recorded as a free item won.`,
+      });
+      // Push to Coop in the background; the outbox retries a miss. On success, mark
+      // synced and refresh so the row's pill flips to Synced. The client cap is only
+      // against the cached on-hand, so add_order_prize can still oversell if the
+      // cache was stale; warn when it flags oversold (mirrors the free-taste modal).
+      pushOrderPrize(row).then((res) => {
+        if (res.ok) {
+          markOrderPrizeSynced(row.client_uuid)
+            .then(() => { if (editingTx.client_uuid) reloadPrizes(editingTx.client_uuid).catch(() => {}); })
+            .catch(() => {});
+        }
+        refreshPendingCount().catch(() => {});
+        if (res.ok && res.oversold) {
+          showToast({
+            variant: 'error',
+            title: 'Given past stock',
+            message: 'That went past the Event on-hand. Restock in Coop when you can.',
+          });
+        }
+      });
+    } catch {
+      showToast({ variant: 'error', title: 'Could not add prize', message: 'Please try again.' });
+    } finally {
+      setPrizeAdding(false);
+      addingPrizeRef.current = false;
+    }
+  }
+
+  // Remove a backfilled prize (mirrors the free-taste undo). Re-reads the row's
+  // CURRENT synced_at before deciding, so the outbox drain flipping it to synced
+  // between list load and tap can't skip the Coop reversal. Pending: delete before
+  // it pushes. Synced: void it on Coop first, and only delete + restock if that
+  // lands (offline: keep the row and prompt to reconnect). The synchronous ref
+  // guard + delete keep it idempotent (a double-tap can't double-restore).
+  async function removePrize(prize: OrderPrize) {
+    if (!editingTx || !editingTx.client_uuid) return;
+    if (undoingPrizeRef.current.has(prize.client_uuid)) return;
+    undoingPrizeRef.current.add(prize.client_uuid);
+    setUndoingPrize(new Set(undoingPrizeRef.current));
+    try {
+      const fresh = await getOrderPrizeByClientUuid(prize.client_uuid);
+      if (!fresh) {
+        setOrderPrizes((prev) => prev.filter((r) => r.client_uuid !== prize.client_uuid));
+        return;
+      }
+      if (fresh.synced_at) {
+        const res = await voidOrderPrize(fresh.client_uuid);
+        if (!res.ok) {
+          showToast({
+            variant: 'error',
+            title: 'Still synced to Coop',
+            message: 'Reconnect to undo a synced prize.',
+          });
+          return;
+        }
+      }
+      await deleteOrderPrize(fresh.client_uuid);
+      if (fresh.product_local_id != null) {
+        await incrementStock([{ productId: fresh.product_local_id, quantity: fresh.qty }]);
+      }
+      await refreshPendingCount();
+      await reloadPrizes(editingTx.client_uuid);
+      showToast({
+        variant: 'success',
+        title: 'Prize removed',
+        message: `${fresh.qty}x ${fresh.product_name} restored to stock.`,
+      });
+    } catch {
+      showToast({ variant: 'error', title: 'Could not remove', message: 'Please try again.' });
+    } finally {
+      undoingPrizeRef.current.delete(prize.client_uuid);
+      setUndoingPrize(new Set(undoingPrizeRef.current));
+    }
   }
 
   const entryAmount = (e: DraftEntry) => e.kind === 'item' ? (Number(e.qty) || 0) * (Number(e.price) || 0) : Number(e.price) || 0;
@@ -974,6 +1160,88 @@ export default function TransactionsModal() {
                 ))}
               </View>
 
+              <Text style={styles.editSectionLabel}>Free items won</Text>
+              <Text style={styles.prizeHint}>
+                Spin-a-wheel prizes given on this sale. Each deducts Event stock and applies right away, separate from Save.
+              </Text>
+
+              {orderPrizes.map((prize) => {
+                const synced = !!prize.synced_at;
+                const busy = undoingPrize.has(prize.client_uuid);
+                return (
+                  <View key={prize.client_uuid} style={styles.prizeRow}>
+                    <Text style={styles.prizeName} numberOfLines={2}>{prize.qty}x {prize.product_name}</Text>
+                    <View style={[styles.prizePill, synced ? styles.prizePillSynced : styles.prizePillPending]}>
+                      <Text style={[styles.prizePillText, synced ? styles.prizePillTextSynced : styles.prizePillTextPending]}>
+                        {synced ? 'Synced' : 'Pending'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => removePrize(prize)}
+                      disabled={busy}
+                      style={[styles.editRemoveBtn, busy && styles.prizeRemoveBusy]}
+                      accessibilityLabel={`Remove ${prize.qty}x ${prize.product_name}`}
+                    >
+                      <Ionicons name="close" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+
+              {prizeEligible.length === 0 ? (
+                <Text style={styles.prizeEmpty}>No products have Event stock to give as a prize.</Text>
+              ) : (
+                <View style={styles.prizeAddCard}>
+                  <TouchableOpacity
+                    style={styles.prizeProductPick}
+                    onPress={() => { setPrizeSearch(''); setPrizePickerVisible(true); }}
+                  >
+                    <Text style={[styles.prizeProductText, !prizeProduct && styles.prizeProductPlaceholder]} numberOfLines={1}>
+                      {prizeProduct ? `${prizeProduct.emoji ? `${prizeProduct.emoji}  ` : ''}${prizeProduct.name}` : 'Select a product…'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                  </TouchableOpacity>
+                  {prizeProduct && <Text style={styles.prizeOnHand}>{prizeProduct.stock} on hand at the Event</Text>}
+                  <View style={styles.prizeControlRow}>
+                    <View style={styles.prizeStepper}>
+                      <TouchableOpacity
+                        style={styles.prizeStepBtn}
+                        onPress={() => setPrizeQty((q) => Math.max(1, q - 1))}
+                        disabled={!prizeProduct || prizeQty <= 1}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={[styles.prizeStepMinus, (!prizeProduct || prizeQty <= 1) && styles.prizeStepDisabled]}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.prizeStepQty}>{prizeProduct ? prizeQty : 0}</Text>
+                      <TouchableOpacity
+                        style={[styles.prizeStepBtn, styles.prizeStepPlus]}
+                        onPress={() => setPrizeQty((q) => Math.min(prizeMax, q + 1))}
+                        disabled={!prizeProduct || prizeQty >= prizeMax}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={[styles.prizeStepPlusText, (!prizeProduct || prizeQty >= prizeMax) && styles.prizeStepDisabled]}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.prizeAddBtn, (!prizeProduct || prizeAdding) && styles.prizeAddBtnDisabled]}
+                      onPress={addPrize}
+                      disabled={!prizeProduct || prizeAdding}
+                    >
+                      <Text style={[styles.prizeAddBtnText, (!prizeProduct || prizeAdding) && styles.prizeAddBtnTextDisabled]}>
+                        {prizeAdding ? 'Adding…' : 'Add prize'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={styles.prizeNoteInput}
+                    placeholder="Note (optional)"
+                    placeholderTextColor={colors.textMuted}
+                    value={prizeNote}
+                    onChangeText={setPrizeNote}
+                  />
+                </View>
+              )}
+
               {editError && <Text style={styles.editError}>{editError}</Text>}
             </ScrollView>
 
@@ -1028,6 +1296,38 @@ export default function TransactionsModal() {
                 ))}
               </ScrollView>
               <TouchableOpacity style={styles.editCancelBtn} onPress={() => setBundleChooserFor(null)}>
+                <Text style={styles.editCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Prize picker: in-stock Event products only (never an out-of-stock one). */}
+        <Modal visible={prizePickerVisible} transparent animationType="fade" onRequestClose={() => setPrizePickerVisible(false)}>
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.editTitle}>Free item won</Text>
+              <TextInput
+                style={styles.prizeSearchInput}
+                placeholder="Search treats…"
+                placeholderTextColor={colors.textMuted}
+                value={prizeSearch}
+                onChangeText={setPrizeSearch}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
+                {prizePickerOptions.map((p) => (
+                  <TouchableOpacity key={p.id} style={styles.pickerItem} onPress={() => selectPrizeProduct(p)}>
+                    <Text style={styles.pickerItemName} numberOfLines={1}>{p.emoji ? `${p.emoji}  ` : ''}{p.name}</Text>
+                    <Text style={styles.prizeStockTag}>{p.stock} on hand</Text>
+                  </TouchableOpacity>
+                ))}
+                {prizePickerOptions.length === 0 && (
+                  <Text style={styles.prizeEmpty}>No treats match that search.</Text>
+                )}
+              </ScrollView>
+              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setPrizePickerVisible(false)}>
                 <Text style={styles.editCancelText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -1267,6 +1567,57 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   pickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border },
   pickerItemName: { flex: 1, color: c.textPrimary, fontSize: F.md, marginRight: 10 },
   pickerItemPrice: { color: c.pink, fontSize: F.sm, fontWeight: '700' },
+
+  // Free items won (spin-a-wheel prizes) section
+  prizeHint: { color: c.textMuted, fontSize: F.xs, lineHeight: 17, marginTop: -2, marginBottom: 10 },
+  prizeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  prizeName: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '600' },
+  prizePill: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 999, borderWidth: 1 },
+  prizePillSynced: { backgroundColor: c.greenSubtle, borderColor: c.greenDim },
+  prizePillPending: { backgroundColor: c.elevated, borderColor: c.border },
+  prizePillText: { fontSize: F.xs, fontWeight: '800' },
+  prizePillTextSynced: { color: c.green },
+  prizePillTextPending: { color: c.textMuted },
+  prizeRemoveBusy: { opacity: 0.4 },
+  prizeEmpty: { color: c.textMuted, fontSize: F.sm, marginTop: 2, marginBottom: 4 },
+  prizeAddCard: {
+    borderWidth: 1, borderColor: c.border, borderRadius: R.sm, padding: 10, gap: 10,
+    backgroundColor: c.elevated,
+  },
+  prizeProductPick: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 8, paddingHorizontal: 10, borderRadius: R.sm,
+    backgroundColor: c.surface, borderWidth: 1, borderColor: c.border,
+  },
+  prizeProductText: { flex: 1, color: c.textPrimary, fontSize: F.sm, fontWeight: '600' },
+  prizeProductPlaceholder: { color: c.textMuted, fontWeight: '400' },
+  prizeOnHand: { color: c.textMuted, fontSize: F.xs, marginTop: -4 },
+  prizeControlRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  prizeStepper: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: c.border,
+    borderRadius: 999, overflow: 'hidden',
+  },
+  prizeStepBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  prizeStepPlus: { backgroundColor: c.pink },
+  prizeStepMinus: { color: c.red, fontSize: 20, fontWeight: '800', lineHeight: 22 },
+  prizeStepDisabled: { color: c.textMuted, opacity: 0.6 },
+  prizeStepPlusText: { color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 22 },
+  prizeStepQty: { minWidth: 30, textAlign: 'center', color: c.textPrimary, fontSize: F.md, fontWeight: '800' },
+  prizeAddBtn: {
+    flex: 1, backgroundColor: c.pink, borderRadius: R.sm, paddingVertical: 10, alignItems: 'center',
+  },
+  prizeAddBtnDisabled: { backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border },
+  prizeAddBtnText: { color: '#fff', fontSize: F.sm, fontWeight: '800' },
+  prizeAddBtnTextDisabled: { color: c.textMuted },
+  prizeNoteInput: {
+    backgroundColor: c.surface, borderRadius: R.sm, borderWidth: 1, borderColor: c.border,
+    paddingVertical: 9, paddingHorizontal: 12, color: c.textPrimary, fontSize: F.sm,
+  },
+  prizeSearchInput: {
+    backgroundColor: c.elevated, borderRadius: R.sm, borderWidth: 1, borderColor: c.border,
+    paddingVertical: 10, paddingHorizontal: 12, color: c.textPrimary, fontSize: F.md, marginBottom: 12,
+  },
+  prizeStockTag: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
 
   remarksOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',

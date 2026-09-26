@@ -139,12 +139,12 @@ export async function importTransaction(data: {
  * Rewrite a local transaction's editable fields + items to match an edit that
  * already succeeded on Coop (edits are online-only, so the Coop RPC is the
  * source of truth). Replaces the line items, updates method/handle/total, marks
- * synced_at (it's confirmed on Coop), and clears is_bundle (edited orders are
- * plain product lines). created_at is preserved.
+ * synced_at (it's confirmed on Coop), and sets is_bundle from the edited entries
+ * (an edit that still contains a bundle stays a bundle). created_at is preserved.
  */
 export async function replaceLocalTransactionContents(
   id: number,
-  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number; petType: PetType | null },
+  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number; petType: PetType | null; isBundle: boolean },
   items: { productId: number; productName: string; price: number; quantity: number }[],
 ): Promise<void> {
   const db = await getDatabase();
@@ -156,8 +156,8 @@ export async function replaceLocalTransactionContents(
     );
   }
   await db.runAsync(
-    'UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = 0, synced_at = ? WHERE id = ?',
-    [fields.paymentMethod, fields.customerHandle, fields.petType, fields.total, fields.total, new Date().toISOString(), id]
+    'UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = ?, synced_at = ? WHERE id = ?',
+    [fields.paymentMethod, fields.customerHandle, fields.petType, fields.total, fields.total, fields.isBundle ? 1 : 0, new Date().toISOString(), id]
   );
 }
 

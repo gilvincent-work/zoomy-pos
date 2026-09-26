@@ -30,6 +30,14 @@ double-tap can't double-restore. Added `getOrderPrizesByOrder`,
 `voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
 typecheck clean, 319 tests pass.
 
+## 2026-09-27 — Fix: editing a bundle order no longer drops its Bundle badge — `fix(pos)`
+
+Saving an edit ran `replaceLocalTransactionContents`, which hardcoded `is_bundle = 0`,
+so a bundle order lost its Bundle badge after any edit (surfaced when adding a free
+item to a bundle-only sale: only "Free item" remained). It now sets `is_bundle` from
+the edited entries (still a bundle if any entry is a bundle), so a bundle + free item
+order keeps BOTH badges. Pairs with the remote-`is_bundle` fix. Added a test; 320 pass.
+
 ## 2026-09-27 — Fix: bundle badge missing on synced orders (esp. bundle + free item) — `fix(pos)`
 
 `fetchRemoteOrders` hardcoded `is_bundle: false`, so any order shown from the remote

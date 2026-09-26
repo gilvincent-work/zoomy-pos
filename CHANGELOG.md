@@ -30,6 +30,15 @@ double-tap can't double-restore. Added `getOrderPrizesByOrder`,
 `voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
 typecheck clean, 319 tests pass.
 
+## 2026-09-27 — Show the won free item(s) in the transaction detail — `feat(pos)`
+
+The read-only transaction detail now lists which free item(s) were won ("1x Chicken",
+gift icon, brand pink) in a "Free items won" section between the items and the Total.
+Sourced like the tile badge: local `order_prizes` unioned with a defensive remote
+`fetchRemoteOrderPrizes` (non-voided `pos_order_prizes`, product name embedded),
+deduped by prize client_uuid, so a badged order always shows its item(s) here.
+Fail-soft and offline-safe. Typecheck clean, 319 tests pass.
+
 ## 2026-09-27 — "Free item won" badge on transaction tiles — `feat(pos)`
 
 Transaction tiles now show a "Free item" badge (gift icon, brand pink) when the order

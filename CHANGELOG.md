@@ -12,6 +12,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — v1.3.1: free-taste Recent syncs across devices — `chore(release)`
+
+**Version 1.3.0 → 1.3.1** (`package.json` + `app.json`). Code-only point release (no DB
+change; reads the already-migrated prod schema). Ships the free-taste "Recent" cross-device
+sync + the multi-device double-restore fix below.
+
 ## 2026-09-27 — Free taste Recent reflects Coop (all devices); no double-restore on undo — `feat(pos)`
 
 - The Free Taste **Recent** tab now merges this device's local free tastes with a Coop

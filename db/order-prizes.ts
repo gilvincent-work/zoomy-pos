@@ -81,3 +81,36 @@ export async function countPendingOrderPrizes(): Promise<number> {
   );
   return row?.n ?? 0;
 }
+
+/** All local prizes attached to one order, oldest first (the edit sale sheet lists
+ *  a past sale's backfilled prizes so they can be reviewed or removed). */
+export async function getOrderPrizesByOrder(orderClientUuid: string): Promise<OrderPrize[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<OrderPrize>(
+    'SELECT * FROM order_prizes WHERE order_client_uuid = ? ORDER BY won_at ASC',
+    [orderClientUuid]
+  );
+}
+
+/** Read one prize row by client_uuid, or null. Undo re-reads this right before
+ *  acting so it never trusts a stale synced_at snapshot (the outbox drain can flip
+ *  a row to synced between the list load and the tap). */
+export async function getOrderPrizeByClientUuid(clientUuid: string): Promise<OrderPrize | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<OrderPrize>(
+    'SELECT * FROM order_prizes WHERE client_uuid = ?',
+    [clientUuid]
+  );
+  return row ?? null;
+}
+
+/**
+ * Delete one local prize row. Used to undo a backfilled prize: a pending row is
+ * deleted so the outbox never pushes it, and a synced row is deleted after
+ * void_order_prize restores it on Coop. Naturally idempotent (deleting an
+ * already-gone row is a no-op), so undoing twice can't double-anything.
+ */
+export async function deleteOrderPrize(clientUuid: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM order_prizes WHERE client_uuid = ?', [clientUuid]);
+}

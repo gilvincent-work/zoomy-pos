@@ -12,6 +12,24 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — Backfill "Free items won" onto a past sale from the edit sheet — `feat(pos)`
+
+The edit-transaction sheet now has a "Free items won" section for backfilling
+spin-a-wheel prizes onto a completed sale. It lists the order's prizes (each with a
+Pending/Synced pill) and lets the cashier pick an Event-stocked product, set a qty,
+add an optional note, and record. Prizes apply immediately through their own
+offline-first path (durable local `order_prizes` row, `add_order_prize` push with
+the outbox as retry), fully independent of the edit_pos_order Save. The picker only
+offers products with Event on-hand (`sku && stock > 0`) and the qty stepper is
+capped at that on-hand, so a backfill can never oversell. Remove mirrors the
+free-taste undo: a pending prize is deleted (and stock restored) before it pushes; a
+synced one is reversed on Coop via `void_order_prize` first, then deleted and
+restocked (offline keeps the row and prompts to reconnect), with a ref guard so a
+double-tap can't double-restore. Added `getOrderPrizesByOrder`,
+`getOrderPrizeByClientUuid`, `deleteOrderPrize` (db/order-prizes.ts) and
+`voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
+typecheck clean, 319 tests pass.
+
 ## 2026-09-27 — Long-press a product tile to log a free taste — `feat(pos)`
 
 Delivers the single-product free-taste entry from the original spec. Long-pressing a

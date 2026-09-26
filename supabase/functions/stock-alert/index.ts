@@ -39,7 +39,9 @@ Deno.serve(async (req) => {
     // drives BOTH the low band and the suggested reorder).
     const since = new Date(Date.now() - FORECAST_WINDOW_DAYS * 86400000).toISOString();
     const [invRows, prodRows, cfgRows, moves] = await Promise.all([
-      rest(`pos_inventory?product_id=eq.${product_id}&select=stock`).then((r) => r.json()),
+      // Event (sellable) on-hand drives the alert, not the global Office+Event sum,
+      // so back-stock never masks a low sellable count at the table.
+      rest(`pos_inventory_event?product_id=eq.${product_id}&select=stock`).then((r) => r.json()),
       rest(`pos_products?product_id=eq.${product_id}&select=name`).then((r) => r.json()),
       rest(`pos_settings?key=eq.stock_forecast_config&select=value`).then((r) => r.json()),
       rest(`pos_stock_movements?product_id=eq.${product_id}&reason=eq.sale&created_at=gte.${since}&select=delta,created_at`).then((r) => r.json()),

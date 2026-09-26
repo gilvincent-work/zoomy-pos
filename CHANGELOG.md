@@ -12,6 +12,17 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — Long-press a product tile to log a free taste — `feat(pos)`
+
+Delivers the single-product free-taste entry from the original spec. Long-pressing a
+product tile now opens a quick Free Taste sheet for that product (packs stepper +
+optional note); it records through the same offline-first path as the multi-line
+modal (local row first, deducts the stock cache, pushes record_free_taste
+best-effort with the outbox retry, warns on oversold). Long-press previously removed
+the item from the cart; that stays available via the tile's existing x and minus
+controls, so nothing is lost. New `components/FreeTasteQuickSheet.tsx`; typecheck
+clean, 315 tests pass.
+
 ## 2026-09-26 — Header collapses to a menu + top drawer on narrow screens — `feat(pos)`
 
 The header's action-icon row (theme, free taste, bundle, products, transactions,

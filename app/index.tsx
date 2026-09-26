@@ -19,6 +19,7 @@ import { ConfirmPaymentModal } from '../components/ConfirmPaymentModal';
 import { SyncStatusBar } from '../components/SyncStatusBar';
 import { EventBadge } from '../components/EventBadge';
 import { HeaderMenuDrawer, type HeaderMenuItem } from '../components/HeaderMenuDrawer';
+import { FreeTasteQuickSheet } from '../components/FreeTasteQuickSheet';
 import { useToast } from '../components/Toast';
 import { useCart } from '../context/CartContext';
 import {
@@ -73,6 +74,8 @@ export default function POSScreen() {
   // opens the upper drawer. Wider screens keep the inline icon row.
   const compactHeader = width < 520;
   const [menuOpen, setMenuOpen] = useState(false);
+  // Long-pressing a product tile opens a quick free-taste sheet for that product.
+  const [freeTasteProduct, setFreeTasteProduct] = useState<Product | null>(null);
   // Layout follows device rotation: landscape pins a side cart, portrait uses a sheet.
   const useSideCart = isLandscape;
 
@@ -514,7 +517,7 @@ export default function POSScreen() {
                 badgeCount={getBadge(item.id)}
                 stock={item.sku ? item.stock : undefined}
                 onPress={() => handleProductPress(item)}
-                onLongPress={() => removeItem(item.id)}
+                onLongPress={() => setFreeTasteProduct(item)}
                 onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
                 onRemove={() => removeItem(item.id)}
               />
@@ -594,6 +597,7 @@ export default function POSScreen() {
       </View>
 
       <HeaderMenuDrawer visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
+      <FreeTasteQuickSheet product={freeTasteProduct} onClose={() => setFreeTasteProduct(null)} />
 
       {useSideCart ? (
         <View style={styles.landscape}>

@@ -12,6 +12,24 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-09-27 — v1.3.1: free-taste Recent syncs across devices — `chore(release)`
+
+**Version 1.3.0 → 1.3.1** (`package.json` + `app.json`). Code-only point release (no DB
+change; reads the already-migrated prod schema). Ships the free-taste "Recent" cross-device
+sync + the multi-device double-restore fix below.
+
+## 2026-09-27 — Free taste Recent reflects Coop (all devices); no double-restore on undo — `feat(pos)`
+
+- The Free Taste **Recent** tab now merges this device's local free tastes with a Coop
+  fetch (`fetchRemoteFreeTastes`), deduped by `client_uuid` (local wins), so a logged
+  free taste shows regardless of where it was recorded; Coop/other-device rows show as
+  "Synced". Fail-soft: a failed remote read falls back to local-only.
+- Undo handles remote-only rows (reverses on Coop via `void_free_taste`).
+- **Fix (multi-device double-restore):** `void_free_taste`/`void_order_prize` now surface
+  `idempotent` (true when already voided elsewhere); the free-taste undo and the prize
+  remove skip the local restock in that case, so stock isn't over-restored. Added
+  `voidFreeTaste` unit tests. Typecheck clean; 326 tests pass.
+
 ## 2026-09-27 — v1.3.0: ship to prod (locations, free taste, free item) — `chore(release)`
 
 **Version 1.2.4 → 1.3.0** (`package.json` + `app.json`). Promotes the multi-location

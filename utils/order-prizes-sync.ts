@@ -71,16 +71,18 @@ export async function pushOrderPrize(
  */
 export async function voidOrderPrize(
   clientUuid: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; idempotent?: boolean; error?: string }> {
   const sb = getSupabase();
   if (!sb) return { ok: false, error: 'Supabase not configured' };
   try {
     const { data, error } = await sb.rpc('void_order_prize', { p_client_uuid: clientUuid });
     if (error) return { ok: false, error: error.message };
-    const res = data as { ok?: boolean; error?: string } | null;
+    const res = data as { ok?: boolean; idempotent?: boolean; error?: string } | null;
     if (res?.ok === false) return { ok: false, error: res.error ?? 'void rejected' };
     await markSynced();
-    return { ok: true };
+    // idempotent = the prize was already voided (e.g. undone on another device), so
+    // Coop already restored the lots; the caller must NOT restock again.
+    return { ok: true, idempotent: Boolean(res?.idempotent) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'network error' };
   }

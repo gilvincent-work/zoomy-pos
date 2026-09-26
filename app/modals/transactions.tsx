@@ -807,7 +807,13 @@ export default function TransactionsModal() {
       }
       await replaceLocalTransactionContents(
         editingTx.id,
-        { paymentMethod: editMethod, customerHandle: editHandle.trim() || null, petType: editPetType, total: editTotal() },
+        {
+          paymentMethod: editMethod,
+          customerHandle: editHandle.trim() || null,
+          petType: editPetType,
+          total: editTotal(),
+          isBundle: editEntries.some((e) => e.kind === 'bundle'),
+        },
         localItems,
       );
     }

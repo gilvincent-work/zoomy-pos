@@ -30,6 +30,15 @@ double-tap can't double-restore. Added `getOrderPrizesByOrder`,
 `voidOrderPrize` (utils/order-prizes-sync.ts). Regular edit + sale flows unchanged;
 typecheck clean, 319 tests pass.
 
+## 2026-09-27 — "Free item won" badge on transaction tiles — `feat(pos)`
+
+Transaction tiles now show a "Free item" badge (gift icon, brand pink) when the order
+has a won free item (spin-a-wheel prize), so staff can tell at a glance which sales
+carried a prize. Sourced from local `order_prizes` (device-logged) unioned with a
+non-voided `pos_order_prizes` flag added to the remote orders fetch (so Coop backfills
+on synced orders show too). Read-only and fully guarded: any prize-read failure just
+omits the badge, never blocking the orders load. Typecheck clean, 319 tests pass.
+
 ## 2026-09-27 — Long-press a product tile to log a free taste — `feat(pos)`
 
 Delivers the single-product free-taste entry from the original spec. Long-pressing a

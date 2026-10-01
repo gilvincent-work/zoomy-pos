@@ -265,7 +265,7 @@ describe('replaceLocalTransactionContents', () => {
   it('clears old items, inserts the new lines, and updates fields as confirmed-synced', async () => {
     await replaceLocalTransactionContents(
       42,
-      { paymentMethod: 'qrph', customerHandle: '@edited', petType: 'dog', total: 800, isBundle: false },
+      { paymentMethod: 'qrph', customerHandle: '@edited', petType: 'dog', total: 800, isBundle: false, eventId: 'evt-1' },
       [
         { productId: 5, productName: 'Beef', price: 200, quantity: 1 },
         { productId: 6, productName: 'Chicken', price: 200, quantity: 3 },
@@ -291,21 +291,21 @@ describe('replaceLocalTransactionContents', () => {
     // 4) update fields + mark synced (synced_at is a timestamp string)
     expect(mockDb.runAsync).toHaveBeenNthCalledWith(
       4,
-      expect.stringContaining('UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = ?, synced_at = ?'),
-      ['qrph', '@edited', 'dog', 800, 800, 0, expect.any(String), 42]
+      expect.stringContaining('UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = ?, event_id = ?, synced_at = ?'),
+      ['qrph', '@edited', 'dog', 800, 800, 0, 'evt-1', expect.any(String), 42]
     );
   });
 
   it('keeps is_bundle when the edited order still contains a bundle', async () => {
     await replaceLocalTransactionContents(
       42,
-      { paymentMethod: 'cash', customerHandle: null, petType: null, total: 570, isBundle: true },
+      { paymentMethod: 'cash', customerHandle: null, petType: null, total: 570, isBundle: true, eventId: null },
       [{ productId: 6, productName: 'Cat Grass Cubes', price: 0, quantity: 4 }],
     );
     const updateCall = mockDb.runAsync.mock.calls.find(
       (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('UPDATE transactions SET payment_method')
     );
-    expect(updateCall?.[1]).toEqual(['cash', null, null, 570, 570, 1, expect.any(String), 42]);
+    expect(updateCall?.[1]).toEqual(['cash', null, null, 570, 570, 1, null, expect.any(String), 42]);
   });
 });
 

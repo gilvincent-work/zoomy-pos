@@ -92,6 +92,26 @@ export function pickableEventsForDate(events: PosEvent[], dateKey: string): PosE
 }
 
 /**
+ * Pure: every event whose date range covers `dateKey`, regardless of status
+ * (closed events included), most recently created first. Used to offer event
+ * choices for a PAST sale being edited: a sale made during an event is often
+ * edited after that event has since been closed, so excluding closed events
+ * (as pickableEventsForDate does, correctly, for NEW sales) would wrongly hide
+ * the sale's own event from the picker. Same coverage rule as pickEventForDate.
+ */
+export function eventsCoveringDay(events: PosEvent[], dateKey: string): PosEvent[] {
+  const covering = events.filter((e) => {
+    const from = e.starts_on ?? e.ends_on;
+    const to = e.ends_on ?? e.starts_on;
+    if (!from && !to) return false; // an event with no dates never auto-detects
+    if (from && dateKey < from) return false;
+    if (to && dateKey > to) return false;
+    return true;
+  });
+  return covering.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+/**
  * Pure: resolve the active event from today's candidates and the cashier's
  * sticky pick. A sole candidate auto-selects; two or more with no valid pick is
  * the hard gate. A selectedId that isn't among the candidates (event ended, was

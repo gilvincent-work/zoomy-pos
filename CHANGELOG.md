@@ -12,6 +12,33 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-01 — Multi-event: cashier declares which same-day event a sale belongs to — `feat(events)`
+
+Same-day / overlapping events are now allowed, and the cashier declares which
+event each sale is logged to. Before, one event per day was auto-detected by the
+device date, silently picking the most-recently-created on a tie, with no picker.
+No schema change: sales already carry `event_id` end to end.
+
+- **Resolve + sticky pick** (`db/events.ts`): `pickableEventsForDate` returns every
+  non-closed event covering today; `resolveActiveEvent` honors a persisted pick
+  (`selected_event_id` in the `settings` kv), auto-selects when only one event is
+  live, and reports `mustPick` when two or more are. A pick auto-clears when its
+  event ends or is closed, so the POS re-resolves or re-gates.
+- **Hard gate** (`app/index.tsx`): with two or more events today and no pick, Pay is
+  blocked and opens the picker. Single-event days stay automatic; normal days are
+  unchanged. No untagged event-day sales.
+- **Picker** (`app/modals/event-picker.tsx`): lists today's open events, newest
+  first. Picking one with no opening cash yet hands off to the setup form to count
+  the float (once any device records it, it syncs and stops nudging).
+- **Header chip** (`EventBadge`): three states, pick-required (red), active (names
+  the event, with a caret when switchable), and idle.
+- **Setup form** (`event-setup`): dropped the local overlap block (overlap is
+  allowed now).
+
+Staging-only (Staging Supabase `syxwixxzmytvhwhkwdvw`); the Coop-side RPC and UI
+are in the dashboard changelog. Tests: new `pickableEventsForDate` /
+`resolveFromCandidates` units; full suite green; `tsc` clean.
+
 ## 2026-10-01 — stock-digest edge fn: paginate the sale ledger — `fix(edge)`
 
 Part of the workspace-wide pagination audit for the PostgREST `db-max-rows`

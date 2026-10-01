@@ -1,4 +1,11 @@
-import { pickEventForDate, overlappingEvent, isValidDateKey, type PosEvent } from '../../db/events';
+import {
+  pickEventForDate,
+  pickableEventsForDate,
+  resolveFromCandidates,
+  overlappingEvent,
+  isValidDateKey,
+  type PosEvent,
+} from '../../db/events';
 
 function ev(over: Partial<PosEvent> & { event_id: string }): PosEvent {
   return {
@@ -61,6 +68,67 @@ describe('pickEventForDate', () => {
       ev({ event_id: 'new', starts_on: '2026-09-17', ends_on: '2026-09-19', created_at: '2026-09-10T00:00:00.000Z' }),
     ];
     expect(pickEventForDate(events, '2026-09-17')?.event_id).toBe('new');
+  });
+});
+
+describe('pickableEventsForDate', () => {
+  it('returns every event covering the day (same-day events allowed), newest first', () => {
+    const events = [
+      ev({ event_id: 'old', starts_on: '2026-09-17', ends_on: '2026-09-17', created_at: '2026-09-01T00:00:00.000Z' }),
+      ev({ event_id: 'new', starts_on: '2026-09-17', ends_on: '2026-09-17', created_at: '2026-09-10T00:00:00.000Z' }),
+    ];
+    const ids = pickableEventsForDate(events, '2026-09-17').map((e) => e.event_id);
+    expect(ids).toEqual(['new', 'old']);
+  });
+
+  it('excludes closed events so a counted till takes no new sales', () => {
+    const events = [
+      ev({ event_id: 'open', starts_on: '2026-09-17', ends_on: '2026-09-17' }),
+      ev({ event_id: 'done', starts_on: '2026-09-17', ends_on: '2026-09-17', status: 'closed' }),
+    ];
+    const ids = pickableEventsForDate(events, '2026-09-17').map((e) => e.event_id);
+    expect(ids).toEqual(['open']);
+  });
+
+  it('excludes events that do not cover the day and date-less events', () => {
+    const events = [
+      ev({ event_id: 'a', starts_on: '2026-09-16', ends_on: '2026-09-16' }),
+      ev({ event_id: 'nodate', starts_on: null, ends_on: null }),
+    ];
+    expect(pickableEventsForDate(events, '2026-09-17')).toEqual([]);
+  });
+});
+
+describe('resolveFromCandidates', () => {
+  const a = ev({ event_id: 'a' });
+  const b = ev({ event_id: 'b' });
+
+  it('normal day (no candidates): no event, no gate', () => {
+    expect(resolveFromCandidates([], null)).toEqual({ event: null, candidates: [], mustPick: false });
+  });
+
+  it('one candidate auto-selects without a gate', () => {
+    const r = resolveFromCandidates([a], null);
+    expect(r.event?.event_id).toBe('a');
+    expect(r.mustPick).toBe(false);
+  });
+
+  it('two candidates with no pick is the hard gate', () => {
+    const r = resolveFromCandidates([a, b], null);
+    expect(r.event).toBeNull();
+    expect(r.mustPick).toBe(true);
+  });
+
+  it('two candidates with a valid pick selects it, no gate', () => {
+    const r = resolveFromCandidates([a, b], 'b');
+    expect(r.event?.event_id).toBe('b');
+    expect(r.mustPick).toBe(false);
+  });
+
+  it('a stale pick (not among candidates) falls back to the gate', () => {
+    const r = resolveFromCandidates([a, b], 'gone');
+    expect(r.event).toBeNull();
+    expect(r.mustPick).toBe(true);
   });
 });
 

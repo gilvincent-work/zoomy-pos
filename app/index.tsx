@@ -28,7 +28,7 @@ import {
 } from '../db/products';
 import { getActivePickBundles, SavedBundle } from '../db/saved-bundles';
 import { insertTransaction, markTransactionSynced, type PaymentMethod, type PetType } from '../db/transactions';
-import { getActiveEvent, type PosEvent } from '../db/events';
+import { resolveActiveEvent, type ActiveEventState } from '../db/events';
 import { refreshPendingCount } from '../utils/outbox';
 import { quickMethodMeta, DEFAULT_ENABLED_PAYMENT_METHODS } from '../constants/payment';
 import { getEnabledPaymentMethods, getConfirmOnPay } from '../db/settings';
@@ -123,10 +123,16 @@ export default function POSScreen() {
   // Pet tag for the sale in progress (Dog/Cat/Both); null = untagged. Reset
   // after each sale so it never carries over to the next customer.
   const [petType, setPetType] = useState<PetType | null>(null);
-  // The bazaar covering today (device date), or null on a normal day. Drives the
-  // header event chip and stamps each sale's event_id. Refreshed on focus (so a
-  // change made in the event-setup modal reflects on return) and on catalog pull.
-  const [activeEvent, setActiveEvent] = useState<PosEvent | null>(null);
+  // Today's event resolution: the event sales are stamped with (the cashier's
+  // sticky pick or the sole event today), the candidates to switch among, and
+  // whether a pick is still required (two or more events today, none chosen).
+  // Refreshed on focus (so a pick/edit in the modals reflects on return) and on
+  // catalog pull. Drives the header chip and gates checkout.
+  const [eventState, setEventState] = useState<ActiveEventState>({ event: null, candidates: [], mustPick: false });
+  // False until today's events have resolved from local SQLite at least once. The
+  // Pay gate can't trust eventState.mustPick before this (it defaults to false), so
+  // checkout waits for the first resolution rather than booking an ungated sale.
+  const [eventsLoaded, setEventsLoaded] = useState(false);
   // Guards against a double-tap booking the same cart twice: the cart isn't
   // cleared until after the (awaited) local insert, so without this a second
   // tap mid-insert would create a second sale with its own client_uuid.
@@ -178,9 +184,12 @@ export default function POSScreen() {
     }
   }, [loadCatalog, showToast]);
 
-  // Resolve today's event from the local cache (offline; matches device date).
+  // Resolve today's event from the local cache (offline; matches device date and
+  // the cashier's sticky pick).
   const loadActiveEvent = useCallback(() => {
-    getActiveEvent().then(setActiveEvent).catch(() => setActiveEvent(null));
+    resolveActiveEvent()
+      .then((s) => { setEventState(s); setEventsLoaded(true); })
+      .catch(() => { setEventState({ event: null, candidates: [], mustPick: false }); setEventsLoaded(true); });
   }, []);
 
   useFocusEffect(
@@ -294,6 +303,26 @@ export default function POSScreen() {
       }
       return;
     }
+    // Today's events haven't resolved from local SQLite yet, so the gate below
+    // can't be trusted. Kick off the read and have the cashier tap Pay again
+    // rather than risk booking an ungated sale on a multi-event day.
+    if (!eventsLoaded) {
+      loadActiveEvent();
+      showToast({ variant: 'error', title: 'One moment', message: "Checking today's events. Tap Pay again." });
+      return;
+    }
+    // Hard gate (multi-event): two or more events run today and the cashier hasn't
+    // declared which one this sale belongs to. Send them to the picker instead of
+    // booking an untagged or misattributed sale.
+    if (eventState.mustPick) {
+      showToast({
+        variant: 'error',
+        title: 'Pick an event first',
+        message: 'More than one event is running today. Choose which one this sale belongs to.',
+      });
+      router.push('/modals/event-picker');
+      return;
+    }
     if (confirmOnPay) {
       setConfirmPay(true);
     } else {
@@ -317,7 +346,7 @@ export default function POSScreen() {
     const method = payMethod;
     const label = quickMethodMeta(method).label;
     // Snapshot the event + pet tag for this sale (state is cleared after).
-    const eventId = activeEvent?.event_id ?? null;
+    const eventId = eventState.event?.event_id ?? null;
     const salePetType = petType;
     // One shared id for both the local row and the Coop push, so the Transactions
     // merge can dedupe this sale against the copy it pulls back from Coop. Each
@@ -554,7 +583,14 @@ export default function POSScreen() {
           <Text style={styles.brandName}>Zoomy</Text>
           <View style={styles.syncRow}>
             <SyncStatusBar />
-            <EventBadge event={activeEvent} onPress={() => router.push('/modals/event-setup')} />
+            <EventBadge
+              event={eventState.event}
+              mustPick={eventState.mustPick}
+              switchable={eventState.candidates.length >= 2}
+              onPress={() =>
+                router.push(eventState.candidates.length >= 2 ? '/modals/event-picker' : '/modals/event-setup')
+              }
+            />
           </View>
         </View>
         <View style={styles.headerActions}>

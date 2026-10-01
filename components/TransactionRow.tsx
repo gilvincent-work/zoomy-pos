@@ -59,11 +59,6 @@ export function TransactionRow({ transaction, onPress, hasPrize, eventLabel }: P
               <Text style={styles.prizeBadgeText}>Free item</Text>
             </View>
           )}
-          {!!eventLabel && (
-            <View style={styles.eventBadge}>
-              <Text style={styles.eventBadgeText} numberOfLines={1}>{eventLabel}</Text>
-            </View>
-          )}
         </View>
         <Text style={styles.items} numberOfLines={2}>
           {transaction.items.map((i) => `${i.product_name} ×${i.quantity}`).join('  ·  ')}
@@ -73,10 +68,19 @@ export function TransactionRow({ transaction, onPress, hasPrize, eventLabel }: P
         )}
       </View>
       <View style={styles.right}>
-        <Text style={[styles.total, isVoided && styles.voidedText]}>
-          ₱{transaction.total.toFixed(2)}
-        </Text>
-        {isVoided && <Text style={styles.voidedLabel}>VOIDED</Text>}
+        <View style={styles.rightTop}>
+          <Text style={[styles.total, isVoided && styles.voidedText]}>
+            ₱{transaction.total.toFixed(2)}
+          </Text>
+          {isVoided && <Text style={styles.voidedLabel}>VOIDED</Text>}
+        </View>
+        {/* The event sits on its own at the bottom-right, away from the top badge
+            row, so it never crowds QRPH / Proof / Bundle / Free item. */}
+        {!!eventLabel && (
+          <View style={styles.eventBadge}>
+            <Text style={styles.eventBadgeText} numberOfLines={1}>{eventLabel}</Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -86,7 +90,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'stretch',
     backgroundColor: c.surface,
     borderRadius: R.md,
     borderWidth: 1,
@@ -108,7 +112,8 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   methodText: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
   items: { color: c.textPrimary, fontSize: F.md, lineHeight: 20 },
   remarks: { color: c.textMuted, fontSize: F.xs, marginTop: 3 },
-  right: { alignItems: 'flex-end', paddingLeft: 12 },
+  right: { alignItems: 'flex-end', justifyContent: 'space-between', paddingLeft: 12 },
+  rightTop: { alignItems: 'flex-end' },
   total: { color: c.pink, fontSize: F.xl, fontWeight: '800' },
   voidedText: { textDecorationLine: 'line-through', color: c.textMuted },
   voidedLabel: { color: c.red, fontSize: F.xs, marginTop: 3, fontWeight: '700' },
@@ -129,6 +134,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   prizeBadgeText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
   eventBadge: {
     maxWidth: 140,
+    marginTop: 6,
     borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2,
     backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
   },

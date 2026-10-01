@@ -5,9 +5,15 @@ import type { Transaction } from '../db/transactions';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 
-type Props = { transaction: Transaction; onPress: (t: Transaction) => void; hasPrize?: boolean };
+type Props = {
+  transaction: Transaction;
+  onPress: (t: Transaction) => void;
+  hasPrize?: boolean;
+  /** The sale's event (venue||name), looked up by event_id; omitted/null renders no chip. */
+  eventLabel?: string | null;
+};
 
-export function TransactionRow({ transaction, onPress, hasPrize }: Props) {
+export function TransactionRow({ transaction, onPress, hasPrize, eventLabel }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const date = new Date(transaction.created_at);
@@ -51,6 +57,11 @@ export function TransactionRow({ transaction, onPress, hasPrize }: Props) {
             <View style={styles.prizeBadge}>
               <Ionicons name="gift-outline" size={F.xs} color={colors.pink} />
               <Text style={styles.prizeBadgeText}>Free item</Text>
+            </View>
+          )}
+          {!!eventLabel && (
+            <View style={styles.eventBadge}>
+              <Text style={styles.eventBadgeText} numberOfLines={1}>{eventLabel}</Text>
             </View>
           )}
         </View>
@@ -116,4 +127,10 @@ const makeStyles = (c: Palette) => StyleSheet.create({
     backgroundColor: c.pinkSubtle, borderWidth: 1, borderColor: c.pinkDim,
   },
   prizeBadgeText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },
+  eventBadge: {
+    maxWidth: 140,
+    borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: c.elevated, borderWidth: 1, borderColor: c.border,
+  },
+  eventBadgeText: { color: c.textSecondary, fontSize: F.xs, fontWeight: '700' },
 });

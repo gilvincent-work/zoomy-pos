@@ -303,7 +303,7 @@ export async function setRemoteOrderRemarks(clientUuid: string, remarks: string 
   }
 }
 
-export type EditOrderPatch = {payment_method?: string; customer_handle?: string | null; pet_type?: string | null};
+export type EditOrderPatch = {payment_method?: string; customer_handle?: string | null; pet_type?: string | null; event_id?: string | null};
 
 /**
  * Fetch a synced order's real Coop lines (which carry bundle_group) and rebuild
@@ -369,6 +369,8 @@ export async function editRemoteOrder(
   if (patch.customer_handle !== undefined) p_patch.customer_handle = patch.customer_handle ?? '';
   // '' clears pet_type back to untagged; a value sets it. Only sent when provided.
   if (patch.pet_type !== undefined) p_patch.pet_type = patch.pet_type ?? '';
+  // '' moves the sale to no event (untagged); a value reassigns it. Only when provided.
+  if (patch.event_id !== undefined) p_patch.event_id = patch.event_id ?? '';
 
   try {
     const {data, error} = await sb.rpc('edit_pos_order', {p_client_uuid: clientUuid, p_patch, p_entries: entries});

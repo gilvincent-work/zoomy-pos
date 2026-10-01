@@ -1,6 +1,7 @@
 import {
   pickEventForDate,
   pickableEventsForDate,
+  eventsCoveringDay,
   resolveFromCandidates,
   overlappingEvent,
   isValidDateKey,
@@ -96,6 +97,25 @@ describe('pickableEventsForDate', () => {
       ev({ event_id: 'nodate', starts_on: null, ends_on: null }),
     ];
     expect(pickableEventsForDate(events, '2026-09-17')).toEqual([]);
+  });
+});
+
+describe('eventsCoveringDay', () => {
+  it('includes closed events (unlike pickableEventsForDate), newest first', () => {
+    const events = [
+      ev({ event_id: 'open', starts_on: '2026-09-17', ends_on: '2026-09-17', created_at: '2026-09-01T00:00:00.000Z' }),
+      ev({ event_id: 'done', starts_on: '2026-09-17', ends_on: '2026-09-17', status: 'closed', created_at: '2026-09-10T00:00:00.000Z' }),
+    ];
+    const ids = eventsCoveringDay(events, '2026-09-17').map((e) => e.event_id);
+    expect(ids).toEqual(['done', 'open']);
+  });
+
+  it('excludes events that do not cover the day and date-less events', () => {
+    const events = [
+      ev({ event_id: 'a', starts_on: '2026-09-16', ends_on: '2026-09-16' }),
+      ev({ event_id: 'nodate', starts_on: null, ends_on: null }),
+    ];
+    expect(eventsCoveringDay(events, '2026-09-17')).toEqual([]);
   });
 });
 

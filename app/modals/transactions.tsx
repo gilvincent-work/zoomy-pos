@@ -11,6 +11,11 @@ import { getAllTransactions, updateTransactionRemarks, markRemarksSynced, delete
 import { fetchRemoteOrders, setRemoteOrderRemarks, editRemoteOrder, fetchRemoteOrderEntries, fetchRemoteOrderPrizes } from '../../utils/orders-remote';
 import type { EditEntry } from '../../utils/order-entries';
 import { PetTypeChips } from '../../components/PetTypeChips';
+import {
+  getLocalEvents, pickableEventsForDate, eventsCoveringDay, localDateKey, getSelectedEventId,
+  type PosEvent,
+} from '../../db/events';
+import { isSameDay } from '../../utils/date-range';
 import { getSavedBundles, type SavedBundle } from '../../db/saved-bundles';
 import { mergeTransactions, isLocalTransaction, transactionsToPrune } from '../../utils/merge-transactions';
 import { refreshPendingCount } from '../../utils/outbox';
@@ -51,6 +56,13 @@ type PickerTarget =
   | { kind: 'set-pick'; idx: number; pickIdx: number };
 
 type MethodFilter = 'all' | PaymentMethod;
+// 'all' = no event filter; 'untagged' = sales with no event_id; otherwise an event_id.
+const EVENT_FILTER_ALL = 'all';
+const EVENT_FILTER_UNTAGGED = 'untagged';
+type EventFilter = string;
+// The edit-sale event control: 'none' clears event_id to null (distinct string so
+// it doesn't collide with a real event_id, which is a uuid).
+const EDIT_EVENT_NONE = 'none';
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -220,6 +232,13 @@ export default function TransactionsModal() {
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('all');
+  // Multi-event: local events cache (for the filter, tile badges, the detail
+  // sheet's Event row, and the edit sheet's event control) and the cashier's
+  // event filter pick for the list (see scopeDateKey/eventCandidates below).
+  const [events, setEvents] = useState<PosEvent[]>([]);
+  const [eventFilter, setEventFilter] = useState<EventFilter>(EVENT_FILTER_ALL);
+  // Which event an editing sale is reassigned to; 'none' clears it. See openEdit.
+  const [editEventId, setEditEventId] = useState<string>(EDIT_EVENT_NONE);
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [remarksModalVisible, setRemarksModalVisible] = useState(false);
   const [remarksInput, setRemarksInput] = useState('');
@@ -318,6 +337,9 @@ export default function TransactionsModal() {
       loadTransactions();
       // Load the catalog for the edit form's product picker (best-effort).
       getAllProducts().then(setCatalog).catch(() => {});
+      // Load the local events cache for the event filter, tile badges, the
+      // detail sheet's Event row, and the edit sheet's event control.
+      getLocalEvents().then(setEvents).catch(() => {});
     }, [loadTransactions])
   );
 
@@ -354,8 +376,68 @@ export default function TransactionsModal() {
     if (methodFilter !== 'all') {
       result = result.filter((t) => t.payment_method === methodFilter);
     }
+    if (eventFilter === EVENT_FILTER_UNTAGGED) {
+      result = result.filter((t) => !t.event_id);
+    } else if (eventFilter !== EVENT_FILTER_ALL) {
+      result = result.filter((t) => t.event_id === eventFilter);
+    }
     return result;
-  }, [transactions, dateFilter, customRange, methodFilter]);
+  }, [transactions, dateFilter, customRange, methodFilter, eventFilter]);
+
+  // Event name lookup (venue||name) by event_id, for tile badges and the detail sheet.
+  const eventById = useMemo(() => {
+    const m = new Map<string, PosEvent>();
+    for (const e of events) m.set(e.event_id, e);
+    return m;
+  }, [events]);
+  const eventLabel = useCallback(
+    (e: PosEvent) => e.venue?.trim() || e.name,
+    []
+  );
+
+  // The Event filter is scoped to a single day: "Today" by default, or the day
+  // picked via Custom when it resolves to exactly one day. Week/Month/All/a
+  // multi-day Custom range have no single day to scope to, so the filter is
+  // hidden (scopeDateKey null) rather than guessing which day's events to offer.
+  const scopeDateKey = useMemo(() => {
+    if (dateFilter === 'today') return localDateKey();
+    if (dateFilter === 'custom' && customRange && isSameDay(customRange.start, customRange.end)) {
+      return localDateKey(customRange.start);
+    }
+    return null;
+  }, [dateFilter, customRange]);
+
+  // In-scope events (not closed, mirrors "today's pickable events"), newest first.
+  const eventCandidates = useMemo(
+    () => (scopeDateKey ? pickableEventsForDate(events, scopeDateKey) : []),
+    [events, scopeDateKey]
+  );
+  // Visibility rule: the Event filter only shows when 2+ events cover the scope.
+  const showEventFilter = eventCandidates.length >= 2;
+
+  // Default selection: the cashier's sticky event pick when set and in scope,
+  // otherwise "All". Recomputed whenever the scope changes (date filter switch),
+  // so switching back to a single-event or no-event day/scope resets cleanly.
+  useEffect(() => {
+    if (!showEventFilter) {
+      setEventFilter(EVENT_FILTER_ALL);
+      return;
+    }
+    let cancelled = false;
+    getSelectedEventId().then((stickyId) => {
+      if (cancelled) return;
+      const inScope = !!stickyId && eventCandidates.some((e) => e.event_id === stickyId);
+      setEventFilter(inScope ? (stickyId as string) : EVENT_FILTER_ALL);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeDateKey, showEventFilter]);
+
+  const eventFilterOptions = useMemo(() => [
+    { key: EVENT_FILTER_ALL, label: 'All events' },
+    ...eventCandidates.map((e) => ({ key: e.event_id, label: eventLabel(e) })),
+    { key: EVENT_FILTER_UNTAGGED, label: 'Untagged' },
+  ], [eventCandidates, eventLabel]);
 
   const filteredTotal = useMemo(
     () => filtered.filter((t) => t.status === 'completed').reduce((sum, t) => sum + t.total, 0),
@@ -507,6 +589,20 @@ export default function TransactionsModal() {
     return m;
   }, [bundleDefs]);
 
+  // Events offered on the edit sheet's event control: every event covering the
+  // sale's own day (CLOSED events included, since the event a past sale belongs
+  // to is often closed by edit time; see eventsCoveringDay). Shown only when 2+
+  // cover that day, mirroring the list filter's "only when there's a real choice"
+  // rule.
+  const editEventCandidates = useMemo(
+    () => (editingTx ? eventsCoveringDay(events, localDateKey(new Date(editingTx.created_at))) : []),
+    [editingTx, events]
+  );
+  const editEventOptions = useMemo(() => [
+    { key: EDIT_EVENT_NONE, label: 'None' },
+    ...editEventCandidates.map((e) => ({ key: e.event_id, label: eventLabel(e) })),
+  ], [editEventCandidates, eventLabel]);
+
   // Editing is online-only, so seed the draft from Coop's authoritative lines
   // (they carry the bundle grouping the flat local copy lacks). Bundle rules come
   // from local saved_bundles (keyed by the shared bundle_uuid).
@@ -517,6 +613,7 @@ export default function TransactionsModal() {
     setEditMethod((EDIT_METHODS.includes(selected.payment_method) ? selected.payment_method : 'cash'));
     setEditHandle(selected.customer_handle ?? '');
     setEditPetType(selected.pet_type ?? null);
+    setEditEventId(selected.event_id ?? EDIT_EVENT_NONE);
     const defs = await getSavedBundles().catch(() => [] as SavedBundle[]);
     setBundleDefs(defs);
     const matchDefs = defs
@@ -792,12 +889,21 @@ export default function TransactionsModal() {
         ? { kind: 'item', product_id: e.product_id, qty: Number(e.qty) || 0, unit_price: Number(e.price) || 0 }
         : { kind: 'bundle', bundle_id: e.bundle_id, price: Number(e.price) || 0, picks: e.picks.map((p) => ({ product_id: p.product_id, qty: Number(p.qty) || 0 })) },
     );
-    const res = await editRemoteOrder(editingTx.client_uuid, { payment_method: editMethod, customer_handle: editHandle.trim(), pet_type: editPetType }, payload);
+    // '' moves the sale to no event (untagged); an id reassigns it. Sent in the
+    // patch so Coop persists it, and mirrored locally below.
+    const editedEventId = editEventId === EDIT_EVENT_NONE ? null : editEventId;
+    const res = await editRemoteOrder(
+      editingTx.client_uuid,
+      { payment_method: editMethod, customer_handle: editHandle.trim(), pet_type: editPetType, event_id: editedEventId },
+      payload,
+    );
     setEditSaving(false);
     if (!res.ok) { setEditError(res.error ?? 'Edit failed.'); return; }
 
     // Best-effort local mirror: flatten to lines (bundle picks at ₱0, the bundle
     // price as its own line). loadTransactions re-fetches Coop's authoritative copy.
+    // event_id now rides edit_pos_order's p_patch too, so the reassignment persists
+    // on Coop, not just on this device.
     if (isLocalTransaction(editingTx)) {
       const localItems: { productId: number; productName: string; price: number; quantity: number }[] = [];
       for (const e of editEntries) {
@@ -819,6 +925,7 @@ export default function TransactionsModal() {
           petType: editPetType,
           total: editTotal(),
           isBundle: editEntries.some((e) => e.kind === 'bundle'),
+          eventId: editedEventId,
         },
         localItems,
       );
@@ -851,6 +958,15 @@ export default function TransactionsModal() {
           displayLabel={METHOD_FILTERS.find((f) => f.key === methodFilter)?.label ?? 'All methods'}
           onSelect={setMethodFilter}
         />
+        {showEventFilter && (
+          <Dropdown
+            options={eventFilterOptions}
+            selectedKey={eventFilter}
+            leadingIcon="flag-outline"
+            displayLabel={eventFilterOptions.find((f) => f.key === eventFilter)?.label ?? 'All events'}
+            onSelect={setEventFilter}
+          />
+        )}
       </View>
 
       <View style={styles.summaryBar}>
@@ -909,6 +1025,7 @@ export default function TransactionsModal() {
                 transaction={item}
                 onPress={setSelected}
                 hasPrize={!!item.client_uuid && prizeUuids.has(item.client_uuid)}
+                eventLabel={item.event_id ? (eventById.get(item.event_id) ? eventLabel(eventById.get(item.event_id)!) : null) : null}
               />
             )}
             ListEmptyComponent={
@@ -996,6 +1113,14 @@ export default function TransactionsModal() {
                   <Text style={styles.summaryLabel}>Payment</Text>
                   <Text style={styles.summaryValue}>
                     {getMethodDisplayName(selected.payment_method)}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Event</Text>
+                  <Text style={[styles.summaryValue, !selected.event_id && styles.summaryValueNeutral]}>
+                    {selected.event_id && eventById.get(selected.event_id)
+                      ? eventLabel(eventById.get(selected.event_id)!)
+                      : 'None'}
                   </Text>
                 </View>
 
@@ -1134,6 +1259,18 @@ export default function TransactionsModal() {
 
               <Text style={styles.editSectionLabel}>Pet type</Text>
               <PetTypeChips value={editPetType} onChange={setEditPetType} />
+
+              {editEventCandidates.length >= 2 && (
+                <>
+                  <Text style={styles.editSectionLabel}>Event</Text>
+                  <Dropdown
+                    options={editEventOptions}
+                    selectedKey={editEventId}
+                    displayLabel={editEventOptions.find((o) => o.key === editEventId)?.label ?? 'None'}
+                    onSelect={setEditEventId}
+                  />
+                </>
+              )}
 
               <Text style={styles.editSectionLabel}>Items &amp; bundles</Text>
               {editEntries.map((e, i) => e.kind === 'item' ? (
@@ -1536,6 +1673,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   summaryLabel: { color: c.textSecondary, fontSize: F.md },
   summaryValue: { color: c.textPrimary, fontSize: F.md, fontWeight: '700' },
+  summaryValueNeutral: { color: c.textMuted, fontWeight: '400' },
 
   sheetBtns: { flexDirection: 'row', gap: 12, marginTop: 20 },
   closeBtn: {

@@ -141,10 +141,14 @@ export async function importTransaction(data: {
  * source of truth). Replaces the line items, updates method/handle/total, marks
  * synced_at (it's confirmed on Coop), and sets is_bundle from the edited entries
  * (an edit that still contains a bundle stays a bundle). created_at is preserved.
+ *
+ * eventId rides edit_pos_order's p_patch (its event_id key), so a cashier's event
+ * reassignment is confirmed on Coop before this mirrors it locally, same as the
+ * other edited fields.
  */
 export async function replaceLocalTransactionContents(
   id: number,
-  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number; petType: PetType | null; isBundle: boolean },
+  fields: { paymentMethod: PaymentMethod; customerHandle: string | null; total: number; petType: PetType | null; isBundle: boolean; eventId: string | null },
   items: { productId: number; productName: string; price: number; quantity: number }[],
 ): Promise<void> {
   const db = await getDatabase();
@@ -156,8 +160,8 @@ export async function replaceLocalTransactionContents(
     );
   }
   await db.runAsync(
-    'UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = ?, synced_at = ? WHERE id = ?',
-    [fields.paymentMethod, fields.customerHandle, fields.petType, fields.total, fields.total, fields.isBundle ? 1 : 0, new Date().toISOString(), id]
+    'UPDATE transactions SET payment_method = ?, customer_handle = ?, pet_type = ?, total = ?, cash_tendered = ?, is_bundle = ?, event_id = ?, synced_at = ? WHERE id = ?',
+    [fields.paymentMethod, fields.customerHandle, fields.petType, fields.total, fields.total, fields.isBundle ? 1 : 0, fields.eventId, new Date().toISOString(), id]
   );
 }
 

@@ -12,6 +12,36 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-01 — Multi-event in Transactions: filter, badge, detail row, edit-sale reassignment — `feat(events)`
+
+Surfaces the multi-event model (above) in the Transactions screen now that sales
+carry an `event_id`.
+
+- **Event filter** (`app/modals/transactions.tsx`): a third dropdown next to
+  Date/Method, shown only when the current date scope (Today by default, or a
+  single picked Custom day) has 2+ events covering it (`pickableEventsForDate`).
+  Options are All, each in-scope event, and Untagged. Defaults to the cashier's
+  sticky pick (`getSelectedEventId`) when it's in scope, else All.
+- **Tile badge** (`TransactionRow`): a neutral chip naming the sale's event
+  (venue or name), display-only, rendered only when `event_id` resolves locally.
+- **Detail sheet**: an "Event" row next to Payment; shows the event name or a
+  muted "None".
+- **Edit-sale event reassignment**: a new Event control in the edit sheet, shown
+  only when 2+ events cover the sale's own local day. Unlike the list filter,
+  this includes CLOSED events (`eventsCoveringDay`, new in `db/events.ts`) since
+  a past sale's event is often closed by edit time. Saving pushes the new
+  `event_id` to Coop and mirrors it locally (`replaceLocalTransactionContents`,
+  extended with an `eventId` field).
+  - **Syncs to Coop:** `edit_pos_order`'s `p_patch` now accepts an `event_id` key
+    (DB migration `multi_event_edit_pos_order_event_id`; mirrored in
+    `supabase/pos_schema.sql` + `supabase/multi_event_2026-10-01.sql`), so the POS
+    reassignment rides the existing anon edit path and persists on Coop. The
+    dedicated `set_pos_order_event(uuid, uuid)` RPC stays `service_role`-only for
+    the dashboard; the POS reuses the edit path instead of getting that grant.
+- Tests: new `eventsCoveringDay` units in `__tests__/db/events.test.ts`; updated
+  `replaceLocalTransactionContents` tests for the new `eventId` field. Full suite
+  green; `tsc` clean.
+
 ## 2026-10-01 — Multi-event: cashier declares which same-day event a sale belongs to — `feat(events)`
 
 Same-day / overlapping events are now allowed, and the cashier declares which

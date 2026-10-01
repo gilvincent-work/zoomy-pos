@@ -12,6 +12,14 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-02 — Transactions: move the event badge to the tile's bottom-right — `fix(events)`
+
+The per-sale event chip (`TransactionRow`) moved out of the top badge row (where it
+crowded QRPH / Proof / Bundle / Free item and wrapped tightly) down to the
+bottom-right of the tile, under the price, so it reads as its own thing. The right
+column now stretches full height with the price pinned top-right and the event
+bottom-right.
+
 ## 2026-10-01 — Event picker sorts alphabetically by default — `fix(events)`
 
 The "Choose event" picker (`app/modals/event-picker.tsx`) now orders today's events

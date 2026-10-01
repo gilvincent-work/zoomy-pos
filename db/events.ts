@@ -59,6 +59,58 @@ export function pickEventForDate(events: PosEvent[], dateKey: string): PosEvent 
 }
 
 /**
+ * Multi-event (same-day events). The cashier declares which event a sale belongs
+ * to. `candidates` are the events a sale could be logged to right now; `event` is
+ * the one it WILL be stamped with (the sticky pick, or the sole candidate), or
+ * null when the cashier still has to choose; `mustPick` is the hard gate (two or
+ * more candidates and no valid pick yet).
+ */
+export type ActiveEventState = {
+  event: PosEvent | null;
+  candidates: PosEvent[];
+  mustPick: boolean;
+};
+
+/**
+ * Pure: the events a sale can be logged to on `dateKey` — those whose range
+ * covers the day AND that aren't closed — most recently created first. Closed
+ * events drop out so a counted-and-closed till can't take new sales. Same
+ * coverage rule as pickEventForDate, but returns every match (not just one) now
+ * that overlapping / same-day events are allowed.
+ */
+export function pickableEventsForDate(events: PosEvent[], dateKey: string): PosEvent[] {
+  const covering = events.filter((e) => {
+    if ((e.status ?? 'active') === 'closed') return false;
+    const from = e.starts_on ?? e.ends_on;
+    const to = e.ends_on ?? e.starts_on;
+    if (!from && !to) return false; // an event with no dates never auto-detects
+    if (from && dateKey < from) return false;
+    if (to && dateKey > to) return false;
+    return true;
+  });
+  return covering.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+/**
+ * Pure: resolve the active event from today's candidates and the cashier's
+ * sticky pick. A sole candidate auto-selects; two or more with no valid pick is
+ * the hard gate. A selectedId that isn't among the candidates (event ended, was
+ * closed, or a stale pick) is treated as no pick — the DB caller clears it.
+ */
+export function resolveFromCandidates(
+  candidates: PosEvent[],
+  selectedId: string | null
+): ActiveEventState {
+  if (candidates.length === 0) return { event: null, candidates, mustPick: false };
+  const selected = selectedId
+    ? candidates.find((e) => e.event_id === selectedId) ?? null
+    : null;
+  if (selected) return { event: selected, candidates, mustPick: false };
+  if (candidates.length === 1) return { event: candidates[0], candidates, mustPick: false };
+  return { event: null, candidates, mustPick: true };
+}
+
+/**
  * Pure: the first event whose dates clash with a proposed [startsOn, endsOn]
  * range, or null if the range is free. Mirrors Coop's upsert_pos_event overlap
  * guard exactly (single bound = that one day; ranges intersect when each starts on
@@ -120,10 +172,26 @@ export async function getLocalEvents(): Promise<PosEvent[]> {
   return rows.map(rowToEvent);
 }
 
-/** The event covering today (device date), or null on a normal day. */
-export async function getActiveEvent(dateKey: string = localDateKey()): Promise<PosEvent | null> {
+/** Today's pickable events (cover the device date, not closed), newest first. */
+export async function getActiveEventsForDate(dateKey: string = localDateKey()): Promise<PosEvent[]> {
   const events = await getLocalEvents();
-  return pickEventForDate(events, dateKey);
+  return pickableEventsForDate(events, dateKey);
+}
+
+/**
+ * Resolve which event a sale should be stamped with, honoring the cashier's
+ * sticky pick, and clear the pick when it's gone stale (event ended / closed, or
+ * a normal day). This is the attribution + hard-gate source of truth at checkout.
+ */
+export async function resolveActiveEvent(dateKey: string = localDateKey()): Promise<ActiveEventState> {
+  const candidates = await getActiveEventsForDate(dateKey);
+  const selectedId = await getSelectedEventId();
+  const state = resolveFromCandidates(candidates, selectedId);
+  // Drop a pick that no longer applies so it can't leak into a later event day.
+  if (selectedId && !candidates.some((e) => e.event_id === selectedId)) {
+    await setSelectedEventId(null);
+  }
+  return state;
 }
 
 export async function getEventById(eventId: string): Promise<PosEvent | null> {
@@ -199,5 +267,33 @@ export async function markEventSynced(eventId: string): Promise<void> {
   await db.runAsync(
     'UPDATE pos_events SET synced_at = ? WHERE event_id = ?',
     [new Date().toISOString(), eventId]
+  );
+}
+
+// ─── Cashier's sticky event pick (multi-event) ──────────────────────────────
+// Which of today's events this device is logging sales to. Persisted in the
+// shared settings kv so it survives app restarts; cleared when the event ends,
+// closes, or the cashier switches. Null = no pick (a normal day, or an
+// unresolved gate the cashier still has to choose through).
+const SELECTED_EVENT_KEY = 'selected_event_id';
+
+export async function getSelectedEventId(): Promise<string | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    [SELECTED_EVENT_KEY]
+  );
+  return row?.value ?? null;
+}
+
+export async function setSelectedEventId(eventId: string | null): Promise<void> {
+  const db = await getDatabase();
+  if (eventId == null) {
+    await db.runAsync('DELETE FROM settings WHERE key = ?', [SELECTED_EVENT_KEY]);
+    return;
+  }
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    [SELECTED_EVENT_KEY, eventId]
   );
 }

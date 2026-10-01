@@ -32,7 +32,10 @@ export default function EventPickerModal() {
       let cancelled = false;
       Promise.all([getActiveEventsForDate(), getSelectedEventId()]).then(([evs, sel]) => {
         if (cancelled) return;
-        setEvents(evs);
+        // Default to alphabetical order by the label shown (venue, else name),
+        // case-insensitive, so the list reads A to Z regardless of create order.
+        const labelOf = (e: PosEvent) => (e.venue?.trim() || e.name || '').toLowerCase();
+        setEvents([...evs].sort((a, b) => labelOf(a).localeCompare(labelOf(b))));
         setSelectedId(sel);
         setLoaded(true);
       });

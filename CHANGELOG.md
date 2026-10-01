@@ -12,6 +12,12 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-01 — Event picker sorts alphabetically by default — `fix(events)`
+
+The "Choose event" picker (`app/modals/event-picker.tsx`) now orders today's events
+A to Z by the label shown (venue, else name), case-insensitive, instead of newest
+created first, so the list is predictable when a device is manning two events.
+
 ## 2026-10-01 — Multi-event in Transactions: filter, badge, detail row, edit-sale reassignment — `feat(events)`
 
 Surfaces the multi-event model (above) in the Transactions screen now that sales

@@ -24,6 +24,21 @@ const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 const H = {apikey: SERVICE_KEY, authorization: 'Bearer ' + SERVICE_KEY, 'content-type': 'application/json'};
 const rest = (path: string) => fetch(SUPABASE_URL + '/rest/v1/' + path, {headers: H}).then((r) => r.json());
+// PostgREST caps a response at db-max-rows (1000) regardless of &limit=, so a
+// single read silently truncates once the sale ledger passes 1000 rows. Page
+// through with limit+offset until a short page marks the end. Caller supplies a
+// stable &order= key so pages neither overlap nor skip.
+const PAGE_SIZE = 1000;
+const restAll = async (pathNoLimit: string): Promise<unknown[]> => {
+  const out: unknown[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await rest(`${pathNoLimit}&limit=${PAGE_SIZE}&offset=${offset}`);
+    if (!Array.isArray(page) || page.length === 0) break;
+    out.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return out;
+};
 const ok = (body: Record<string, unknown>) => new Response(JSON.stringify(body), {headers: {'content-type': 'application/json'}});
 
 // -- Forecast (ported from zoomy-observability/src/observability/stock-forecast.js) --
@@ -240,7 +255,7 @@ Deno.serve(async (req) => {
       rest('pos_settings?key=eq.next_event_plan&select=value'),
       rest('pos_products?select=product_id,name,category&order=name.asc'),
       rest('pos_inventory?select=product_id,stock'),
-      rest('pos_stock_movements?reason=eq.sale&created_at=gte.' + since + '&select=product_id,delta,created_at&limit=100000'),
+      restAll('pos_stock_movements?reason=eq.sale&created_at=gte.' + since + '&select=product_id,delta,created_at&order=id.asc'),
       rest('pos_dashboard_users?select=email'),
     ]);
 

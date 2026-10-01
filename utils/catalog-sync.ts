@@ -1,4 +1,5 @@
 import {getSupabase} from '../lib/supabase';
+import {fetchAllPaged} from './paginate';
 import {applyCatalogUpdate} from '../db/products';
 import {markSynced} from './sync-status';
 
@@ -121,26 +122,41 @@ function normalizeRemoteRow(r: {
   };
 }
 
+type RemoteProductRow = {
+  product_id: string;
+  name: string;
+  active: boolean;
+  product_line: string | null;
+  category: string | null;
+  subcategory: string | null;
+  emoji: string | null;
+  pos_prices: {price: number | null} | {price: number | null}[] | null;
+};
+
 async function fetchRemoteCatalog(): Promise<RemoteCatalogRow[]> {
   const sb = getSupabase();
   if (!sb) return [];
+  // Both reads are paged by their PK so PostgREST's 1000-row cap can't silently
+  // truncate the catalog (pos_products) or the on-hand counts (pos_inventory_event).
+  // The POS sells from the Event location, so its on-hand tile count comes from the
+  // event-scoped view (not the global pos_inventory sum, which also counts Office
+  // back-stock). Identical numbers today; diverges once Office holds stock.
   const [productsRes, inventoryRes] = await Promise.all([
-    sb.from('pos_products').select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)'),
-    // The POS sells from the Event location, so its on-hand tile count comes from
-    // the event-scoped view (not the global pos_inventory sum, which also counts
-    // Office back-stock). Identical numbers today; diverges once Office holds stock.
-    sb.from('pos_inventory_event').select('product_id, stock'),
+    fetchAllPaged<RemoteProductRow>((from, to) =>
+      sb.from('pos_products').select('product_id, name, active, product_line, category, subcategory, emoji, pos_prices(price)').order('product_id', {ascending: true}).range(from, to)),
+    fetchAllPaged<{product_id: string; stock: number | null}>((from, to) =>
+      sb.from('pos_inventory_event').select('product_id, stock').order('product_id', {ascending: true}).range(from, to)),
   ]);
-  if (productsRes.error) throw new Error(productsRes.error.message);
-  if (inventoryRes.error) throw new Error(inventoryRes.error.message);
+  if (!productsRes.ok) throw new Error('pos_products fetch failed');
+  if (!inventoryRes.ok) throw new Error('pos_inventory_event fetch failed');
 
   const stockBySku = new Map<string, number>();
-  for (const row of inventoryRes.data ?? []) {
-    stockBySku.set(row.product_id as string, Number(row.stock ?? 0));
+  for (const row of inventoryRes.rows) {
+    stockBySku.set(row.product_id, Number(row.stock ?? 0));
   }
 
-  return (productsRes.data ?? []).map((r) =>
-    normalizeRemoteRow(r as never, stockBySku.get((r as {product_id: string}).product_id) ?? 0)
+  return productsRes.rows.map((r) =>
+    normalizeRemoteRow(r as never, stockBySku.get(r.product_id) ?? 0)
   );
 }
 

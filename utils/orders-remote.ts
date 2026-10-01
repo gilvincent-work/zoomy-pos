@@ -1,4 +1,5 @@
 import {getSupabase} from '../lib/supabase';
+import {fetchAllPaged} from './paginate';
 import {stripLinePrefix} from './catalog-sync';
 import {reconstructEntries, type EditEntry, type RawOrderLine, type BundleMatch} from './order-entries';
 import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactions';
@@ -18,33 +19,6 @@ import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactio
  */
 
 const MAX_ORDERS = 500; // bound the pull; the list paginates visually anyway
-
-// PostgREST caps any single response at ~1000 rows. pos_order_items and
-// pos_products both crossed that during a busy bazaar, so a one-shot fetch
-// silently returned only the first 1000 rows — orders past the cut rendered with
-// an empty item list (blank rows). Page every unbounded read so we get all rows
-// regardless of table size. Order each read by a unique key for deterministic
-// paging; pos_order_items uses its append-monotonic `id` so concurrent inserts
-// mid-pull land past the cursor and can't shift a row across a page boundary.
-const PAGE_SIZE = 1000;
-
-/**
- * Read every row of a query in PAGE_SIZE pages until a short page ends it.
- * Returns {ok:false} on any page error so the caller falls back to the local
- * list rather than showing a silently-truncated result.
- */
-async function fetchAllPaged<T>(
-  makeQuery: (from: number, to: number) => PromiseLike<{data: T[] | null; error: unknown}>,
-): Promise<{ok: true; rows: T[]} | {ok: false}> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const {data, error} = await makeQuery(from, from + PAGE_SIZE - 1);
-    if (error || !data) return {ok: false};
-    rows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-  }
-  return {ok: true, rows};
-}
 
 export type RemoteOrdersResult =
   | {ok: true; orders: Transaction[]; prizeClientUuids: string[]}
@@ -199,7 +173,7 @@ export async function fetchRemoteOrderPrizes(
       .from('pos_order_prizes')
       .select('client_uuid, qty, pos_products(name), pos_orders!inner(client_uuid)')
       .eq('pos_orders.client_uuid', clientUuid)
-      .is('voided_at', null);
+      .is('voided_at', null); // pagination-ok: single-order scope
     if (error || !data) return [];
     return (data as unknown as PrizeRow[]).map((r) => {
       // Supabase types an embedded relation as an array; the FK is single so take [0].
@@ -350,7 +324,7 @@ export async function fetchRemoteOrderEntries(
     const {data: items, error} = await sb
       .from('pos_order_items')
       .select('product_id,bundle_id,bundle_group,qty,unit_price,line_total')
-      .eq('order_id', (order as {id: string}).id);
+      .eq('order_id', (order as {id: string}).id); // pagination-ok: single-order scope
     if (error || !items) return {ok: false};
     const lines: RawOrderLine[] = (items as ItemRow2[]).map((it) => ({
       product_id: it.product_id ?? null,

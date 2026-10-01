@@ -1334,34 +1334,14 @@ declare
   v_id    uuid := nullif(p_event->>'event_id', '')::uuid;
   v_start date := nullif(p_event->>'starts_on', '')::date;
   v_end   date := nullif(p_event->>'ends_on', '')::date;
-  v_from  date;
-  v_to    date;
-  v_conflict text;
 begin
   if v_id is null then
     v_id := gen_random_uuid();
   end if;
 
-  -- Overlap guard: block a create/edit whose date range intersects another
-  -- event (decided 2026-09-15). Runs only when this write carries a date range;
-  -- self is excluded so a pure opening-cash edit never conflicts with itself. A
-  -- single-bound event counts as that one day (coalesce), matching the client's
-  -- pickEventForDate detection semantics.
-  if (p_event ? 'starts_on' or p_event ? 'ends_on') and (v_start is not null or v_end is not null) then
-    v_from := coalesce(v_start, v_end);
-    v_to   := coalesce(v_end, v_start);
-    select e.name into v_conflict
-      from pos_events e
-     where e.event_id <> v_id
-       and coalesce(e.starts_on, e.ends_on) is not null
-       and coalesce(e.starts_on, e.ends_on) <= v_to
-       and v_from <= coalesce(e.ends_on, e.starts_on)
-     limit 1;
-    if v_conflict is not null then
-      raise exception 'event dates overlap an existing event: %', v_conflict
-        using errcode = 'check_violation';
-    end if;
-  end if;
+  -- Overlap guard removed 2026-10-01 (multi-event): overlapping / same-day events
+  -- are allowed. The POS cashier declares which event a sale belongs to, so event
+  -- dates no longer need to uniquely identify an event.
 
   insert into pos_events (event_id, name, venue, city, organizer, starts_on, ends_on,
                           opening_cash, closing_cash, cash_note, status, created_by, created_at, updated_at)
@@ -1417,9 +1397,11 @@ $$;
 -- "fill the blanks" attribution. When an event's dates are set/extended, stamp
 -- event_id onto UNTAGGED (null) orders whose Manila date falls in the range, so the
 -- POS app + raw pos_orders agree with Coop's reporting. Fills blanks only (never
--- re-tags a POS-stamped sale, never un-stamps); the overlap guard means a date maps
--- to at most one event, so this is unambiguous. Idempotent; returns rows attached.
--- Called from the dashboard (service_role) right after upsert_pos_event.
+-- re-tags a POS-stamped sale, never un-stamps). Since overlapping / same-day events
+-- are allowed (2026-10-01), a date can map to several events, so this only tags an
+-- order on a day covered by EXACTLY ONE event (ambiguous days stay untagged).
+-- Idempotent; returns rows attached. Called from the dashboard (service_role) right
+-- after upsert_pos_event.
 create or replace function public.attribute_untagged_orders_to_event(p_event_id uuid)
 returns integer
 language plpgsql
@@ -1445,6 +1427,17 @@ begin
        set event_id = p_event_id
      where o.event_id is null
        and (o.created_at at time zone 'Asia/Manila')::date between v_from and v_to
+       -- only when THIS is the sole dated event covering the order's day. Closed
+       -- events still count toward ambiguity here (a day stays historically
+       -- ambiguous even if one of its events later closed), unlike the POS's live
+       -- "pickable" rule which hides closed events from the cashier.
+       and (
+         select count(*)
+           from pos_events e2
+          where coalesce(e2.starts_on, e2.ends_on) is not null
+            and coalesce(e2.starts_on, e2.ends_on) <= (o.created_at at time zone 'Asia/Manila')::date
+            and (o.created_at at time zone 'Asia/Manila')::date <= coalesce(e2.ends_on, e2.starts_on)
+       ) = 1
     returning 1
   )
   select count(*) into v_count from updated;
@@ -1459,3 +1452,34 @@ grant execute on function public.upsert_pos_event(jsonb)        to anon;
 grant execute on function public.close_pos_event(uuid, numeric) to anon;
 -- Coop-only (service_role); the POS never calls this, so anon is deliberately not granted.
 grant execute on function public.attribute_untagged_orders_to_event(uuid) to service_role;
+
+-- set_pos_order_event (added 2026-10-01, multi-event): correct a sale's event
+-- attribution from the Coop dashboard. Moves an order to a different event, or
+-- untags it (p_event_id null). Validates the target event exists. Returns the
+-- affected order id (null if not found). Coop-only (service_role); anon is
+-- deliberately not granted, so the POS can't call it.
+create or replace function public.set_pos_order_event(p_order_id uuid, p_event_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if p_event_id is not null
+     and not exists (select 1 from pos_events where event_id = p_event_id) then
+    raise exception 'unknown event_id: %', p_event_id using errcode = 'foreign_key_violation';
+  end if;
+
+  update pos_orders
+     set event_id = p_event_id
+   where id = p_order_id
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.set_pos_order_event(uuid, uuid) from public;
+grant execute on function public.set_pos_order_event(uuid, uuid) to service_role;

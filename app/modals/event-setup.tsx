@@ -6,10 +6,8 @@ import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 import {
-  getActiveEvent,
-  getLocalEvents,
+  resolveActiveEvent,
   upsertLocalEvent,
-  overlappingEvent,
   isValidDateKey,
   localDateKey,
   type PosEvent,
@@ -22,8 +20,8 @@ import { drainOutbox } from '../../utils/outbox';
  * modes: edit today's detected event (name, venue, dates, opening + closing cash)
  * or schedule a new one (any date range, not just today). Every write is
  * local-first and queues a Coop push (upsert_pos_event) via the outbox, so it works
- * fully offline; the date range is guarded against overlaps the way Coop enforces.
- * Selling is never gated on any of it.
+ * fully offline. Overlapping / same-day events are allowed; the cashier declares
+ * which event a sale belongs to from the picker (see event-picker).
  */
 export default function EventSetupModal() {
   const { colors } = useTheme();
@@ -31,7 +29,6 @@ export default function EventSetupModal() {
   const { showToast } = useToast();
 
   const [active, setActive] = useState<PosEvent | null>(null);
-  const [allEvents, setAllEvents] = useState<PosEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -61,11 +58,14 @@ export default function EventSetupModal() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getActiveEvent(), getLocalEvents()]).then(([ev, all]) => {
+      resolveActiveEvent().then(({event, mustPick}) => {
         if (cancelled) return;
+        // When a pick is still required (2+ events today, none chosen), don't
+        // prefill an ambiguous event to edit: start in create mode so a save can't
+        // overwrite the wrong one. Choosing which event to work with is the picker's job.
+        const ev = mustPick ? null : event;
         setActive(ev);
-        setAllEvents(all);
-        setCreating(ev == null); // no event today -> go straight to create
+        setCreating(ev == null); // no event to edit -> go straight to create
         fillFrom(ev);
         setLoaded(true);
       });
@@ -108,12 +108,8 @@ export default function EventSetupModal() {
       showToast({ variant: 'error', title: 'Dates are backwards', message: 'The end date is before the start date.' });
       return;
     }
-    // Coop rejects overlapping ranges; block it here first with a friendly message.
-    const clash = overlappingEvent(allEvents, start || null, end || null, editing ? active!.event_id : undefined);
-    if (clash) {
-      showToast({ variant: 'error', title: 'Dates overlap another event', message: `${clash.name} already covers these dates.` });
-      return;
-    }
+    // Overlapping / same-day events are allowed (multi-event): the cashier picks
+    // which event a sale belongs to, so dates no longer need to be exclusive.
 
     const now = new Date().toISOString();
     await upsertLocalEvent({

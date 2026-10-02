@@ -12,6 +12,32 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-01 — stock-digest edge fn: paginate the sale ledger — `fix(edge)`
+
+Part of the workspace-wide pagination audit for the PostgREST `db-max-rows`
+(1000) silent-truncation class. The `stock-digest` edge function read the
+60-day sale ledger with `&limit=100000`, which does **not** override the server
+cap (PostgREST returns `min(limit, db-max-rows)` = 1000), so the morning digest
+was forecasting on a truncated set once `pos_stock_movements` passed 1,000 rows
+(live prod is at 1,596; 1,175 in the window). Added a `restAll()` limit+offset
+loop ordered by `id` and switched the movements read to it.
+
+**Hardening (same pass):** extracted the module-private paginator from
+`utils/orders-remote.ts` into a shared `utils/paginate.ts` (`fetchAllPaged`) and
+reused it to paginate every remaining unbounded remote read — `catalog-sync.ts`
+(`pos_products` + embedded `pos_prices`, `pos_inventory_event`), `bundles-sync.ts`
+(`pos_bundles`, `pos_bundle_items`, `pos_products`), and `events-sync.ts`
+(`pos_events`) — each with `.range()` + a stable unique `.order()` by the table
+PK. These catalog tables are tiny today (25 products) but now can't silently
+truncate if the catalog grows. Single-order-scoped reads are marked
+`// pagination-ok`.
+
+**Regression guard:** added `scripts/check-pagination.mjs` (+ `check:pagination`
+script and an `__tests__/check-pagination.test.ts` so jest enforces it). It fails
+on (A) any literal row limit > 1000 and (B) any `.from().select()` lacking a bound
+marker, scanning `utils/`, `lib/`, `app/`, and `supabase/functions/`. Staging
+only; not promoted to prod.
+
 ## 2026-09-27 — v1.3.1: free-taste Recent syncs across devices — `chore(release)`
 
 **Version 1.3.0 → 1.3.1** (`package.json` + `app.json`). Code-only point release (no DB

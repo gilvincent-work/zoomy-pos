@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { getSupabase } from '../lib/supabase';
+import { fetchAllPaged } from './paginate';
 import {
   getUnsyncedEvents,
   markEventSynced,
@@ -45,11 +46,16 @@ export async function pullEvents(): Promise<{ updated: number } | null> {
 
   let rows: RemoteEventRow[];
   try {
-    const { data, error } = await sb
-      .from('pos_events')
-      .select('event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, closing_cash, cash_note, status, created_at, updated_at');
-    if (error) throw new Error(error.message);
-    rows = (data ?? []) as RemoteEventRow[];
+    // Paged by the event_id PK so PostgREST's 1000-row cap can't silently drop
+    // events the POS needs to detect "today's event" offline.
+    const res = await fetchAllPaged<RemoteEventRow>((from, to) =>
+      sb
+        .from('pos_events')
+        .select('event_id, name, venue, city, organizer, starts_on, ends_on, opening_cash, closing_cash, cash_note, status, created_at, updated_at')
+        .order('event_id', { ascending: true })
+        .range(from, to));
+    if (!res.ok) throw new Error('pos_events fetch failed');
+    rows = res.rows;
   } catch {
     return null;
   }

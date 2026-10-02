@@ -9,6 +9,7 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web && node scripts/patch-pwa.js",
     "typecheck": "tsc --noEmit",
+    "check:pagination": "node scripts/check-pagination.mjs",
     "test": "jest"
   },
   "dependencies": {

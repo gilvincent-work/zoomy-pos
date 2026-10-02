@@ -1,4 +1,5 @@
 import {getSupabase} from '../lib/supabase';
+import {fetchAllPaged} from './paginate';
 import {getDatabase} from '../db/database';
 import {reconcileRemoteBundles, type RemoteBundle, type SavedBundle, type BundleItemInput} from '../db/saved-bundles';
 
@@ -86,12 +87,21 @@ export async function pullBundles(): Promise<number | null> {
   if (!sb) return null;
 
   try {
-    const [{data: bundles, error: bErr}, {data: items, error: iErr}, {data: products, error: pErr}] = await Promise.all([
-      sb.from('pos_bundles').select('bundle_id, name, price, active, bundle_type, pick_count, line_categories, emoji'),
-      sb.from('pos_bundle_items').select('bundle_id, product_id, qty'),
-      sb.from('pos_products').select('product_id, name'),
+    // All three reads are paged by their PK (pos_bundle_items has no business
+    // unique key, so page by its identity `id`) so PostgREST's 1000-row cap can't
+    // silently drop bundles, their items, or the product names they resolve to.
+    const [bundlesRes, itemsRes, productsRes] = await Promise.all([
+      fetchAllPaged<RemoteBundleRow>((from, to) =>
+        sb.from('pos_bundles').select('bundle_id, name, price, active, bundle_type, pick_count, line_categories, emoji').order('bundle_id', {ascending: true}).range(from, to)),
+      fetchAllPaged<{bundle_id: string; product_id: string; qty: number}>((from, to) =>
+        sb.from('pos_bundle_items').select('bundle_id, product_id, qty').order('id', {ascending: true}).range(from, to)),
+      fetchAllPaged<{product_id: string; name: string}>((from, to) =>
+        sb.from('pos_products').select('product_id, name').order('product_id', {ascending: true}).range(from, to)),
     ]);
-    if (bErr || iErr || pErr || !bundles) return null;
+    if (!bundlesRes.ok || !itemsRes.ok || !productsRes.ok) return null;
+    const bundles = bundlesRes.rows;
+    const items = itemsRes.rows;
+    const products = productsRes.rows;
 
     // Resolve SKU -> local product id + name so fixed-bundle items render.
     const nameBySku = new Map<string, string>();

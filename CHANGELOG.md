@@ -12,6 +12,42 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-04 — Sales Playbook screen and guided Tutorial tour — `feat(playbook)` `feat(tour)`
+
+Two new header actions: **Playbook** (booth script and product facts) and
+**Tutorial** (a spotlight tour of the whole register).
+
+**Playbook.** `app/modals/playbook.tsx` with Flow and Products tabs. The Flow tab
+is the real sequence a seller follows (greet, pet check, recommend by size, say
+the price, payment, after payment) with branch chips for the paths that
+exclude each other and "Say this" blocks for spoken lines. Content is English,
+static, in `constants/playbook.ts` (offline, no sync), and a test fails if any
+string contains an em or en dash. Expiry: freeze dried says "Check the batch
+label" (the source said "30 days from now", which goes stale); meaty treats is
+a dated value with a `PLAYBOOK_AS_OF` marker. "Note cat, dog or both" points to
+the existing Dog/Cat/Both chips in the cart, so no new order field.
+
+**Tutorial tour.** `context/TourContext.tsx` drives the real app: each step
+names a route, a target and a declarative *scene* (which sheet is open, which
+pill is selected, which tab). Screens apply the scene they own, so a step never
+has to undo the previous one. Targets are `TourTarget` wrappers measured with
+`measureInWindow`; a target that never appears skips its step instead of
+sticking. The overlay is a transparent `Modal` re-presented per scene so it
+stays above native modals, with core `Animated` only (no new dependency).
+Admin Settings, Change PIN, Payment Options and QR codes are excluded.
+
+**Decision: the tour cannot write.** The overlay blocks all touches, so a user
+cannot press a write button mid-tour. Instead of guarding every write handler,
+only the money and stock paths (confirm payment, free taste submit and undo)
+carry a `useDemoGuard()` as defense in depth. The cart holds one in-memory demo
+line while the tour runs and clears it on exit; nothing is persisted.
+`tour_seen` (settings table, `utils/tour-preference.ts`) offers the tour once on
+a fresh install, and the Tutorial button always replays it.
+
+**Refactor.** The header's destinations were written out twice (inline icons
+and the compact drawer). They are now one `headerActions` list, and the drawer
+rows and inline buttons register the same tour targets.
+
 ## 2026-10-01 — stock-digest edge fn: paginate the sale ledger — `fix(edge)`
 
 Part of the workspace-wide pagination audit for the PostgREST `db-max-rows`

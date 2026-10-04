@@ -36,6 +36,11 @@ export function useTour(): TourContextValue {
   return ctx;
 }
 
+/** Registers a spotlight target, or null when there is no provider (e.g. in isolated tests). */
+export function useTourRegistry(): TourContextValue['registerTarget'] | null {
+  return useContext(TourContext)?.registerTarget ?? null;
+}
+
 /** True while a tour runs. Safe to call without a provider (returns false). */
 export function useTourActive(): boolean {
   return useContext(TourContext)?.active ?? false;
@@ -143,14 +148,23 @@ export function TourProvider({ steps, onStop, children }: Props) {
       else setIndex(nextIndex);
     };
 
-    async function waitForTarget(id: string): Promise<TourRect | null> {
+    async function measureFirst(ids: string[]): Promise<{ id: string; rect: TourRect } | null> {
+      for (const id of ids) {
+        const rect = await targets.current.get(id)?.();
+        if (rect) return { id, rect };
+      }
+      return null;
+    }
+
+    async function waitForTarget(ids: string[]): Promise<TourRect | null> {
       const deadline = Date.now() + TARGET_TIMEOUT_MS;
       while (!cancelled && Date.now() < deadline) {
-        const found = await targets.current.get(id)?.();
+        const found = await measureFirst(ids);
         if (found) {
           await sleep(REMEASURE_MS);
           // A second read picks up the final position after any slide-in.
-          return (await targets.current.get(id)?.()) ?? found;
+          const settled = await targets.current.get(found.id)?.();
+          return settled ?? found.rect;
         }
         await sleep(TARGET_POLL_MS);
       }
@@ -200,7 +214,7 @@ export function TourProvider({ steps, onStop, children }: Props) {
         setStatus('ready');
         return;
       }
-      const found = await waitForTarget(step.target);
+      const found = await waitForTarget(Array.isArray(step.target) ? step.target : [step.target]);
       if (cancelled) return;
       if (!found) return skip();
       setRect(found);

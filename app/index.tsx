@@ -22,6 +22,8 @@ import { HeaderMenuDrawer, type HeaderMenuItem } from '../components/HeaderMenuD
 import { FreeTasteQuickSheet } from '../components/FreeTasteQuickSheet';
 import { useToast } from '../components/Toast';
 import { useDemoGuard } from '../components/tour/useDemoGuard';
+import { TourTarget } from '../components/tour/TourTarget';
+import { useTourActive, useTourScene } from '../context/TourContext';
 import { useCart } from '../context/CartContext';
 import {
   getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId, decrementStock,
@@ -196,6 +198,73 @@ export default function POSScreen() {
   // A catalog pull from Coop (price / listing / events) updates local SQLite;
   // re-read so tiles and the event chip reflect the pull without a screen focus.
   useEffect(() => subscribeCatalogChanged(() => { loadCatalog(); loadActiveEvent(); }), [loadCatalog, loadActiveEvent]);
+
+  // Guided tour: each step publishes a "scene" (which sheet is open, which pill is
+  // selected, ...). Apply the parts this screen owns; anything a scene omits is closed.
+  const tourScene = useTourScene();
+  const tourActive = useTourActive();
+  const selBeforeTour = useRef<Selection | null>(null);
+  const demoItemAdded = useRef(false);
+
+  useEffect(() => {
+    if (!tourScene) return;
+    let cancelled = false;
+    (async () => {
+      const variantProductForTour =
+        tourScene.sheet === 'variant' ? products.find((p) => p.has_variants === 1) : undefined;
+      const variants = variantProductForTour ? await getVariantsByProductId(variantProductForTour.id) : [];
+      if (cancelled) return;
+      setVariantList(variants);
+      setVariantProduct(variantProductForTour ?? null);
+      setFreeTasteProduct(tourScene.sheet === 'free-taste' ? products[0] ?? null : null);
+      setConfirmPay(tourScene.sheet === 'confirm-pay');
+      setMenuOpen(compactHeader && !!tourScene.drawerOpen);
+
+      const wanted =
+        tourScene.category === 'prize' ? PRIZE_CATEGORY
+        : tourScene.category === 'bundles' && pickBundles.length > 0 ? BUNDLES_CATEGORY
+        : null;
+      if (wanted) {
+        selBeforeTour.current ??= sel;
+        setSel({ category: wanted, subcategory: null });
+      } else if (selBeforeTour.current) {
+        setSel(selBeforeTour.current);
+        selBeforeTour.current = null;
+      }
+    })();
+    return () => { cancelled = true; };
+    // Only a new scene should re-apply; the other values are read at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourScene]);
+
+  // When the tour ends, close whatever it opened and put the category back.
+  useEffect(() => {
+    if (tourActive) return;
+    setVariantProduct(null);
+    setVariantList([]);
+    setFreeTasteProduct(null);
+    setConfirmPay(false);
+    setMenuOpen(false);
+    if (selBeforeTour.current) {
+      setSel(selBeforeTour.current);
+      selBeforeTour.current = null;
+    }
+  }, [tourActive]);
+
+  // The cart steps need something to show: hold one demo line in the in-memory
+  // cart while the tour runs (never persisted), and remove it when the tour ends.
+  useEffect(() => {
+    if (tourActive && !demoItemAdded.current && items.length === 0) {
+      const demo = products.find((p) => !p.has_variants && p.price != null);
+      if (demo) {
+        addItem({ id: demo.id, name: demo.name, price: demo.price! });
+        demoItemAdded.current = true;
+      }
+    } else if (!tourActive && demoItemAdded.current) {
+      demoItemAdded.current = false;
+      clearCart();
+    }
+  }, [tourActive, products, items.length, addItem, clearCart]);
 
   const showingBundles = sel.category === BUNDLES_CATEGORY;
   const showingPrize = sel.category === PRIZE_CATEGORY;
@@ -433,6 +502,7 @@ export default function POSScreen() {
   const productPane = (
     <View style={styles.productPane}>
       <View style={styles.filters}>
+        <TourTarget id="pills">
         <CategoryTabs
           categories={categoryNames}
           active={sel.category ?? ''}
@@ -444,6 +514,7 @@ export default function POSScreen() {
             )
           }
         />
+        </TourTarget>
         {subs.length > 0 && (
           <SubcategoryFilter
             subcategories={subs}
@@ -452,6 +523,7 @@ export default function POSScreen() {
           />
         )}
       </View>
+      <TourTarget id="grid" style={styles.gridArea}>
       <View
         style={styles.gridArea}
         onLayout={(e) => setGridHeight(e.nativeEvent.layout.height)}
@@ -508,8 +580,8 @@ export default function POSScreen() {
           style={styles.grid_list}
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
-          renderItem={({ item }) => (
-            <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
+          renderItem={({ item, index }) => {
+            const tile = (
               <ProductTile
                 id={item.id}
                 name={item.name}
@@ -524,8 +596,13 @@ export default function POSScreen() {
                 onMinus={item.has_variants ? undefined : () => decrementItem(item.id)}
                 onRemove={() => removeItem(item.id)}
               />
-            </View>
-          )}
+            );
+            return (
+              <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
+                {index === 0 ? <TourTarget id="tile" style={{ flex: 1 }}>{tile}</TourTarget> : tile}
+              </View>
+            );
+          }}
           ListEmptyComponent={
             <Text style={styles.empty}>
               {products.length === 0
@@ -537,6 +614,7 @@ export default function POSScreen() {
       )}
       </PullToRefresh>
       </View>
+      </TourTarget>
     </View>
   );
 
@@ -563,8 +641,12 @@ export default function POSScreen() {
         <View style={styles.headerLeft}>
           <Text style={styles.brandName}>Zoomy</Text>
           <View style={styles.syncRow}>
-            <SyncStatusBar />
-            <EventBadge event={activeEvent} onPress={() => router.push('/modals/event-setup')} />
+            <TourTarget id="sync">
+              <SyncStatusBar />
+            </TourTarget>
+            <TourTarget id="event">
+              <EventBadge event={activeEvent} onPress={() => router.push('/modals/event-setup')} />
+            </TourTarget>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -580,15 +662,16 @@ export default function POSScreen() {
               </TouchableOpacity>
               */}
               {headerActions.map((a) => (
-                <TouchableOpacity
-                  key={a.key}
-                  testID={`header-action-${a.key}`}
-                  onPress={a.onPress}
-                  style={styles.headerBtn}
-                  accessibilityLabel={a.accessibilityLabel ?? a.label}
-                >
-                  <Ionicons name={a.icon} size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
+                <TourTarget key={a.key} id={`header-action-${a.key}`}>
+                  <TouchableOpacity
+                    testID={`header-action-${a.key}`}
+                    onPress={a.onPress}
+                    style={styles.headerBtn}
+                    accessibilityLabel={a.accessibilityLabel ?? a.label}
+                  >
+                    <Ionicons name={a.icon} size={20} color={colors.textPrimary} />
+                  </TouchableOpacity>
+                </TourTarget>
               ))}
             </>
           )}
@@ -625,6 +708,7 @@ export default function POSScreen() {
             onPetTypeChange={setPetType}
             onCharge={handleRequestPay}
             canIncrement={canIncrementItem}
+            tourExpanded={!!tourScene?.cartExpanded}
           />
         </View>
       )}

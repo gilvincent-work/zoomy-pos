@@ -2,6 +2,7 @@ import { Modal, View, Text, TouchableOpacity, StyleSheet, Pressable, Platform, S
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { F, R, type Palette } from '../constants/theme';
+import { TourTarget } from './tour/TourTarget';
 
 // Upper drawer for the header actions. On narrow screens the row of action icons
 // can't fit next to the brand + sync + event chip, so they collapse into a single
@@ -36,21 +37,22 @@ export function HeaderMenuDrawer({
         <Pressable style={s.panel} onPress={() => {}}>
           <View style={s.grabber} />
           {items.map((it, i) => (
-            <TouchableOpacity
-              key={it.key}
-              testID={`header-drawer-${it.key}`}
-              style={[s.row, i < items.length - 1 && s.rowDivider]}
-              onPress={() => {
-                onClose();
-                it.onPress();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={it.label}
-            >
-              <Ionicons name={it.icon} size={20} color={colors.textPrimary} />
-              <Text style={s.label}>{it.label}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={s.chevron} />
-            </TouchableOpacity>
+            <TourTarget key={it.key} id={`header-action-${it.key}`}>
+              <TouchableOpacity
+                testID={`header-drawer-${it.key}`}
+                style={[s.row, i < items.length - 1 && s.rowDivider]}
+                onPress={() => {
+                  onClose();
+                  it.onPress();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={it.label}
+              >
+                <Ionicons name={it.icon} size={20} color={colors.textPrimary} />
+                <Text style={s.label}>{it.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={s.chevron} />
+              </TouchableOpacity>
+            </TourTarget>
           ))}
         </Pressable>
       </Pressable>

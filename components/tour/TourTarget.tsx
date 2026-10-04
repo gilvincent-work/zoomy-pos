@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
-import { useTour } from '../../context/TourContext';
+import { useTourRegistry } from '../../context/TourContext';
 
 type Props = {
   /** The id a tour step names in its `target`. */
@@ -15,12 +15,12 @@ type Props = {
  * reads the element's window position only when a step needs it.
  */
 export function TourTarget({ id, style, children }: Props) {
-  const { registerTarget } = useTour();
+  const registerTarget = useTourRegistry();
   const ref = useRef<View>(null);
 
   useEffect(
     () =>
-      registerTarget(
+      registerTarget?.(
         id,
         () =>
           new Promise((resolve) => {

@@ -34,8 +34,12 @@ export interface TourStep {
    * skipped when there is none).
    */
   route: string;
-  /** `TourTarget` id to spotlight, or null for a centered welcome card. */
-  target: string | null;
+  /**
+   * `TourTarget` id to spotlight, or null for a centered welcome card. A list is
+   * tried in order, for elements that differ by layout (portrait peek bar vs
+   * landscape side cart).
+   */
+  target: string | string[] | null;
   title: string;
   body: string;
   /** Short note shown on the card when the tour is doing something for the user. */

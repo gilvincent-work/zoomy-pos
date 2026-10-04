@@ -5,6 +5,7 @@ import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from './Toast';
 import { useDemoGuard } from './tour/useDemoGuard';
+import { TourTarget } from './tour/TourTarget';
 import { decrementStock, type Product } from '../db/products';
 import { insertFreeTaste, markFreeTasteSynced, type FreeTaste } from '../db/free-tastes';
 import { pushFreeTaste } from '../utils/free-tastes-sync';
@@ -100,6 +101,7 @@ export function FreeTasteQuickSheet({ product, onClose }: { product: Product | n
           <Text style={s.hint}>Opens sellable stock for pets to sample. Deducts event stock, no sale is made.</Text>
           {!p.sku && <Text style={s.warn}>Not synced to Coop yet. It will sync once the catalog lands.</Text>}
 
+          <TourTarget id="quick-qty">
           <View style={s.qtyRow}>
             <Text style={s.qtyLabel}>Packs opened</Text>
             <View style={s.stepper}>
@@ -112,6 +114,7 @@ export function FreeTasteQuickSheet({ product, onClose }: { product: Product | n
               </TouchableOpacity>
             </View>
           </View>
+          </TourTarget>
 
           <TextInput
             style={s.input}
@@ -121,6 +124,7 @@ export function FreeTasteQuickSheet({ product, onClose }: { product: Product | n
             onChangeText={setNote}
           />
 
+          <TourTarget id="quick-actions">
           <View style={s.actions}>
             <TouchableOpacity style={s.cancelBtn} onPress={onClose} activeOpacity={0.7}>
               <Text style={s.cancelText}>Cancel</Text>
@@ -129,6 +133,7 @@ export function FreeTasteQuickSheet({ product, onClose }: { product: Product | n
               <Text style={s.primaryText}>{submitting ? 'Recording…' : `Log free taste`}</Text>
             </TouchableOpacity>
           </View>
+          </TourTarget>
         </Pressable>
       </Pressable>
     </Modal>

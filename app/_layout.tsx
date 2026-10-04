@@ -8,6 +8,9 @@ import { initSchema } from '../db/schema';
 import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce, syncCatalogSkusOnce, syncCatalogEmojiOnce, deactivateRetiredSeedProductsOnce } from '../db/seed';
 import { palettes, type ThemeMode } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
+import { TourProvider } from '../context/TourContext';
+import { TourOverlay } from '../components/tour/TourOverlay';
+import { TOUR_STEPS } from '../constants/tour-steps';
 import { requestPersistentStorage } from '../utils/pwa';
 import { loadPersistedSyncStatus } from '../utils/sync-status';
 import { loadThemeMode } from '../utils/theme-preference';
@@ -180,7 +183,10 @@ export default function RootLayout() {
     <ThemeProvider initialMode={themeMode}>
       <ToastProvider>
         <CartProvider>
-          <ThemedStack />
+          <TourProvider steps={TOUR_STEPS}>
+            <ThemedStack />
+            <TourOverlay />
+          </TourProvider>
         </CartProvider>
       </ToastProvider>
     </ThemeProvider>

@@ -164,6 +164,14 @@ describe('TourProvider', () => {
     expect(tour.step?.id).toBe('c');
   });
 
+  it('uses the first target in a list that is on screen', async () => {
+    setup([step('a', { target: ['peek-bar', 'side-cart'] })], ['side-cart']);
+    act(() => tour.start());
+    await settle();
+    expect(tour.status).toBe('ready');
+    expect(tour.rect).toEqual(RECT);
+  });
+
   it('applies a step scene and clears it when the tour stops', async () => {
     setup([step('a', { scene: { cartExpanded: true } })], ['a']);
     act(() => tour.start());

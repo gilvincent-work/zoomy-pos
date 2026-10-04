@@ -23,7 +23,7 @@ import { FreeTasteQuickSheet } from '../components/FreeTasteQuickSheet';
 import { useToast } from '../components/Toast';
 import { useDemoGuard } from '../components/tour/useDemoGuard';
 import { TourTarget } from '../components/tour/TourTarget';
-import { useTourActive, useTourScene } from '../context/TourContext';
+import { useTour, useTourActive, useTourScene } from '../context/TourContext';
 import { useCart } from '../context/CartContext';
 import {
   getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId, decrementStock,
@@ -203,6 +203,7 @@ export default function POSScreen() {
   // selected, ...). Apply the parts this screen owns; anything a scene omits is closed.
   const tourScene = useTourScene();
   const tourActive = useTourActive();
+  const { start: startTour } = useTour();
   const selBeforeTour = useRef<Selection | null>(null);
   const demoItemAdded = useRef(false);
 
@@ -632,6 +633,7 @@ export default function POSScreen() {
     { key: 'products', icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
     { key: 'transactions', icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
     { key: 'playbook', icon: 'book-outline', label: 'Playbook', onPress: () => router.push('/modals/playbook') },
+    { key: 'tutorial', icon: 'help-circle-outline', label: 'Tutorial', onPress: startTour },
     { key: 'settings', icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
   ];
 

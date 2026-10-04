@@ -8,8 +8,10 @@ import { initSchema } from '../db/schema';
 import { seedDevProducts, seedProductsIfEmpty, seedBundlesIfEmpty, syncLinePricesOnce, syncCatalogNamesOnce, syncCatalogSkusOnce, syncCatalogEmojiOnce, deactivateRetiredSeedProductsOnce } from '../db/seed';
 import { palettes, type ThemeMode } from '../constants/theme';
 import { ToastProvider } from '../components/Toast';
-import { TourProvider } from '../context/TourContext';
+import { TourProvider, useTour } from '../context/TourContext';
 import { TourOverlay } from '../components/tour/TourOverlay';
+import { TourPrompt } from '../components/tour/TourPrompt';
+import { loadTourSeen, saveTourSeen } from '../utils/tour-preference';
 import { TOUR_STEPS } from '../constants/tour-steps';
 import { requestPersistentStorage } from '../utils/pwa';
 import { loadPersistedSyncStatus } from '../utils/sync-status';
@@ -53,6 +55,25 @@ function ThemedStack() {
   );
 }
 
+/** Offers the tour once on a fresh install; the Tutorial button replays it any time. */
+function FirstRunTourPrompt({ seen, markSeen }: { seen: boolean; markSeen: () => void }) {
+  const { start, active } = useTour();
+  const dismiss = () => {
+    markSeen();
+    saveTourSeen().catch(() => {});
+  };
+  return (
+    <TourPrompt
+      visible={!seen && !active}
+      onNotNow={dismiss}
+      onTakeTour={() => {
+        dismiss();
+        start();
+      }}
+    />
+  );
+}
+
 /** Reject if a promise takes longer than `ms` (guards a stuck web SQLite open). */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -68,6 +89,8 @@ export default function RootLayout() {
   const [failed, setFailed] = useState(false);
   // Default dark; the persisted choice (if any) is loaded before the UI mounts.
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
+  // Assume seen until the stored flag loads, so the prompt never flashes on a returning install.
+  const [tourSeen, setTourSeen] = useState(true);
 
   const bootstrap = useCallback(async () => {
     setFailed(false);
@@ -114,6 +137,7 @@ export default function RootLayout() {
       // does not flash from the default on launch.
       const savedMode = await loadThemeMode();
       if (savedMode) setThemeMode(savedMode);
+      setTourSeen(await loadTourSeen().catch(() => true));
       setReady(true);
       // Pull Coop's latest price/listing into the local cache (online-only;
       // no-op offline/unconfigured). Non-blocking so launch isn't gated on the
@@ -183,9 +207,10 @@ export default function RootLayout() {
     <ThemeProvider initialMode={themeMode}>
       <ToastProvider>
         <CartProvider>
-          <TourProvider steps={TOUR_STEPS}>
+          <TourProvider steps={TOUR_STEPS} onStop={() => { setTourSeen(true); saveTourSeen().catch(() => {}); }}>
             <ThemedStack />
             <TourOverlay />
+            <FirstRunTourPrompt seen={tourSeen} markSeen={() => setTourSeen(true)} />
           </TourProvider>
         </CartProvider>
       </ToastProvider>

@@ -550,6 +550,7 @@ export default function POSScreen() {
     { key: 'bundle', icon: 'gift-outline', label: 'Bundle', onPress: () => router.push('/modals/bundle') },
     { key: 'products', icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
     { key: 'transactions', icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
+    { key: 'playbook', icon: 'book-outline', label: 'Playbook', onPress: () => router.push('/modals/playbook') },
     { key: 'settings', icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
   ];
 

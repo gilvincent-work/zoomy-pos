@@ -9,8 +9,12 @@ import { F, R, type Palette } from '../constants/theme';
 // in the compact layout; wider screens keep the inline icon row.
 
 export interface HeaderMenuItem {
+  /** Stable id, also used to build the testID (`header-action-<key>`). */
+  key: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  /** Overrides `label` for screen readers on the inline icon (e.g. "Switch to light mode"). */
+  accessibilityLabel?: string;
   onPress: () => void;
 }
 
@@ -33,7 +37,8 @@ export function HeaderMenuDrawer({
           <View style={s.grabber} />
           {items.map((it, i) => (
             <TouchableOpacity
-              key={it.label}
+              key={it.key}
+              testID={`header-drawer-${it.key}`}
               style={[s.row, i < items.length - 1 && s.rowDivider]}
               onPress={() => {
                 onClose();

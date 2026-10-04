@@ -537,14 +537,20 @@ export default function POSScreen() {
     </View>
   );
 
-  // Header actions, shared by the inline icon row (wide) and the drawer (compact).
-  const menuItems: HeaderMenuItem[] = [
-    { icon: mode === 'dark' ? 'sunny-outline' : 'moon-outline', label: mode === 'dark' ? 'Light mode' : 'Dark mode', onPress: toggle },
-    { icon: 'nutrition-outline', label: 'Free taste', onPress: () => router.push('/modals/free-taste') },
-    { icon: 'gift-outline', label: 'Bundle', onPress: () => router.push('/modals/bundle') },
-    { icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
-    { icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
-    { icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
+  // Header actions: the single source for the inline icon row (wide) and the drawer (compact).
+  const headerActions: HeaderMenuItem[] = [
+    {
+      key: 'theme',
+      icon: mode === 'dark' ? 'sunny-outline' : 'moon-outline',
+      label: mode === 'dark' ? 'Light mode' : 'Dark mode',
+      accessibilityLabel: mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+      onPress: toggle,
+    },
+    { key: 'free-taste', icon: 'nutrition-outline', label: 'Free taste', onPress: () => router.push('/modals/free-taste') },
+    { key: 'bundle', icon: 'gift-outline', label: 'Bundle', onPress: () => router.push('/modals/bundle') },
+    { key: 'products', icon: 'cube-outline', label: 'Products', onPress: () => router.push('/modals/products') },
+    { key: 'transactions', icon: 'receipt-outline', label: 'Transactions', onPress: () => router.push('/modals/transactions') },
+    { key: 'settings', icon: 'settings-outline', label: 'Settings', onPress: () => router.push({ pathname: '/modals/admin', params: { action: 'settings' } }) },
   ];
 
   return (
@@ -569,34 +575,23 @@ export default function POSScreen() {
                 <Ionicons name="scan-outline" size={20} color={colors.textPrimary} />
               </TouchableOpacity>
               */}
-              <TouchableOpacity onPress={toggle} style={styles.headerBtn} accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-                <Ionicons name={mode === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push('/modals/free-taste')} style={styles.headerBtn} accessibilityLabel="Free taste">
-                <Ionicons name="nutrition-outline" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push('/modals/bundle')} style={styles.headerBtn} accessibilityLabel="Bundle">
-                <Ionicons name="gift-outline" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push('/modals/products')} style={styles.headerBtn} accessibilityLabel="Products">
-                <Ionicons name="cube-outline" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push('/modals/transactions')} style={styles.headerBtn} accessibilityLabel="Transactions">
-                <Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => router.push({ pathname: '/modals/admin', params: { action: 'settings' } })}
-                style={styles.headerBtn}
-                accessibilityLabel="Settings"
-              >
-                <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
+              {headerActions.map((a) => (
+                <TouchableOpacity
+                  key={a.key}
+                  testID={`header-action-${a.key}`}
+                  onPress={a.onPress}
+                  style={styles.headerBtn}
+                  accessibilityLabel={a.accessibilityLabel ?? a.label}
+                >
+                  <Ionicons name={a.icon} size={20} color={colors.textPrimary} />
+                </TouchableOpacity>
+              ))}
             </>
           )}
         </View>
       </View>
 
-      <HeaderMenuDrawer visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
+      <HeaderMenuDrawer visible={menuOpen} onClose={() => setMenuOpen(false)} items={headerActions} />
       <FreeTasteQuickSheet product={freeTasteProduct} onClose={() => setFreeTasteProduct(null)} />
 
       {useSideCart ? (

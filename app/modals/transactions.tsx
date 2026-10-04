@@ -34,6 +34,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+import { TourTarget } from '../../components/tour/TourTarget';
 
 // Payment methods offered in the edit form.
 const EDIT_METHODS: PaymentMethod[] = ['cash', 'qrph', 'gcash', 'maya', 'card'];
@@ -832,6 +833,7 @@ export default function TransactionsModal() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <TourTarget id="tx-filters">
       <View style={styles.filterRow}>
         <Dropdown
           options={DATE_FILTERS}
@@ -852,7 +854,9 @@ export default function TransactionsModal() {
           onSelect={setMethodFilter}
         />
       </View>
+      </TourTarget>
 
+      <TourTarget id="tx-summary">
       <View style={styles.summaryBar}>
         <View style={styles.summaryLeft}>
           <Text style={styles.summaryCount}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</Text>
@@ -873,6 +877,7 @@ export default function TransactionsModal() {
           </TouchableOpacity>
         </View>
       </View>
+      </TourTarget>
 
       {importResult && (
         <TouchableOpacity
@@ -897,6 +902,7 @@ export default function TransactionsModal() {
         </TouchableOpacity>
       )}
 
+      <TourTarget id="tx-list" style={{ flex: 1 }}>
       <PullToRefresh onRefresh={loadTransactions}>
         {(scroll) => (
           <FlatList
@@ -917,6 +923,7 @@ export default function TransactionsModal() {
           />
         )}
       </PullToRefresh>
+      </TourTarget>
 
       <Modal
         visible={!!selected}

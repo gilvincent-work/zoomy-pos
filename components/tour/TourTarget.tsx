@@ -40,3 +40,8 @@ export function TourTarget({ id, style, children }: Props) {
     </View>
   );
 }
+
+/** Wraps in a `TourTarget` only when an id is given, so a list can mark just its first row. */
+export function MaybeTourTarget({ id, children }: { id?: string; children: React.ReactElement }) {
+  return id ? <TourTarget id={id}>{children}</TourTarget> : children;
+}

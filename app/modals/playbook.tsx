@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, useWindowDimensions,
 } from 'react-native';
@@ -10,6 +10,8 @@ import {
 import { StepCard } from '../../components/playbook/StepCard';
 import { ProductNoteCard } from '../../components/playbook/ProductNoteCard';
 import { ChipRow } from '../../components/playbook/ChipRow';
+import { TourTarget, MaybeTourTarget } from '../../components/tour/TourTarget';
+import { useTourScene } from '../../context/TourContext';
 
 type Tab = 'flow' | 'products';
 
@@ -26,8 +28,15 @@ export default function PlaybookScreen() {
 
   const notes = notesForFilter(filter);
 
+  // Guided tour: switch tabs on request.
+  const tourScene = useTourScene();
+  useEffect(() => {
+    if (tourScene?.playbookTab) setTab(tourScene.playbookTab);
+  }, [tourScene]);
+
   return (
     <SafeAreaView style={styles.container}>
+      <TourTarget id="playbook-tabs">
       <View style={styles.tabsRow}>
         {(['flow', 'products'] as const).map((t) => (
           <TouchableOpacity
@@ -45,21 +54,26 @@ export default function PlaybookScreen() {
           </TouchableOpacity>
         ))}
       </View>
+      </TourTarget>
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.inner}>
           {tab === 'flow' ? (
             FLOW_STEPS.map((step, i) => (
-              <StepCard key={step.id} step={step} number={i + 1} isLast={i === FLOW_STEPS.length - 1} />
+              <MaybeTourTarget key={step.id} id={i === 1 ? 'playbook-step' : undefined}>
+                <StepCard step={step} number={i + 1} isLast={i === FLOW_STEPS.length - 1} />
+              </MaybeTourTarget>
             ))
           ) : (
             <>
-              <ChipRow
-                options={AUDIENCE_FILTERS}
-                value={filter}
-                onChange={setFilter}
-                testIDPrefix="playbook-filter"
-              />
+              <TourTarget id="playbook-filters">
+                <ChipRow
+                  options={AUDIENCE_FILTERS}
+                  value={filter}
+                  onChange={setFilter}
+                  testIDPrefix="playbook-filter"
+                />
+              </TourTarget>
               <View style={styles.notes}>
                 {notes.map((n) => (
                   <View key={n.id} style={wide ? styles.noteWide : styles.noteFull}>

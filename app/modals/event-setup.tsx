@@ -3,6 +3,7 @@ import { View, Text, TextInput, ScrollView, TouchableOpacity, SafeAreaView, Styl
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { F, R, type Palette } from '../../constants/theme';
+import { TourTarget } from '../../components/tour/TourTarget';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
 import {
@@ -211,6 +212,7 @@ export default function EventSetupModal() {
           </View>
         </View>
 
+        <TourTarget id="event-cash">
         <Text style={styles.fieldLabel}>Opening cash float</Text>
         <View style={styles.amountWrap}>
           <Text style={styles.peso}>₱</Text>
@@ -224,6 +226,7 @@ export default function EventSetupModal() {
             keyboardType="numeric"
           />
         </View>
+        </TourTarget>
 
         <Text style={styles.fieldLabel}>Cash note <Text style={styles.optional}>optional</Text></Text>
         <TextInput
@@ -236,6 +239,7 @@ export default function EventSetupModal() {
 
         {!creating && (
           <>
+            <TourTarget id="event-closing">
             <Text style={styles.fieldLabel}>Counted at close <Text style={styles.optional}>optional</Text></Text>
             <Text style={styles.hint}>Count the drawer at end of day.</Text>
             <View style={styles.amountWrap}>
@@ -250,6 +254,7 @@ export default function EventSetupModal() {
                 keyboardType="numeric"
               />
             </View>
+            </TourTarget>
           </>
         )}
 

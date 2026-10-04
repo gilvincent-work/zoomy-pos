@@ -21,6 +21,7 @@ import { EventBadge } from '../components/EventBadge';
 import { HeaderMenuDrawer, type HeaderMenuItem } from '../components/HeaderMenuDrawer';
 import { FreeTasteQuickSheet } from '../components/FreeTasteQuickSheet';
 import { useToast } from '../components/Toast';
+import { useDemoGuard } from '../components/tour/useDemoGuard';
 import { useCart } from '../context/CartContext';
 import {
   getActiveProducts, getCategoriesWithSubcategories, getVariantsByProductId, decrementStock,
@@ -106,6 +107,7 @@ export default function POSScreen() {
 
   const { items, bundles, total, addItem, removeItem, decrementItem, clearCart } = useCart();
   const { showToast } = useToast();
+  const blockedByDemo = useDemoGuard();
 
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [variantList, setVariantList] = useState<ProductVariant[]>([]);
@@ -304,6 +306,7 @@ export default function POSScreen() {
   // Confirmed: record the sale with the selected quick method, then push to Coop.
   async function handleConfirmPay() {
     setConfirmPay(false);
+    if (blockedByDemo()) return;
     // Split prize (spin-a-wheel free item) lines out of the paid sale. Paid lines
     // go through the unchanged sale path; prize lines are recorded separately as
     // prizes and never sent as sale items (so a normal sale is unaffected).

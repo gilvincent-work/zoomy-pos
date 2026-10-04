@@ -8,6 +8,7 @@ import * as Crypto from 'expo-crypto';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../components/Toast';
+import { useDemoGuard } from '../../components/tour/useDemoGuard';
 import { CategoryTabs } from '../../components/CategoryTabs';
 import { SubcategoryFilter } from '../../components/SubcategoryFilter';
 import {
@@ -43,6 +44,7 @@ export default function FreeTasteModal() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { showToast } = useToast();
+  const blockedByDemo = useDemoGuard();
 
   const [mode, setMode] = useState<'record' | 'recent'>('record');
   const [products, setProducts] = useState<Product[]>([]);
@@ -145,7 +147,7 @@ export default function FreeTasteModal() {
     });
 
   async function submit() {
-    if (submitting || totalPacks === 0) return;
+    if (submitting || totalPacks === 0 || blockedByDemo()) return;
     setSubmitting(true);
     const lines = products.filter((p) => (qty[p.id] ?? 0) > 0);
     const batchId = Crypto.randomUUID();
@@ -228,7 +230,7 @@ export default function FreeTasteModal() {
   // The synchronous ref guard + delete keep it idempotent (a double-tap can't
   // double-restore).
   async function undo(row: FreeTaste) {
-    if (undoingRef.current.has(row.client_uuid)) return;
+    if (undoingRef.current.has(row.client_uuid) || blockedByDemo()) return;
     undoingRef.current.add(row.client_uuid);
     setUndoing(new Set(undoingRef.current));
     try {

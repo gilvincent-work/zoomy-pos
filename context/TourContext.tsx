@@ -36,9 +36,14 @@ export function useTour(): TourContextValue {
   return ctx;
 }
 
+/** True while a tour runs. Safe to call without a provider (returns false). */
+export function useTourActive(): boolean {
+  return useContext(TourContext)?.active ?? false;
+}
+
 /** The scene screens should apply, or null when no tour is running. */
 export function useTourScene(): TourScene | null {
-  return useTour().scene;
+  return useContext(TourContext)?.scene ?? null;
 }
 
 const HOME = '/';

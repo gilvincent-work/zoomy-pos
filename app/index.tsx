@@ -65,6 +65,7 @@ const GRID_V_CHROME = 44; // grid vertical padding (12 + 24) plus one row margin
 const COL_GAP = 8; // gap between tiles in a row
 const TILE_ASPECT_PHONE = 0.85; // width / height; more compact on phones
 const TILE_ASPECT_TABLET = 0.65; // taller, showcase tiles on larger screens
+const MODAL_HANDOVER_MS = 450; // let a closing modal finish before the tour opens the next
 const MIN_TILE_HEIGHT = 128; // never shrink a tile below a usable height; scroll instead
 
 export default function POSScreen() {
@@ -211,6 +212,19 @@ export default function POSScreen() {
     if (!tourScene) return;
     let cancelled = false;
     (async () => {
+      // iOS drops a modal presented while another is still dismissing, so when one
+      // sheet hands over to the next, close everything and let it finish first.
+      const wantsOverlayModal = !!tourScene.sheet || (compactHeader && !!tourScene.drawerOpen);
+      const someModalOpen = !!variantProduct || !!freeTasteProduct || confirmPay || menuOpen;
+      if (wantsOverlayModal && someModalOpen) {
+        setVariantProduct(null);
+        setVariantList([]);
+        setFreeTasteProduct(null);
+        setConfirmPay(false);
+        setMenuOpen(false);
+        await new Promise((r) => setTimeout(r, MODAL_HANDOVER_MS));
+        if (cancelled) return;
+      }
       const variantProductForTour =
         tourScene.sheet === 'variant' ? products.find((p) => p.has_variants === 1) : undefined;
       const variants = variantProductForTour ? await getVariantsByProductId(variantProductForTour.id) : [];
@@ -542,7 +556,9 @@ export default function POSScreen() {
           columnWrapperStyle={styles.gridRow}
           renderItem={() => (
             <View style={[styles.tileWrapper, { maxWidth: tileWidth, height: tileHeight }]}>
-              <PrizeTile onPress={() => router.push('/modals/prize-select')} />
+              <TourTarget id="prize-tile" style={{ flex: 1 }}>
+                <PrizeTile onPress={() => router.push('/modals/prize-select')} />
+              </TourTarget>
             </View>
           )}
         />

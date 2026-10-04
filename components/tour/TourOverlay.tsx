@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import { Animated, AccessibilityInfo, Modal, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { useTour } from '../../context/TourContext';
 import { R } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -11,6 +12,7 @@ const GAP = 12;
 const TWEEN_MS = 260;
 const MARGIN = 16;
 const MAX_CARD_WIDTH = 460;
+const NO_INSETS = { top: 0, bottom: 0, left: 0, right: 0 };
 
 /**
  * Dims the screen except for the current step's target and shows its card.
@@ -19,10 +21,12 @@ const MAX_CARD_WIDTH = 460;
  * opens and stays on top of it.
  */
 export function TourOverlay() {
-  const { active, step, scene, rect, status, index, total, next, back, stop } = useTour();
+  const { active, step, rect, status, epoch, index, total, next, back, stop } = useTour();
   const { colors } = useTheme();
   const { width: W, height: H } = useWindowDimensions();
   const [reduceMotion, setReduceMotion] = useState(false);
+  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
+  const [cardHeight, setCardHeight] = useState(0);
 
   const x = useRef(new Animated.Value(0)).current;
   const y = useRef(new Animated.Value(0)).current;
@@ -52,18 +56,26 @@ export function TourOverlay() {
     ).start();
   }, [rect, reduceMotion, x, y, w, h]);
 
-  const overlayKey = `${step?.route ?? ''}|${JSON.stringify(scene ?? {})}`;
   const showHole = status === 'ready' && rect !== null;
 
-  // Card goes on whichever side of the target has more room.
-  const cardPlacement = useMemo(() => {
-    if (!showHole || !rect) return { top: Math.round(H * 0.3) };
-    const above = rect.y - PAD;
-    const below = H - (rect.y + rect.height + PAD);
-    return above > below
-      ? { bottom: H - rect.y + PAD + GAP }
-      : { top: rect.y + rect.height + PAD + GAP };
-  }, [showHole, rect, H]);
+  // Put the card on the side of the target with room, then clamp it fully on screen.
+  // Until its height is measured it stays invisible so it never jumps.
+  const cardWidth = Math.min(W - MARGIN * 2, MAX_CARD_WIDTH);
+  const minTop = insets.top + MARGIN;
+  const maxTop = Math.max(minTop, H - insets.bottom - MARGIN - cardHeight);
+  let cardTop: number;
+  if (!showHole || !rect) {
+    cardTop = (H - cardHeight) / 2;
+  } else {
+    const holeTop = rect.y - PAD;
+    const holeBottom = rect.y + rect.height + PAD;
+    const roomBelow = H - insets.bottom - holeBottom;
+    const roomAbove = holeTop - insets.top;
+    const needed = cardHeight + GAP + MARGIN;
+    const below = roomBelow >= needed || (roomAbove < needed && roomBelow >= roomAbove);
+    cardTop = below ? holeBottom + GAP : holeTop - GAP - cardHeight;
+  }
+  cardTop = Math.min(Math.max(cardTop, minTop), maxTop);
 
   if (!active || !step) return null;
 
@@ -72,7 +84,7 @@ export function TourOverlay() {
 
   return (
     <Modal
-      key={overlayKey}
+      key={epoch}
       visible
       transparent
       animationType="none"
@@ -95,7 +107,10 @@ export function TourOverlay() {
           <View style={[styles.dim, StyleSheet.absoluteFill]} />
         )}
         {status === 'ready' && (
-          <View style={[styles.cardWrap, cardPlacement, { width: Math.min(W - MARGIN * 2, MAX_CARD_WIDTH) }]}>
+          <View
+            style={[styles.cardWrap, { top: cardTop, left: (W - cardWidth) / 2, width: cardWidth, opacity: cardHeight > 0 ? 1 : 0 }]}
+            onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}
+          >
             <TourTooltip step={step} index={index} total={total} onBack={back} onNext={next} onSkip={stop} />
           </View>
         )}
@@ -108,5 +123,5 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   dim: { position: 'absolute', backgroundColor: SCRIM },
   ring: { position: 'absolute', borderWidth: 2, borderRadius: R.md },
-  cardWrap: { position: 'absolute', alignSelf: 'center' },
+  cardWrap: { position: 'absolute' },
 });

@@ -21,6 +21,8 @@ type TourContextValue = {
   scene: TourScene | null;
   rect: TourRect | null;
   status: TourStatus;
+  /** Bumps each time a new stage (route + scene) has settled; the overlay re-presents on it. */
+  epoch: number;
   start: () => void;
   next: () => void;
   back: () => void;
@@ -74,6 +76,7 @@ export function TourProvider({ steps, onStop, children }: Props) {
   const [scene, setScene] = useState<TourScene | null>(null);
   const [rect, setRect] = useState<TourRect | null>(null);
   const [status, setStatus] = useState<TourStatus>('idle');
+  const [epoch, setEpoch] = useState(0);
 
   const targets = useRef(new Map<string, MeasureFn>());
   const routeRef = useRef(HOME);
@@ -211,6 +214,7 @@ export function TourProvider({ steps, onStop, children }: Props) {
       }
 
       if (step.target === null) {
+        if (!sameStage) setEpoch((e) => e + 1);
         setStatus('ready');
         return;
       }
@@ -218,6 +222,8 @@ export function TourProvider({ steps, onStop, children }: Props) {
       if (cancelled) return;
       if (!found) return skip();
       setRect(found);
+      // Re-present the overlay only now, so it lands above any sheet this stage opened.
+      if (!sameStage) setEpoch((e) => e + 1);
       setStatus('ready');
     })();
 
@@ -235,13 +241,14 @@ export function TourProvider({ steps, onStop, children }: Props) {
       scene,
       rect,
       status,
+      epoch,
       start,
       next,
       back,
       stop,
       registerTarget,
     }),
-    [active, index, steps, scene, rect, status, start, next, back, stop, registerTarget]
+    [active, index, steps, scene, rect, status, epoch, start, next, back, stop, registerTarget]
   );
 
   return <TourContext.Provider value={value}>{children}</TourContext.Provider>;

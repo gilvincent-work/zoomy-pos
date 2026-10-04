@@ -172,6 +172,25 @@ describe('TourProvider', () => {
     expect(tour.rect).toEqual(RECT);
   });
 
+  it('bumps epoch when a new scene settles but not for a step on the same stage', async () => {
+    setup(
+      [step('a', { scene: { sheet: 'free-taste' } }), step('b', { scene: { sheet: 'free-taste' } }), step('c', { scene: { cartExpanded: true } })],
+      ['a', 'b', 'c']
+    );
+    act(() => tour.start());
+    await settle();
+    const afterFirst = tour.epoch;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    act(() => tour.next());
+    await settle();
+    expect(tour.epoch).toBe(afterFirst);
+
+    act(() => tour.next());
+    await settle();
+    expect(tour.epoch).toBe(afterFirst + 1);
+  });
+
   it('applies a step scene and clears it when the tour stops', async () => {
     setup([step('a', { scene: { cartExpanded: true } })], ['a']);
     act(() => tour.start());

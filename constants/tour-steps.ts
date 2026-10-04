@@ -128,7 +128,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: 'prize',
     route: HOME,
-    target: 'grid',
+    target: ['prize-tile', 'grid'],
     title: 'Prizes',
     body: 'After the customer spins the wheel, tap the prize tile to pick what they won. It joins the cart as a free line.',
     auto: 'The tour selects the Prize pill',

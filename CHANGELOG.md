@@ -12,6 +12,31 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-05 — Playbook rewritten in Taglish, simpler layout — `feat(playbook)` `fix(tour)`
+
+Replaced the translated English playbook with the seller's own Booth Playbook
+script, and cut the screen down to what a seller needs mid-conversation.
+
+**Decisions.** Content is the original Taglish, because that is how sellers
+actually talk to customers. The Flow tab is one numbered list of eight steps;
+chips remain only where the paths exclude each other (pet check, and
+small/puppy/big recommendation). The Record a free taste shortcut stays, only
+on "May dalang pet". The Products tab gets a **Quick product guide** (customer
+to product lookup) above one card per product, and the Small/Big/Cats filter
+and per-step hint lines are gone (six cards are short enough to scan). Content
+moved to a block model (`actions` / `say` / `heading`) in `constants/playbook.ts`.
+Em and en dashes in the source script were rewritten to commas, per the copy
+rule the test enforces.
+
+**Freeze dried expiry** now reads "30 days from now" with the source's reminder
+to check the package, reversing the earlier "Check the batch label" choice. It
+goes stale, so re-check it when `PLAYBOOK_AS_OF` is bumped.
+
+**Tour.** The `playbook-filters` step became `playbook-guide` (spotlights the
+quick guide), and the `playbook-step` copy now mentions chips.
+
+---
+
 ## 2026-10-04 — Sales Playbook screen and guided Tutorial tour — `feat(playbook)` `feat(tour)`
 
 Two new header actions: **Playbook** (booth script and product facts) and

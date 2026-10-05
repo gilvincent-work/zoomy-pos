@@ -15,6 +15,7 @@ import { useCart } from '../../context/CartContext';
 import { useToast } from '../../components/Toast';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+import { TourTarget } from '../../components/tour/TourTarget';
 
 type Section = { title: string; data: Product[] };
 
@@ -123,6 +124,7 @@ export default function BundleSelectModal() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <TourTarget id="bundle-progress">
       <View style={[styles.progress, tight && styles.progressTight]}>
         <Text style={[styles.progressTitle, tight && styles.progressTitleTight]}>{bundle.name}</Text>
         <Text style={styles.progressText}>
@@ -132,7 +134,9 @@ export default function BundleSelectModal() {
         </Text>
         {!tight && <Text style={styles.progressLines}>{bundleLineSummary(lines)}</Text>}
       </View>
+      </TourTarget>
 
+      <TourTarget id="bundle-flavors" style={{ flex: 1 }}>
       <SectionList
         sections={sections}
         keyExtractor={(item) => String(item.id)}
@@ -172,7 +176,9 @@ export default function BundleSelectModal() {
           <Text style={styles.missing}>No flavors available in {bundleLineSummary(lines)} yet.</Text>
         }
       />
+      </TourTarget>
 
+      <TourTarget id="bundle-add">
       <View style={[styles.footer, tight && styles.footerTight]}>
         <View style={styles.footerInfo}>
           <Text style={styles.footerCount}>{chosen}/{pickCount} chosen</Text>
@@ -186,6 +192,7 @@ export default function BundleSelectModal() {
           <Text style={[styles.addText, !complete && styles.addTextDisabled]}>{complete ? 'Add to sale' : `Pick ${remaining} more`}</Text>
         </TouchableOpacity>
       </View>
+      </TourTarget>
     </SafeAreaView>
   );
 }

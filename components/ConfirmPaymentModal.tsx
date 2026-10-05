@@ -4,6 +4,7 @@ import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import type { PaymentMethod } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
+import { TourTarget } from './tour/TourTarget';
 
 type Props = {
   visible: boolean;
@@ -33,14 +34,17 @@ export function ConfirmPaymentModal({ visible, method, total, customerHandle, on
           <Text style={styles.title}>Confirm payment</Text>
           <Text style={styles.subtitle}>Record this sale as paid?</Text>
 
-          <View style={styles.summary}>
-            <Text style={styles.method}>{meta.emoji}  {meta.label}</Text>
-            <Text style={styles.total}>₱{total.toFixed(2)}</Text>
-          </View>
+          <TourTarget id="confirm-summary">
+            <View style={styles.summary}>
+              <Text style={styles.method}>{meta.emoji}  {meta.label}</Text>
+              <Text style={styles.total}>₱{total.toFixed(2)}</Text>
+            </View>
+          </TourTarget>
 
           <Text style={styles.handleLabel}>
             FURBABY / IG HANDLE <Text style={styles.optionalTag}>optional</Text>
           </Text>
+          <TourTarget id="confirm-handle">
           <TextInput
             testID="confirm-pay-handle"
             style={styles.handleInput}
@@ -51,7 +55,9 @@ export function ConfirmPaymentModal({ visible, method, total, customerHandle, on
             autoCapitalize="none"
             autoCorrect={false}
           />
+          </TourTarget>
 
+          <TourTarget id="confirm-actions">
           <View style={styles.actions}>
             <TouchableOpacity
               testID="confirm-pay-cancel"
@@ -70,6 +76,7 @@ export function ConfirmPaymentModal({ visible, method, total, customerHandle, on
               <Text style={styles.confirmText}>{meta.emoji}  Paid</Text>
             </TouchableOpacity>
           </View>
+          </TourTarget>
         </Pressable>
       </Pressable>
     </Modal>

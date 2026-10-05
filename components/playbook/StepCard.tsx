@@ -4,12 +4,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
-import type { FlowStep } from '../../constants/playbook';
+import type { FlowBlock, FlowStep } from '../../constants/playbook';
 import { ActionList } from './ActionList';
 import { ChipRow } from './ChipRow';
 import { SayLine } from './SayLine';
 
 type Props = { step: FlowStep; number: number; isLast: boolean };
+
+function Block({ block, headingStyle }: { block: FlowBlock; headingStyle: object }) {
+  switch (block.kind) {
+    case 'actions':
+      return <ActionList items={block.items} />;
+    case 'say':
+      return <SayLine text={block.text} />;
+    case 'heading':
+      return <Text style={headingStyle} accessibilityRole="header">{block.text}</Text>;
+  }
+}
 
 /** One numbered step on the playbook rail, with optional branch chips. */
 export function StepCard({ step, number, isLast }: Props) {
@@ -19,8 +30,7 @@ export function StepCard({ step, number, isLast }: Props) {
 
   const branches = step.branches ?? [];
   const branch = branches[branchIndex];
-  const actions = branch ? branch.actions : step.actions ?? [];
-  const say = branch ? branch.say : step.say;
+  const blocks = branch ? branch.blocks : step.blocks ?? [];
 
   return (
     <View style={styles.row} testID={`playbook-step-${step.id}`}>
@@ -32,7 +42,6 @@ export function StepCard({ step, number, isLast }: Props) {
       </View>
       <View style={styles.card}>
         <Text style={styles.title} accessibilityRole="header">{step.title}</Text>
-        <Text style={styles.hint}>{step.hint}</Text>
         {branches.length > 0 && (
           <ChipRow
             options={branches.map((b, i) => ({ key: String(i), label: b.label }))}
@@ -41,8 +50,9 @@ export function StepCard({ step, number, isLast }: Props) {
             testIDPrefix={`playbook-branch-${step.id}`}
           />
         )}
-        <ActionList items={actions} />
-        {say && <SayLine text={say} />}
+        {blocks.map((block, i) => (
+          <Block key={i} block={block} headingStyle={styles.heading} />
+        ))}
         {branch?.shortcut === 'free-taste' && (
           <TouchableOpacity
             testID="playbook-shortcut-free-taste"
@@ -86,7 +96,7 @@ const makeStyles = (c: Palette) =>
       borderColor: c.borderDark,
     },
     title: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
-    hint: { color: c.textMuted, fontSize: F.sm, marginTop: -8 },
+    heading: { color: c.textMuted, fontSize: F.xs, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: -4 },
     shortcut: {
       flexDirection: 'row',
       alignItems: 'center',

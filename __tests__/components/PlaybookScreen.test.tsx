@@ -2,7 +2,7 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import PlaybookScreen from '../../app/modals/playbook';
-import { FLOW_STEPS, PRODUCT_NOTES } from '../../constants/playbook';
+import { FLOW_STEPS, PRODUCT_NOTES, QUICK_GUIDE } from '../../constants/playbook';
 
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
 
@@ -20,12 +20,15 @@ describe('PlaybookScreen', () => {
   it('switches the shown branch when a branch chip is tapped', () => {
     const { getByTestId, getByText, queryByText } = render(<PlaybookScreen />);
     const recommend = FLOW_STEPS.find((s) => s.id === 'recommend')!;
-    const [small, big] = recommend.branches!;
+    const firstItem = (i: number) => {
+      const block = recommend.branches![i].blocks[0];
+      return block.kind === 'actions' ? block.items[0] : '';
+    };
 
-    expect(getByText(small.actions[0])).toBeTruthy();
-    fireEvent.press(getByTestId('playbook-branch-recommend-1'));
-    expect(getByText(big.actions[0])).toBeTruthy();
-    expect(queryByText(small.actions[0])).toBeNull();
+    expect(getByText(firstItem(0))).toBeTruthy();
+    fireEvent.press(getByTestId('playbook-branch-recommend-2'));
+    expect(getByText(firstItem(2))).toBeTruthy();
+    expect(queryByText(firstItem(0))).toBeNull();
   });
 
   it('shows the free taste shortcut on the has-a-pet branch and navigates', () => {
@@ -36,18 +39,16 @@ describe('PlaybookScreen', () => {
 
   it('shows the say-this line for the small-pet recommendation', () => {
     const { getByText } = render(<PlaybookScreen />);
-    const say = FLOW_STEPS.find((s) => s.id === 'recommend')!.branches![0].say!;
-    expect(getByText(`“${say}”`)).toBeTruthy();
+    const block = FLOW_STEPS.find((s) => s.id === 'recommend')!.branches![0].blocks.find((b) => b.kind === 'say')!;
+    expect(block.kind === 'say' && getByText(`“${block.text}”`)).toBeTruthy();
   });
 
-  it('lists every product note on the Products tab and filters by audience', () => {
-    const { getByTestId, queryByTestId } = render(<PlaybookScreen />);
+  it('shows the quick guide and every product note on the Products tab', () => {
+    const { getByTestId, getByText } = render(<PlaybookScreen />);
     fireEvent.press(getByTestId('playbook-tab-products'));
+    expect(getByTestId('playbook-guide')).toBeTruthy();
+    expect(getByText(QUICK_GUIDE[0].customer)).toBeTruthy();
     PRODUCT_NOTES.forEach((n) => expect(getByTestId(`playbook-note-${n.id}`)).toBeTruthy());
-
-    fireEvent.press(getByTestId('playbook-filter-big'));
-    expect(getByTestId('playbook-note-meaty-treats')).toBeTruthy();
-    expect(queryByTestId('playbook-note-cat-grass')).toBeNull();
   });
 
   it('marks the selected tab for accessibility', () => {

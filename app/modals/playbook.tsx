@@ -4,12 +4,10 @@ import {
 } from 'react-native';
 import { F, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
-import {
-  FLOW_STEPS, AUDIENCE_FILTERS, PLAYBOOK_AS_OF, notesForFilter, type PlaybookAudience,
-} from '../../constants/playbook';
+import { FLOW_STEPS, PRODUCT_NOTES, PLAYBOOK_AS_OF } from '../../constants/playbook';
 import { StepCard } from '../../components/playbook/StepCard';
 import { ProductNoteCard } from '../../components/playbook/ProductNoteCard';
-import { ChipRow } from '../../components/playbook/ChipRow';
+import { QuickGuide } from '../../components/playbook/QuickGuide';
 import { TourTarget, MaybeTourTarget } from '../../components/tour/TourTarget';
 import { useTourScene } from '../../context/TourContext';
 
@@ -24,9 +22,6 @@ export default function PlaybookScreen() {
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
   const [tab, setTab] = useState<Tab>('flow');
-  const [filter, setFilter] = useState<'all' | PlaybookAudience>('all');
-
-  const notes = notesForFilter(filter);
 
   // Guided tour: switch tabs on request.
   const tourScene = useTourScene();
@@ -66,16 +61,11 @@ export default function PlaybookScreen() {
             ))
           ) : (
             <>
-              <TourTarget id="playbook-filters">
-                <ChipRow
-                  options={AUDIENCE_FILTERS}
-                  value={filter}
-                  onChange={setFilter}
-                  testIDPrefix="playbook-filter"
-                />
+              <TourTarget id="playbook-guide">
+                <QuickGuide />
               </TourTarget>
               <View style={styles.notes}>
-                {notes.map((n) => (
+                {PRODUCT_NOTES.map((n) => (
                   <View key={n.id} style={wide ? styles.noteWide : styles.noteFull}>
                     <ProductNoteCard note={n} />
                   </View>

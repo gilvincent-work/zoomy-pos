@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { Animated, AccessibilityInfo, Modal, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, AccessibilityInfo, Modal, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { useTour } from '../../context/TourContext';
 import { R } from '../../constants/theme';
@@ -106,6 +106,17 @@ export function TourOverlay() {
         ) : (
           <View style={[styles.dim, StyleSheet.absoluteFill]} />
         )}
+        {status !== 'ready' && (
+          <TouchableOpacity
+            testID="tour-exit-loading"
+            style={[styles.loadingExit, { bottom: insets.bottom + MARGIN * 2 }]}
+            onPress={stop}
+            accessibilityRole="button"
+            accessibilityLabel="Exit tour"
+          >
+            <Text style={styles.loadingExitText}>Exit tour</Text>
+          </TouchableOpacity>
+        )}
         {status === 'ready' && (
           <View
             style={[styles.cardWrap, { top: cardTop, left: (W - cardWidth) / 2, width: cardWidth, opacity: cardHeight > 0 ? 1 : 0 }]}
@@ -124,4 +135,14 @@ const styles = StyleSheet.create({
   dim: { position: 'absolute', backgroundColor: SCRIM },
   ring: { position: 'absolute', borderWidth: 2, borderRadius: R.md },
   cardWrap: { position: 'absolute' },
+  loadingExit: {
+    position: 'absolute',
+    alignSelf: 'center',
+    minHeight: 44,
+    paddingHorizontal: 22,
+    justifyContent: 'center',
+    borderRadius: R.md,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  loadingExitText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

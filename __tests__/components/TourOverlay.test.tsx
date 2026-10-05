@@ -58,6 +58,31 @@ describe('TourOverlay', () => {
     expect(getByTestId('tour-back')).toBeTruthy();
   });
 
+  it('can be exited from any step with the X button', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <TourProvider steps={steps}><Harness /></TourProvider>
+    );
+    act(() => tour.start());
+    await settle();
+    fireEvent.press(getByTestId('tour-next'));
+    await settle();
+
+    fireEvent.press(getByTestId('tour-exit'));
+    expect(queryByTestId('tour-overlay')).toBeNull();
+    expect(tour.active).toBe(false);
+  });
+
+  it('offers Exit tour while moving between screens', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <TourProvider steps={steps}><Harness /></TourProvider>
+    );
+    act(() => tour.start());
+    // Not settled yet: the card is hidden but the exit is already there.
+    expect(queryByTestId('tour-tooltip')).toBeNull();
+    fireEvent.press(getByTestId('tour-exit-loading'));
+    expect(tour.active).toBe(false);
+  });
+
   it('closes when Skip is pressed', async () => {
     const { getByTestId, queryByTestId } = render(
       <TourProvider steps={steps}><Harness /></TourProvider>

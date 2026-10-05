@@ -26,7 +26,19 @@ export function TourTooltip({ step, index, total, onBack, onNext, onSkip }: Prop
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${((index + 1) / total) * 100}%` }]} />
       </View>
-      <Text style={styles.title} accessibilityRole="header">{step.title}</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title} accessibilityRole="header">{step.title}</Text>
+        <TouchableOpacity
+          testID="tour-exit"
+          style={styles.exit}
+          onPress={onSkip}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Exit tour"
+        >
+          <Ionicons name="close" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
       <Text style={styles.body}>{step.body}</Text>
       {step.auto && (
         <View style={styles.auto}>
@@ -72,7 +84,9 @@ const makeStyles = (c: Palette) =>
     },
     progressTrack: { height: 3, borderRadius: 2, backgroundColor: c.elevated, marginBottom: 6, overflow: 'hidden' },
     progressFill: { height: 3, borderRadius: 2, backgroundColor: c.pink },
-    title: { color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
+    titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+    title: { flex: 1, color: c.textPrimary, fontSize: F.lg, fontWeight: '800' },
+    exit: { width: 32, height: 32, marginTop: -4, marginRight: -6, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
     body: { color: c.textSecondary, fontSize: F.md, lineHeight: 21 },
     auto: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     autoText: { color: c.pink, fontSize: F.xs, fontWeight: '700' },

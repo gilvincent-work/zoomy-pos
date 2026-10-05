@@ -1,0 +1,148 @@
+import React, { useContext, useEffect, useRef, useState } from 'react';
+import { Animated, AccessibilityInfo, Modal, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { useTour } from '../../context/TourContext';
+import { R } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
+import { TourTooltip } from './TourTooltip';
+
+const SCRIM = 'rgba(0,0,0,0.72)';
+const PAD = 6;
+const GAP = 12;
+const TWEEN_MS = 260;
+const MARGIN = 16;
+const MAX_CARD_WIDTH = 460;
+const NO_INSETS = { top: 0, bottom: 0, left: 0, right: 0 };
+
+/**
+ * Dims the screen except for the current step's target and shows its card.
+ * Rendered in a transparent Modal so it sits above the app's own modal screens.
+ * The Modal is keyed by route + scene so it re-presents after a sheet or drawer
+ * opens and stays on top of it.
+ */
+export function TourOverlay() {
+  const { active, step, rect, status, epoch, index, total, next, back, stop } = useTour();
+  const { colors } = useTheme();
+  const { width: W, height: H } = useWindowDimensions();
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
+  const [cardHeight, setCardHeight] = useState(0);
+
+  const x = useRef(new Animated.Value(0)).current;
+  const y = useRef(new Animated.Value(0)).current;
+  const w = useRef(new Animated.Value(0)).current;
+  const h = useRef(new Animated.Value(0)).current;
+  const hadRect = useRef(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!rect) {
+      hadRect.current = false;
+      return;
+    }
+    const to = { x: rect.x - PAD, y: rect.y - PAD, w: rect.width + PAD * 2, h: rect.height + PAD * 2 };
+    if (!hadRect.current || reduceMotion) {
+      x.setValue(to.x); y.setValue(to.y); w.setValue(to.w); h.setValue(to.h);
+      hadRect.current = true;
+      return;
+    }
+    Animated.parallel(
+      [[x, to.x], [y, to.y], [w, to.w], [h, to.h]].map(([v, val]) =>
+        Animated.timing(v as Animated.Value, { toValue: val as number, duration: TWEEN_MS, useNativeDriver: false })
+      )
+    ).start();
+  }, [rect, reduceMotion, x, y, w, h]);
+
+  const showHole = status === 'ready' && rect !== null;
+
+  // Put the card on the side of the target with room, then clamp it fully on screen.
+  // Until its height is measured it stays invisible so it never jumps.
+  const cardWidth = Math.min(W - MARGIN * 2, MAX_CARD_WIDTH);
+  const minTop = insets.top + MARGIN;
+  const maxTop = Math.max(minTop, H - insets.bottom - MARGIN - cardHeight);
+  let cardTop: number;
+  if (!showHole || !rect) {
+    cardTop = (H - cardHeight) / 2;
+  } else {
+    const holeTop = rect.y - PAD;
+    const holeBottom = rect.y + rect.height + PAD;
+    const roomBelow = H - insets.bottom - holeBottom;
+    const roomAbove = holeTop - insets.top;
+    const needed = cardHeight + GAP + MARGIN;
+    const below = roomBelow >= needed || (roomAbove < needed && roomBelow >= roomAbove);
+    cardTop = below ? holeBottom + GAP : holeTop - GAP - cardHeight;
+  }
+  cardTop = Math.min(Math.max(cardTop, minTop), maxTop);
+
+  if (!active || !step) return null;
+
+  const bottomEdge = Animated.add(y, h);
+  const rightEdge = Animated.add(x, w);
+
+  return (
+    <Modal
+      key={epoch}
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={stop}
+    >
+      <View style={styles.fill} testID="tour-overlay">
+        {showHole ? (
+          <>
+            <Animated.View style={[styles.dim, { left: 0, right: 0, top: 0, height: y }]} />
+            <Animated.View style={[styles.dim, { left: 0, right: 0, top: bottomEdge, bottom: 0 }]} />
+            <Animated.View style={[styles.dim, { left: 0, top: y, width: x, height: h }]} />
+            <Animated.View style={[styles.dim, { left: rightEdge, right: 0, top: y, height: h }]} />
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.ring, { left: x, top: y, width: w, height: h, borderColor: colors.pink }]}
+            />
+          </>
+        ) : (
+          <View style={[styles.dim, StyleSheet.absoluteFill]} />
+        )}
+        {status !== 'ready' && (
+          <TouchableOpacity
+            testID="tour-exit-loading"
+            style={[styles.loadingExit, { bottom: insets.bottom + MARGIN * 2 }]}
+            onPress={stop}
+            accessibilityRole="button"
+            accessibilityLabel="Exit tour"
+          >
+            <Text style={styles.loadingExitText}>Exit tour</Text>
+          </TouchableOpacity>
+        )}
+        {status === 'ready' && (
+          <View
+            style={[styles.cardWrap, { top: cardTop, left: (W - cardWidth) / 2, width: cardWidth, opacity: cardHeight > 0 ? 1 : 0 }]}
+            onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}
+          >
+            <TourTooltip step={step} index={index} total={total} onBack={back} onNext={next} onSkip={stop} />
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  dim: { position: 'absolute', backgroundColor: SCRIM },
+  ring: { position: 'absolute', borderWidth: 2, borderRadius: R.md },
+  cardWrap: { position: 'absolute' },
+  loadingExit: {
+    position: 'absolute',
+    alignSelf: 'center',
+    minHeight: 44,
+    paddingHorizontal: 22,
+    justifyContent: 'center',
+    borderRadius: R.md,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  loadingExitText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+});

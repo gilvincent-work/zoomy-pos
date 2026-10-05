@@ -8,6 +8,7 @@ import { ProductVariant } from '../db/products';
 import { F, R, type Palette } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useColumns } from '../hooks/useColumns';
+import { TourTarget } from './tour/TourTarget';
 
 type Props = {
   visible: boolean;
@@ -76,6 +77,7 @@ export function VariantPickerModal({ visible, productName, variants, initialQuan
           <Text style={styles.title}>{productName}</Text>
           <Text style={styles.subtitle}>Select variants</Text>
 
+          <TourTarget id="variant-options" style={{ flexShrink: 1 }}>
           <FlatList
             key={numColumns}
             data={variants}
@@ -100,6 +102,7 @@ export function VariantPickerModal({ visible, productName, variants, initialQuan
               <Text style={styles.empty}>No active variants for this product.</Text>
             }
           />
+          </TourTarget>
 
           <View style={styles.footer}>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>

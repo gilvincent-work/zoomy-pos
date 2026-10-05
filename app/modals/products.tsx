@@ -22,6 +22,7 @@ import { PRODUCT_EMOJIS, MAX_EMOJI, emojiGraphemes, clampEmoji } from '../../con
 import { Ionicons } from '@expo/vector-icons';
 import { F, R, type Palette } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+import { TourTarget, MaybeTourTarget } from '../../components/tour/TourTarget';
 import { useToast } from '../../components/Toast';
 
 /** Pseudo-pill that shows the Bundle Presets instead of individual products. */
@@ -437,9 +438,11 @@ export default function ProductsModal() {
         {/* Product-line pills: filter the list by line so staff don't scroll one
             long alphabetical list (e.g. every "Beef ..." at once). */}
         {lineNames.length > 1 && (
-          <View style={styles.pillRow}>
-            <CategoryTabs categories={lineNames} active={activeLine} onSelect={selectLine} />
-          </View>
+          <TourTarget id="products-pills">
+            <View style={styles.pillRow}>
+              <CategoryTabs categories={lineNames} active={activeLine} onSelect={selectLine} />
+            </View>
+          </TourTarget>
         )}
 
         {/* Secondary chips for lines that have subcategories (e.g. Freeze Dried). */}
@@ -458,8 +461,9 @@ export default function ProductsModal() {
             {products.length === 0 ? 'No products yet.' : 'No products in this line.'}
           </Text>
         )}
-        {visibleProducts.map((item) => (
-          <View key={item.id} style={styles.itemRow}>
+        {visibleProducts.map((item, index) => (
+          <MaybeTourTarget key={item.id} id={index === 0 ? 'products-row' : undefined}>
+          <View style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <Text style={styles.itemEmoji}>{item.emoji || '🍬'}</Text>
               <View style={styles.itemText}>
@@ -489,6 +493,7 @@ export default function ProductsModal() {
               />
             </View>
           </View>
+          </MaybeTourTarget>
         ))}
 
         </>
@@ -501,8 +506,9 @@ export default function ProductsModal() {
         {bundles.length === 0 && (
           <Text style={styles.emptyHint}>No bundle presets yet. Create one from the POS screen.</Text>
         )}
-        {bundles.map((bundle) => (
-          <View key={bundle.id} style={styles.itemRow}>
+        {bundles.map((bundle, index) => (
+          <MaybeTourTarget key={bundle.id} id={index === 0 ? 'products-bundle' : undefined}>
+          <View style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <TouchableOpacity onPress={() => openBundleEmoji(bundle)} accessibilityLabel={`Edit emoji for ${bundle.name}`}>
                 <Text style={styles.itemEmoji}>
@@ -536,6 +542,7 @@ export default function ProductsModal() {
               />
             </View>
           </View>
+          </MaybeTourTarget>
         ))}
         </>
         )}

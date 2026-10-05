@@ -2,6 +2,7 @@ import { Modal, View, Text, TouchableOpacity, StyleSheet, Pressable, Platform, S
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { F, R, type Palette } from '../constants/theme';
+import { TourTarget } from './tour/TourTarget';
 
 // Upper drawer for the header actions. On narrow screens the row of action icons
 // can't fit next to the brand + sync + event chip, so they collapse into a single
@@ -9,8 +10,12 @@ import { F, R, type Palette } from '../constants/theme';
 // in the compact layout; wider screens keep the inline icon row.
 
 export interface HeaderMenuItem {
+  /** Stable id, also used to build the testID (`header-action-<key>`). */
+  key: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  /** Overrides `label` for screen readers on the inline icon (e.g. "Switch to light mode"). */
+  accessibilityLabel?: string;
   onPress: () => void;
 }
 
@@ -32,20 +37,22 @@ export function HeaderMenuDrawer({
         <Pressable style={s.panel} onPress={() => {}}>
           <View style={s.grabber} />
           {items.map((it, i) => (
-            <TouchableOpacity
-              key={it.label}
-              style={[s.row, i < items.length - 1 && s.rowDivider]}
-              onPress={() => {
-                onClose();
-                it.onPress();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={it.label}
-            >
-              <Ionicons name={it.icon} size={20} color={colors.textPrimary} />
-              <Text style={s.label}>{it.label}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={s.chevron} />
-            </TouchableOpacity>
+            <TourTarget key={it.key} id={`header-action-${it.key}`}>
+              <TouchableOpacity
+                testID={`header-drawer-${it.key}`}
+                style={[s.row, i < items.length - 1 && s.rowDivider]}
+                onPress={() => {
+                  onClose();
+                  it.onPress();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={it.label}
+              >
+                <Ionicons name={it.icon} size={20} color={colors.textPrimary} />
+                <Text style={s.label}>{it.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={s.chevron} />
+              </TouchableOpacity>
+            </TourTarget>
           ))}
         </Pressable>
       </Pressable>

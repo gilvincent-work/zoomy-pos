@@ -8,6 +8,7 @@ import type { PaymentMethod, PetType } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
 import { PetTypeChips } from './PetTypeChips';
+import { TourTarget } from './tour/TourTarget';
 
 type Props = {
   /** Selected quick payment method. */
@@ -49,6 +50,7 @@ export function CartPanel({ method, onMethodChange, enabledMethods, petType, onP
         <Text style={styles.headerLabel}>Current Sale</Text>
       </View>
 
+      <TourTarget id="panel-lines" style={styles.lines}>
       <ScrollView
         style={styles.lines}
         contentContainerStyle={styles.linesContent}
@@ -152,23 +154,30 @@ export function CartPanel({ method, onMethodChange, enabledMethods, petType, onP
           </>
         )}
       </ScrollView>
+      </TourTarget>
 
       <View style={[styles.footer, compact && styles.footerCompact, tight && styles.footerTight]}>
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={[styles.totalValue, tight && styles.totalValueTight]}>₱{total.toFixed(2)}</Text>
         </View>
-        <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={isEmpty} />
-        <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
-        <TouchableOpacity
-          testID="cart-charge"
-          style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
-          disabled={isEmpty}
-          onPress={onCharge}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
-        </TouchableOpacity>
+        <TourTarget id="panel-pet">
+          <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={isEmpty} />
+        </TourTarget>
+        <TourTarget id="panel-method">
+          <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={isEmpty} />
+        </TourTarget>
+        <TourTarget id="panel-pay">
+          <TouchableOpacity
+            testID="cart-charge"
+            style={[styles.charge, isEmpty && styles.chargeDisabled, tight && styles.chargeTight]}
+            disabled={isEmpty}
+            onPress={onCharge}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.chargeText, isEmpty && styles.chargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
+          </TouchableOpacity>
+        </TourTarget>
       </View>
     </View>
   );

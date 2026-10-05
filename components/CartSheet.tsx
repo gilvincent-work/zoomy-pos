@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder,
   useWindowDimensions, Pressable,
@@ -9,6 +9,7 @@ import { useCart } from '../context/CartContext';
 import { CartPanel } from './CartPanel';
 import { PaymentMethodTabs } from './PaymentMethodTabs';
 import { PetTypeChips } from './PetTypeChips';
+import { TourTarget } from './tour/TourTarget';
 import type { PaymentMethod, PetType } from '../db/transactions';
 import { quickMethodMeta } from '../constants/payment';
 
@@ -21,6 +22,8 @@ type Props = {
   onCharge: () => void;
   /** Stock ceiling check shared with the tile grid; disables a line's "+" once stock is exhausted. */
   canIncrement?: (productId: number) => boolean;
+  /** Forces the sheet open (the tour uses this to show every cart line). */
+  tourExpanded?: boolean;
 };
 
 /**
@@ -28,7 +31,7 @@ type Props = {
  * shows item count + total + Charge; tapping it (or dragging up) expands the full
  * CartPanel. Built on core Animated + PanResponder so no gesture library is needed.
  */
-export function CartSheet({ method, onMethodChange, enabledMethods, petType, onPetTypeChange, onCharge, canIncrement }: Props) {
+export function CartSheet({ method, onMethodChange, enabledMethods, petType, onPetTypeChange, onCharge, canIncrement, tourExpanded }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { items, bundles, total } = useCart();
@@ -66,6 +69,20 @@ export function CartSheet({ method, onMethodChange, enabledMethods, petType, onP
   const close = () => {
     animateTo(sheetHeight, () => setExpanded(false));
   };
+
+  // The tour opens the sheet on request and closes only what it opened.
+  const openedByTour = useRef(false);
+  useEffect(() => {
+    if (tourExpanded) {
+      openedByTour.current = true;
+      open();
+    } else if (openedByTour.current) {
+      openedByTour.current = false;
+      close();
+    }
+    // open/close are stable enough for this: they only touch refs and state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourExpanded]);
 
   // Drag-down-to-close on the expanded sheet's handle.
   const panResponder = useRef(
@@ -107,30 +124,37 @@ export function CartSheet({ method, onMethodChange, enabledMethods, petType, onP
       >
         <View style={styles.grabber} />
         <View style={styles.peekMethods}>
-          <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={cartCount === 0} />
-          <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={cartCount === 0} compact />
+          <TourTarget id="peek-pet">
+            <PetTypeChips value={petType} onChange={onPetTypeChange} disabled={cartCount === 0} />
+          </TourTarget>
+          <TourTarget id="peek-method">
+            <PaymentMethodTabs value={method} onChange={onMethodChange} items={enabledMethods} disabled={cartCount === 0} compact />
+          </TourTarget>
         </View>
         <View style={styles.peekRow}>
-          <Pressable
-            testID="cart-sheet-peek"
-            style={styles.peekLeft}
-            onPress={open}
-            accessibilityRole="button"
-            accessibilityLabel="Open current sale"
-          >
-            <Text style={styles.peekCount}>
-              {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
-            </Text>
-            <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
-          </Pressable>
-          <TouchableOpacity
-            testID="cart-sheet-charge"
-            style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
-            disabled={cartCount === 0}
-            onPress={onCharge}
-          >
-            <Text style={[styles.peekChargeText, cartCount === 0 && styles.peekChargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
-          </TouchableOpacity>
+          <TourTarget id="peek-total" style={styles.peekLeft}>
+            <Pressable
+              testID="cart-sheet-peek"
+              onPress={open}
+              accessibilityRole="button"
+              accessibilityLabel="Open current sale"
+            >
+              <Text style={styles.peekCount}>
+                {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''}` : 'Current Sale'}
+              </Text>
+              <Text style={styles.peekTotal}>₱{total.toFixed(2)}</Text>
+            </Pressable>
+          </TourTarget>
+          <TourTarget id="peek-pay">
+            <TouchableOpacity
+              testID="cart-sheet-charge"
+              style={[styles.peekCharge, cartCount === 0 && styles.peekChargeDisabled]}
+              disabled={cartCount === 0}
+              onPress={onCharge}
+            >
+              <Text style={[styles.peekChargeText, cartCount === 0 && styles.peekChargeTextDisabled]}>{meta.emoji}  {meta.label} · Pay</Text>
+            </TouchableOpacity>
+          </TourTarget>
         </View>
       </Animated.View>
 

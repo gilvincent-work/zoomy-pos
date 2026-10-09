@@ -1,5 +1,4 @@
 import {getSupabase} from '../lib/supabase';
-import {fetchAllPaged} from './paginate';
 import {stripLinePrefix} from './catalog-sync';
 import {reconstructEntries, type EditEntry, type RawOrderLine, type BundleMatch} from './order-entries';
 import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactions';
@@ -20,14 +19,29 @@ import type {PaymentMethod, Transaction, TransactionItem} from '../db/transactio
 
 const MAX_ORDERS = 500; // bound the pull; the list paginates visually anyway
 
+// A stalled request (weak venue signal) must not hold the screen's spinner open
+// forever: past this the read is aborted and the screen keeps its local list.
+const FETCH_TIMEOUT_MS = 15_000;
+
 export type RemoteOrdersResult =
-  | {ok: true; orders: Transaction[]; prizeClientUuids: string[]}
+  // `windowStart` is the oldest order in the pull when it hit MAX_ORDERS (so
+  // older Coop orders exist but were not read), else null (the pull is complete).
+  // Callers must not treat a local sale older than it as "deleted on Coop".
+  | {ok: true; orders: Transaction[]; prizeClientUuids: string[]; windowStart: string | null}
   | {ok: false};
+
+type ItemRow = {
+  product_id: string | null;
+  bundle_id: string | null;
+  bundle_group: string | null;
+  qty: number | null;
+  unit_price: number | null;
+  // Supabase types an embedded to-one relation as object or array; handle both.
+  pos_products: {name: string | null} | {name: string | null}[] | null;
+};
 
 type OrderRow = {
   client_uuid: string | null;
-  subtotal: number | null;
-  discount: number | null;
   total: number | null;
   payment_method: string | null;
   status: string | null;
@@ -35,124 +49,98 @@ type OrderRow = {
   event_id: string | null;
   pet_type: string | null;
   created_at: string;
+  pos_order_items: ItemRow[] | null;
+  pos_order_prizes: {order_id: string}[] | null;
 };
 
-type ItemRow = {
-  order_id: string;
-  product_id: string | null;
-  bundle_id: string | null;
-  bundle_group: string | null;
-  qty: number | null;
-  unit_price: number | null;
-};
+// One request: orders with their lines (and each line's product name) and their
+// non-voided prizes embedded. This used to be 4 to 6 sequential round trips, three
+// of them carrying all 500 order ids in a ~20 KB `in.(...)` query string, which
+// is what made the screen crawl on venue LTE.
+const ORDERS_SELECT =
+  'client_uuid, total, payment_method, status, remarks, event_id, pet_type, created_at, ' +
+  'pos_order_items(product_id, bundle_id, bundle_group, qty, unit_price, pos_products(name)), ' +
+  'pos_order_prizes(order_id)';
+
+function toItem(it: ItemRow): TransactionItem {
+  const product = Array.isArray(it.pos_products) ? it.pos_products[0] : it.pos_products;
+  const rawName = product?.name || it.product_id || 'Item';
+  return {
+    id: 0,
+    transaction_id: 0,
+    product_id: null,
+    product_name: stripLinePrefix(rawName),
+    price: Number(it.unit_price ?? 0),
+    quantity: Number(it.qty ?? 0),
+    variant_id: null,
+    variant_name: null,
+  };
+}
+
+function toTransaction(o: OrderRow): Transaction {
+  const lines = o.pos_order_items ?? [];
+  const total = Number(o.total ?? 0);
+  return {
+    id: 0, // placeholder; the merge assigns a stable negative id per remote row
+    total,
+    cash_tendered: total,
+    change: 0,
+    payment_method: (o.payment_method || 'cash') as PaymentMethod,
+    ref_number: null,
+    proof_photo_uri: null,
+    customer_handle: null,
+    // An order is a bundle if any of its lines carry a bundle id or bundle group
+    // (the picks of a "Buy Any N" ride as grouped product lines). Used for the
+    // Bundle badge; the free-item prize is a separate concern (its own badge).
+    is_bundle: lines.some((it) => !!(it.bundle_id || it.bundle_group)),
+    status: o.status === 'voided' ? 'voided' : 'completed',
+    created_at: o.created_at,
+    remarks: o.remarks ?? null,
+    event_id: o.event_id ?? null,
+    pet_type: (o.pet_type as Transaction['pet_type']) ?? null,
+    client_uuid: o.client_uuid ?? null,
+    // Sync-tracking columns are local-only; a remote-sourced row carries none.
+    synced_at: null,
+    void_synced_at: null,
+    remarks_synced_at: null,
+    items: lines.map(toItem),
+  };
+}
 
 export async function fetchRemoteOrders(): Promise<RemoteOrdersResult> {
   const sb = getSupabase();
   if (!sb) return {ok: false};
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    // pos_orders keyed for dedup by client_uuid; join items by the order id.
-    const {data: orders, error: ordersErr} = await sb
+    // MAX_ORDERS (500) stays under PostgREST's 1000-row cap, and embedded rows
+    // don't count toward it, so this single read is complete without paging.
+    const {data, error} = await sb
       .from('pos_orders')
-      .select('id, client_uuid, subtotal, discount, total, payment_method, status, remarks, event_id, pet_type, created_at')
+      .select(ORDERS_SELECT)
+      .is('pos_order_prizes.voided_at', null)
       .order('created_at', {ascending: false})
-      .limit(MAX_ORDERS);
-    if (ordersErr || !orders) return {ok: false};
+      .order('id', {ascending: true, referencedTable: 'pos_order_items'})
+      .limit(MAX_ORDERS)
+      .abortSignal(controller.signal);
+    if (error || !data) return {ok: false};
 
-    const ids = orders.map((o) => o.id as string);
-    if (ids.length === 0) return {ok: true, orders: [], prizeClientUuids: []};
-
-    // Both reads are paged (they outgrew the 1000-row cap) and their errors are
-    // checked: a partial items/products fetch would blank out real sales, so fall
-    // back to the local list instead of showing truncated data.
-    const [itemsRes, productsRes] = await Promise.all([
-      fetchAllPaged<ItemRow>((from, to) =>
-        sb.from('pos_order_items').select('order_id, product_id, bundle_id, bundle_group, qty, unit_price').in('order_id', ids).order('id', {ascending: true}).range(from, to)),
-      fetchAllPaged<{product_id: string; name: string}>((from, to) =>
-        sb.from('pos_products').select('product_id, name').order('product_id', {ascending: true}).range(from, to)),
-    ]);
-    if (!itemsRes.ok || !productsRes.ok) return {ok: false};
-    const items = itemsRes.rows;
-    const products = productsRes.rows;
-
-    const nameBySku = new Map<string, string>();
-    for (const p of products) nameBySku.set(p.product_id as string, p.name as string);
-
-    // An order is a bundle if any of its lines carry a bundle id or bundle group
-    // (the picks of a "Buy Any N" ride as grouped product lines). Used for the
-    // Bundle badge; the free-item prize is a separate concern (its own badge).
-    const bundleOrderIds = new Set<string>();
-    const itemsByOrder = new Map<string, TransactionItem[]>();
-    for (const it of items as ItemRow[]) {
-      if (it.bundle_id || it.bundle_group) bundleOrderIds.add(it.order_id);
-      const sku = it.product_id ?? '';
-      const rawName = (sku && nameBySku.get(sku)) || sku || 'Item';
-      const line: TransactionItem = {
-        id: 0,
-        transaction_id: 0,
-        product_id: null,
-        product_name: stripLinePrefix(rawName),
-        price: Number(it.unit_price ?? 0),
-        quantity: Number(it.qty ?? 0),
-        variant_id: null,
-        variant_name: null,
-      };
-      const arr = itemsByOrder.get(it.order_id) ?? [];
-      arr.push(line);
-      itemsByOrder.set(it.order_id, arr);
-    }
-
-    // Which orders carry a non-voided "free item won" prize, mapped back to their
-    // client_uuid so the Transactions list can badge them across devices. Defensive:
-    // a failed/absent read just yields none and never blocks the orders load.
-    const uuidById = new Map<string, string>();
-    for (const o of orders as (OrderRow & {id: string})[]) {
-      if (o.client_uuid) uuidById.set(o.id, o.client_uuid);
-    }
-    let prizeClientUuids: string[] = [];
-    try {
-      const prizesRes = await fetchAllPaged<{order_id: string}>((from, to) =>
-        sb.from('pos_order_prizes').select('order_id').in('order_id', ids).is('voided_at', null).order('order_id', {ascending: true}).range(from, to));
-      if (prizesRes.ok) {
-        const uuids = new Set<string>();
-        for (const p of prizesRes.rows) {
-          const uuid = uuidById.get(p.order_id);
-          if (uuid) uuids.add(uuid);
-        }
-        prizeClientUuids = [...uuids];
-      }
-    } catch {
-      // Prize badge is non-critical; leave it empty on any read failure.
-    }
-
-    const remoteOrders = (orders as (OrderRow & {id: string})[]).map((o): Transaction => {
-      const total = Number(o.total ?? 0);
-      return {
-        id: 0, // placeholder; the merge assigns a stable negative id per remote row
-        total,
-        cash_tendered: total,
-        change: 0,
-        payment_method: (o.payment_method || 'cash') as PaymentMethod,
-        ref_number: null,
-        proof_photo_uri: null,
-        customer_handle: null,
-        is_bundle: bundleOrderIds.has(o.id),
-        status: o.status === 'voided' ? 'voided' : 'completed',
-        created_at: o.created_at,
-        remarks: o.remarks ?? null,
-        event_id: o.event_id ?? null,
-        pet_type: (o.pet_type as Transaction['pet_type']) ?? null,
-        client_uuid: o.client_uuid ?? null,
-        // Sync-tracking columns are local-only; a remote-sourced row carries none.
-        synced_at: null,
-        void_synced_at: null,
-        remarks_synced_at: null,
-        items: itemsByOrder.get(o.id) ?? [],
-      };
-    });
-    return {ok: true, orders: remoteOrders, prizeClientUuids};
+    const orders = data as unknown as OrderRow[];
+    const prizeClientUuids = orders
+      .filter((o) => o.client_uuid && (o.pos_order_prizes?.length ?? 0) > 0)
+      .map((o) => o.client_uuid as string);
+    // Postgres sends microseconds ("...00.123456+00:00"); trim to the millisecond
+    // form every JS engine parses, since callers compare this as a Date.
+    const windowStart =
+      orders.length >= MAX_ORDERS
+        ? orders[orders.length - 1].created_at.replace(/(\.\d{3})\d+/, '$1')
+        : null;
+    return {ok: true, orders: orders.map(toTransaction), prizeClientUuids, windowStart};
   } catch {
     return {ok: false};
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -12,6 +12,41 @@ Dates are local working dates (GMT+8). Newest first.
 
 ---
 
+## 2026-10-09 — Transactions loads in one request; capped pull no longer prunes old sales — `fix(transactions)`
+
+A seller at an Oct 8 event reported Transactions sitting on its spinner. Coop's
+logs showed every query finishing in under 0.5 s at origin, so the database was
+not the cause. The screen made 4 to 6 sequential round trips per load, three of
+them carrying all 500 order ids in a ~20 KB `in.(...)` query string, and the
+whole chain ran twice in parallel (focus plus pull-to-refresh). On venue LTE
+that came to about 8 s.
+
+**Decisions.**
+- `fetchRemoteOrders` is now one PostgREST embedded read: `pos_orders` with
+  `pos_order_items(pos_products(name))` and non-voided `pos_order_prizes`. The
+  request URL drops from ~20 KB to ~350 bytes. 500 parents stay under the
+  1000-row cap and embedded rows are not capped, so no paging is needed.
+  Trade-off accepted: a prize read failure now fails the whole pull (the screen
+  falls back to the local list) instead of only hiding prize badges. Both
+  Staging and prod have `pos_order_prizes`.
+- The pull aborts after 15 s so a stalled connection cannot hold the spinner
+  open; the local list stays on screen.
+- Focus and pull-to-refresh share one in-flight load. Edit-save and import pass
+  `fresh` so they wait out a running load and then read again.
+- **Bug fixed along the way:** the pull is capped at the newest 500 orders, and
+  prod passed 500. The deletion-prune treated any synced local sale absent from
+  that capped list as "deleted on Coop" and removed it from the device, taking
+  its local-only detail (cash tendered, proof photo) with it. The pull now
+  reports `windowStart`, and `transactionsToPrune` only considers sales strictly
+  newer than it. Sales already pruned this way are still on Coop and still show
+  as remote rows when inside the window; their local-only detail is not
+  recoverable.
+
+Reviewed for regressions before merge (output equivalence, RLS, FK ambiguity,
+row caps, dedupe races). 380 tests pass.
+
+---
+
 ## 2026-10-01 — stock-digest edge fn: paginate the sale ledger — `fix(edge)`
 
 Part of the workspace-wide pagination audit for the PostgREST `db-max-rows`

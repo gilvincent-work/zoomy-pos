@@ -142,4 +142,22 @@ describe('transactionsToPrune', () => {
     const kept = tx({ id: 2, created_at: '2026-09-10T07:50:00.000Z', client_uuid: 'kept', synced_at: '2026-09-10T07:50:01.000Z' });
     expect(transactionsToPrune([gone, kept], new Set(['kept']))).toEqual([gone]);
   });
+
+  it('never prunes a synced row older than a capped pull, since it was not read', () => {
+    const old = tx({ id: 1, created_at: '2026-09-01T03:00:00.000Z', client_uuid: 'old', synced_at: '2026-09-01T03:00:01.000Z' });
+    const windowStart = '2026-09-20T00:00:00.000Z';
+    expect(transactionsToPrune([old], new Set(), windowStart)).toEqual([]);
+  });
+
+  it('still prunes a synced row inside a capped pull that Coop lacks', () => {
+    const gone = tx({ id: 1, created_at: '2026-09-21T03:00:00.000Z', client_uuid: 'gone', synced_at: '2026-09-21T03:00:01.000Z' });
+    const windowStart = '2026-09-20T00:00:00.000Z';
+    expect(transactionsToPrune([gone], new Set(), windowStart)).toEqual([gone]);
+  });
+
+  it('keeps a synced row at exactly the capped pull boundary, where the cap may have cut a tie', () => {
+    const tied = tx({ id: 1, created_at: '2026-09-20T00:00:00.000Z', client_uuid: 'tied', synced_at: '2026-09-20T00:00:01.000Z' });
+    const windowStart = '2026-09-20T00:00:00.000+00:00';
+    expect(transactionsToPrune([tied], new Set(), windowStart)).toEqual([]);
+  });
 });

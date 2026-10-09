@@ -275,7 +275,7 @@ export default function TransactionsModal() {
   // gets permanently removed from this device too (transactionsToPrune). A
   // failed/unconfigured fetch never prunes anything — only a confirmed-empty
   // or confirmed-populated remote result counts as "Coop has spoken."
-  const loadTransactions = useCallback(async () => {
+  const fetchAndMergeTransactions = useCallback(async () => {
     const local = await getAllTransactions();
     setTransactions(local);
     // Keep the "N pending" marker honest while viewing history (a background
@@ -302,7 +302,7 @@ export default function TransactionsModal() {
       const remoteUuids = new Set(
         remote.orders.map((r) => r.client_uuid).filter((u): u is string => !!u)
       );
-      const toPrune = transactionsToPrune(local, remoteUuids);
+      const toPrune = transactionsToPrune(local, remoteUuids, remote.windowStart);
       if (toPrune.length > 0) {
         await deleteTransactionsByClientUuids(toPrune.map((t) => t.client_uuid!));
         const fresh = await getAllTransactions();
@@ -312,6 +312,23 @@ export default function TransactionsModal() {
       // Prune is non-critical; the merged list above is already displayed.
     }
   }, []);
+
+  // Focus and pull-to-refresh can fire together; they share one in-flight load
+  // instead of racing two full Coop reads over the same weak connection. A caller
+  // that just changed data (edit, import) passes fresh: it waits out any load
+  // already running (which may predate the change), then runs its own.
+  const loadInFlight = useRef<Promise<void> | null>(null);
+  const loadTransactions = useCallback(async (opts?: { fresh?: boolean }) => {
+    if (loadInFlight.current) {
+      if (!opts?.fresh) return loadInFlight.current;
+      await loadInFlight.current.catch(() => {});
+    }
+    const run = fetchAndMergeTransactions().finally(() => {
+      if (loadInFlight.current === run) loadInFlight.current = null;
+    });
+    loadInFlight.current = run;
+    return run;
+  }, [fetchAndMergeTransactions]);
 
   useFocusEffect(
     useCallback(() => {
@@ -393,7 +410,7 @@ export default function TransactionsModal() {
       // User cancelled file picker — silent return
       if (imported === 0 && skipped === 0 && failed === 0 && photosMissing === 0) return;
 
-      await loadTransactions();
+      await loadTransactions({ fresh: true });
 
       const lines: string[] = [];
       if (imported > 0) lines.push(`${imported} transaction${imported !== 1 ? 's' : ''} imported`);
@@ -825,7 +842,7 @@ export default function TransactionsModal() {
     }
     setEditingTx(null);
     setSelected(null);
-    await loadTransactions();       // reflect the edit (re-fetches Coop too)
+    await loadTransactions({ fresh: true }); // reflect the edit (re-fetches Coop too)
     pullCatalog().catch(() => {});  // refresh local stock cache after reconcile
     getAllProducts().then(setCatalog).catch(() => {});
   }
@@ -897,7 +914,7 @@ export default function TransactionsModal() {
         </TouchableOpacity>
       )}
 
-      <PullToRefresh onRefresh={loadTransactions}>
+      <PullToRefresh onRefresh={() => loadTransactions()}>
         {(scroll) => (
           <FlatList
             {...scroll}
